@@ -99,7 +99,7 @@
 - [x] 10.2 Add Git-friendly formatting (append-only, stable ordering) and verify diffs are clean
 - [x] 10.3 Add Markdown export tests covering all event types and verify exported Markdown is human-readable
 - [x] 10.4 Document Markdown file format in MARKDOWN-FORMAT.md and verify documentation is complete
-- [ ] 10.5 Tag v0.3.0 and create release and verify release notes document Markdown export
+- [x] 10.5 Tag v0.3.0 and create release and verify release notes document Markdown export
 
 ## Phase 4: v0.4 - Pluggable Search (Week 7-8)
 
