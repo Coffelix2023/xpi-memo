@@ -1,6 +1,6 @@
 {
   "name": "xpi-memo",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Super memory tool combining mnemosyne + pi-memory architectures: L0 session-trace, T1 governance, Markdown export, pluggable search",
