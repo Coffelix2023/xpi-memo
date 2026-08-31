@@ -161,6 +161,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(commands.map(({ name }) => name)).toEqual([
       "xpi-memo",
       "xpi-memo-status",
+      "xpi-memo-l0",
       "xpi-memo-migrate",
     ]);
     expect(tools.map(({ name }) => name)).toEqual([
@@ -170,6 +171,10 @@ describe("xpi-memo bootstrap entrypoint", () => {
       "xpi_memo_sleep",
     ]);
     expect(events.map(({ name }) => name)).toEqual([
+      "input",
+      "tool_call",
+      "tool_result",
+      "session_compact",
       "session_start",
       "before_agent_start",
       "session_before_compact",

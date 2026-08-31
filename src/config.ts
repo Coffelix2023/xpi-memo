@@ -13,6 +13,7 @@ import type { RecallPolicy } from "./recall-policy.js";
 export const DEFAULT_XPI_MEMO_CONFIG = {
   dataDir: join(homedir(), ".pi", "agent", "xpi-memo"),
   globalLimit: 5,
+  l0Enabled: true,
   limit: 5,
   paused: false,
   projectLimit: 5,
@@ -31,6 +32,7 @@ export type RetrievalMode = "fts5" | "hybrid";
 export interface XpiMemoConfig {
   dataDir: string;
   globalLimit: number;
+  l0Enabled: boolean;
   limit: number;
   paused: boolean;
   projectLimit: number;
@@ -41,6 +43,7 @@ export interface XpiMemoConfig {
 export interface UserConfig {
   dataDir?: unknown;
   globalLimit?: unknown;
+  l0Enabled?: unknown;
   limit?: unknown;
   paused?: unknown;
   projectLimit?: unknown;
@@ -112,6 +115,7 @@ export interface SaveUserConfigOptions {
     Pick<
       XpiMemoConfig,
       | "globalLimit"
+      | "l0Enabled"
       | "limit"
       | "paused"
       | "projectLimit"
@@ -123,6 +127,7 @@ export interface SaveUserConfigOptions {
 
 const WRITABLE_KEYS = new Set([
   "globalLimit",
+  "l0Enabled",
   "limit",
   "paused",
   "projectLimit",
@@ -131,6 +136,7 @@ const WRITABLE_KEYS = new Set([
 ]);
 const ENV_KEYS: Record<string, string> = {
   globalLimit: "XPI_MEMO_GLOBAL_LIMIT",
+  l0Enabled: "XPI_MEMO_L0_ENABLED",
   limit: "XPI_MEMO_LIMIT",
   paused: "XPI_MEMO_PAUSED",
   projectLimit: "XPI_MEMO_PROJECT_LIMIT",
@@ -243,6 +249,14 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
       (positiveInteger(user.config.globalLimit)
         ? user.config.globalLimit
         : DEFAULT_XPI_MEMO_CONFIG.globalLimit),
+    l0Enabled: (() => {
+      const environmentValue = envString(env, "XPI_MEMO_L0_ENABLED");
+      if (environmentValue === "true") return true;
+      if (environmentValue === "false") return false;
+      return boolean(user.config.l0Enabled)
+        ? user.config.l0Enabled
+        : DEFAULT_XPI_MEMO_CONFIG.l0Enabled;
+    })(),
     limit:
       envPositiveInteger(env, "XPI_MEMO_LIMIT") ??
       (positiveInteger(user.config.limit)

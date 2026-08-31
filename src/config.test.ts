@@ -231,3 +231,23 @@ describe("XpiMemo configuration", () => {
     expect(saved).not.toHaveProperty("dataDir");
   });
 });
+
+describe("L0 config flag", () => {
+  it("defaults l0Enabled to true", () => {
+    const config = loadConfig({
+      configHome: createTemporaryDirectory(),
+      env: {},
+    });
+    expect(config.config.l0Enabled).toBe(true);
+  });
+
+  it("reads XPI_MEMO_L0_ENABLED=false to disable L0", () => {
+    const config = loadConfig({
+      configHome: createTemporaryDirectory(),
+      env: {
+        XPI_MEMO_L0_ENABLED: "false",
+      } as NodeJS.ProcessEnv,
+    });
+    expect(config.config.l0Enabled).toBe(false);
+  });
+});

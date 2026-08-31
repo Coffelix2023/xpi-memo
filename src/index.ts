@@ -16,6 +16,7 @@ import {
   type RoutingContext,
 } from "./banks.ts";
 import { type CandidateStore, createCandidateStore } from "./candidate-lifecycle.ts";
+import { formatL0Status, l0Status, reconcile } from "./cli/l0.js";
 import { runMigrateCommand } from "./cli/migrate.ts";
 import { legacyDataDirExists, loadConfig, saveUserConfig } from "./config.ts";
 import { openConsole } from "./console.ts";
@@ -24,6 +25,7 @@ import { createEvidenceRecord } from "./evidence.ts";
 import { clearFooterStatus, setFooterStatus } from "./footer.ts";
 import { resolveProjectIdentity } from "./identity.ts";
 import { isMemoryKind, type MemoryKind } from "./kinds.ts";
+import { createL0Coordinator, type L0Coordinator } from "./l0/l0-runtime.ts";
 import {
   createMnemosyneAdapter,
   type MnemosyneRunner,
@@ -89,6 +91,7 @@ interface Runtime {
   candidates: CandidateStore;
   config: ReturnType<typeof loadConfig>["config"];
   context: RoutingContext;
+  l0: L0Coordinator;
   run: MnemosyneRunner;
 }
 
@@ -176,12 +179,17 @@ function createRuntime(cwd: string, dependencies: XpiMemoDependencies): Runtime 
     adapter,
     statePath: join(configResult.config.dataDir, "candidates.json"),
   });
+  const l0 = createL0Coordinator({
+    dataDir: configResult.config.dataDir,
+    enabled: configResult.config.l0Enabled,
+  });
   return {
     adapter,
     audit,
     candidates,
     config: configResult.config,
     context,
+    l0,
     run,
   };
 }
@@ -322,6 +330,13 @@ async function executeRemember(
     }
     if (candidate) {
       const added = runtime.candidates.add(candidate, operation);
+      runtime.l0.recordSafe("candidate_created", {
+        bank: candidate.targetBank,
+        candidateId: candidate.id,
+        kind: candidate.kind,
+        reason: candidate.reason,
+        scope: candidate.targetScope,
+      });
       runtime.audit.record("candidate", {
         bank: candidate.targetBank,
         kind: candidate.kind,
@@ -375,6 +390,12 @@ async function executeRemember(
           );
         }
         const stored = await runtime.candidates.confirm(candidate.id);
+        runtime.l0.recordSafe("candidate_confirmed", {
+          bank: candidate.targetBank,
+          candidateId: candidate.id,
+          kind: candidate.kind,
+          scope: candidate.targetScope,
+        });
         runtime.audit.record("confirmation", {
           bank: candidate.targetBank,
           kind: candidate.kind,
@@ -399,6 +420,13 @@ async function executeRemember(
         );
       }
       const rejected = await runtime.candidates.reject(candidate.id);
+      runtime.l0.recordSafe("candidate_rejected", {
+        bank: candidate.targetBank,
+        candidateId: candidate.id,
+        kind: candidate.kind,
+        reason: rejected.reason,
+        scope: candidate.targetScope,
+      });
       runtime.audit.record("rejection", {
         bank: candidate.targetBank,
         kind: candidate.kind,
@@ -445,6 +473,20 @@ async function executeRemember(
       );
     }
 
+    runtime.l0.recordSafe("routing_decision", {
+      bank: operation.targetBank,
+      kind: operation.kind,
+      projectBank: runtime.context.projectBank,
+      scope: operation.scope,
+    });
+    // Dual-write: L0 first (source of truth); abort the operation if it fails.
+    runtime.l0.record("t1_memory_write", {
+      bank: operation.targetBank,
+      confidence: operation.confidence,
+      content: operation.content,
+      kind: operation.kind,
+      scope: operation.scope,
+    });
     const stored = await runtime.adapter.store(operation);
     runtime.audit.record("write", {
       bank: operation.targetBank,
@@ -825,6 +867,12 @@ export default function xpiMemo(
             );
             if (confirmed) {
               const stored = await runtime.candidates.confirm(candidate.id);
+              runtime.l0.recordSafe("candidate_confirmed", {
+                bank: candidate.targetBank,
+                candidateId: candidate.id,
+                kind: candidate.kind,
+                scope: candidate.targetScope,
+              });
               runtime.audit.record("confirmation", {
                 bank: candidate.targetBank,
                 kind: candidate.kind,
@@ -835,6 +883,13 @@ export default function xpiMemo(
                 setFooterStatus(ctx, runtime.config.paused, true);
             } else {
               const rejected = await runtime.candidates.reject(candidate.id);
+              runtime.l0.recordSafe("candidate_rejected", {
+                bank: candidate.targetBank,
+                candidateId: candidate.id,
+                kind: candidate.kind,
+                reason: rejected.reason,
+                scope: candidate.targetScope,
+              });
               runtime.audit.record("rejection", {
                 bank: candidate.targetBank,
                 kind: candidate.kind,
@@ -875,6 +930,36 @@ export default function xpiMemo(
     },
   });
 
+  pi.registerCommand("xpi-memo-l0", {
+    description: "L0 session-trace status; pass --reconcile to check divergence",
+    handler: async (args, ctx) => {
+      const env = dependencies.env ?? process.env;
+      if (args.includes("--reconcile")) {
+        const report = await reconcile({
+          env,
+        });
+        const lines = [
+          `L0 writes: ${report.l0Writes}`,
+          `Audit writes: ${report.auditWrites}`,
+          ...report.divergences.map((item) => `divergence: ${item}`),
+          report.canReplay
+            ? "Replay available: L0 is the source of truth; missing audit entries can be regenerated."
+            : "No replay needed.",
+        ];
+        ctx.ui.notify(lines.join("\n"), "info");
+        return;
+      }
+      ctx.ui.notify(
+        formatL0Status(
+          l0Status({
+            env,
+          }),
+        ),
+        "info",
+      );
+    },
+  });
+
   pi.registerCommand("xpi-memo-migrate", {
     description: "Migrate data from memoharness (usage: /xpi-memo-migrate --help)",
     handler: async (args, ctx) => {
@@ -895,6 +980,46 @@ export default function xpiMemo(
     }
     return surface;
   };
+  // One L0 session per extension process, shared by all hooks.
+  const l0HookCoordinator = (): L0Coordinator => {
+    const config = loadConfig({
+      env: dependencies.env,
+    });
+    return createL0Coordinator({
+      dataDir: config.config.dataDir,
+      enabled: config.config.l0Enabled,
+    });
+  };
+  let l0Shared: L0Coordinator | null = null;
+  const l0ForHooks = (): L0Coordinator => (l0Shared ??= l0HookCoordinator());
+
+  pi.on("input", (event) => {
+    // 5.4 user_message capture: best-effort, never blocks the session.
+    l0ForHooks().recordSafe("user_message", {
+      source: event.source,
+      text: event.text,
+    });
+  });
+  pi.on("tool_call", (event) => {
+    l0ForHooks().recordSafe("tool_call", {
+      arguments: event.input,
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+    });
+  });
+  pi.on("tool_result", (event) => {
+    l0ForHooks().recordSafe("tool_result", {
+      isError: event.isError,
+      toolCallId: event.toolCallId,
+    });
+  });
+  pi.on("session_compact", (event) => {
+    l0ForHooks().recordSafe("compaction", {
+      reason: event.reason,
+      summary: "session context compacted",
+    });
+  });
+
   pi.on("session_start", async (_event, ctx) => {
     if (ctx.mode === "tui")
       setFooterStatus(
