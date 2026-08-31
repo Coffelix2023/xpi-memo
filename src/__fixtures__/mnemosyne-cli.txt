@@ -1,0 +1,38 @@
+Mnemosyne - Local AI Memory System
+
+Usage: mnemosyne <command> [args]
+
+Commands:
+  store <content> [source] [importance]  Store a memory
+  recall <query> [top_k]                 Search memories
+  update <id> <content> [importance]     Update a memory
+  delete <id>                            Delete a memory
+  stats                                  Show statistics
+  sleep                                  Run consolidation
+  diagnose [--fix] [--dry-run] [--repair-vec-working]  Run diagnostics / optional repairs
+  doctor [--db PATH|--bank NAME] [--format json|markdown|both]  Read-only report
+  repair --report REPORT.json --select working_memory:ID [--apply]  Narrow doctor-gated repair
+  export [--include-sync-events] [file.json]    Export memories
+  import <file.json>                     Import memories
+  import-hindsight <file|url> [bank]     Import Hindsight memories
+  bank list|create|delete [name]         Manage memory banks
+  reindex [--model NAME] [--dry-run] [--yes] [--no-backup]
+                                      Rebuild vector indexes with the active model
+  backup [output_dir]                    Create database backup
+  restore <backup.db.gz>                 Restore from backup
+  verify [db_path] [--quick]             Verify database integrity
+  backups [backup_dir]                   List available backups
+  mcp [--transport sse] [--port 8080]    Start MCP server
+  sync --db-path <path> --remote <url> [--mode push|pull|bidirectional]
+                                      Sync with remote server
+  sync-init --db-path <path> [--claim-existing --yes]
+                                      Initialize/migrate a dedicated surface DB
+  sync-serve --db-path <path> [--port 8765] [--host 0.0.0.0]
+                                      Start sync server
+  sync-status --db-path <path> [--remote <url>] [--json]
+                                      Show sync status
+  sync-generate-key                    Generate encryption key
+  migrate [--bank <name>]                Add 3.11.1 schema tables to an existing bank
+  hygiene audit|clean                  Noise audit and safe cleanup
+  profile list|apply|show|create       Config templates (gamified)
+  config reload|get|set|migrate         Manage config.yaml

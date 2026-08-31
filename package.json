@@ -1,11 +1,15 @@
 {
-  "name": "@fx-pi/xpi-memo",
+  "name": "xpi-memo",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "license": "MIT",
+  "description": "Super memory tool combining mnemosyne + pi-memory architectures: L0 session-trace, T1 governance, Markdown export, pluggable search",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Coffelix2023/xpi-memo.git"
+  },
   "packageManager": "pnpm@11.24.0",
-  "keywords": ["pi-package", "pi-extension"],
+  "keywords": ["pi-package", "pi-extension", "memory", "mnemosyne", "xpi-memo"],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
@@ -26,12 +30,13 @@
     "@biomejs/biome": "^2.5.11",
     "@earendil-works/pi-coding-agent": "^0.84.4",
     "@types/node": "^24.13.3",
-    "typebox": "^1.0.0",
+    "typebox": "1.3.7",
     "typescript": "^6.0.3",
     "vitest": "^3.0.0"
   },
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./src/index.ts"],
+    "skills": ["./skills"]
   },
   "scripts": {
     "lint": "biome check .",
