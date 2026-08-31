@@ -18,7 +18,7 @@
 
 ### 2. Migration Tooling
 
-- [x] 2.1 Implement config migration logic (src/migration/config-migrator.ts) to read ~/.config/memoharness/config.json, translate env var names (MEMOHARNESS_* → XPI_MEMO_*), and write to ~/.config/xpi-memo/config.json, and verify unit test migrates sample config
+- [x] 2.1 Implement config migration logic (src/migration/config-migrator.ts) to read ~/.config/memoharness/config.json, translate env var names (MEMOHARNESS_*→ XPI_MEMO_*), and write to ~/.config/xpi-memo/config.json, and verify unit test migrates sample config
 - [x] 2.2 Implement audit log import logic (src/migration/audit-importer.ts) to copy audit.json preserving original provenance values (pi:memoharness_*) without modification, and verify unit test parses entries correctly
 - [x] 2.3 Implement bank discovery logic (src/migration/bank-discovery.ts) to detect existing mnemosyne.db files in ~/.pi/agent/memoharness/ and banks/project-*/ subdirectories
 - [x] 2.4 Implement candidate import logic (src/migration/candidate-importer.ts) to copy candidates.json preserving all metadata and verify it maintains candidate state
@@ -41,36 +41,36 @@
 
 ### 4. L0 Event Log Infrastructure
 
-- [ ] 4.1 Define L0Event type and event schemas (src/l0/types.ts) and verify types are exported
-- [ ] 4.2 Implement JSONL event log writer (src/l0/event-log-writer.ts) with atomic append and verify unit test can write events
-- [ ] 4.3 Implement JSONL event log reader (src/l0/event-log-reader.ts) with streaming support and verify unit test can read events
-- [ ] 4.4 Implement session ID generation and log file path resolution (src/l0/session-manager.ts) and verify each session gets unique ID
-- [ ] 4.5 Add event position tracking (monotonic counter per session) and verify positions are sequential
-- [ ] 4.6 Implement log rotation logic (split when events.jsonl exceeds 10MB) and verify rotation creates events.001.jsonl, events.002.jsonl
+- [x] 4.1 Define L0Event type and event schemas (src/l0/types.ts) and verify types are exported
+- [x] 4.2 Implement JSONL event log writer (src/l0/event-log-writer.ts) with atomic append and verify unit test can write events
+- [x] 4.3 Implement JSONL event log reader (src/l0/event-log-reader.ts) with streaming support and verify unit test can read events
+- [x] 4.4 Implement session ID generation and log file path resolution (src/l0/session-manager.ts) and verify each session gets unique ID
+- [x] 4.5 Add event position tracking (monotonic counter per session) and verify positions are sequential
+- [x] 4.6 Implement log rotation logic (split when events.jsonl exceeds 10MB) and verify rotation creates events.001.jsonl, events.002.jsonl
 
 ### 5. L0 Integration with Existing Operations
 
-- [ ] 5.1 Add L0 event emission to memory write operations (src/index.ts) and verify t1_memory_write events are logged
-- [ ] 5.2 Add L0 event emission to candidate lifecycle (src/candidate-lifecycle.ts) and verify candidate_created, candidate_confirmed, candidate_rejected events are logged
-- [ ] 5.3 Add L0 event emission to routing decisions (src/routing.ts) and verify routing_decision events are logged
-- [ ] 5.4 Add L0 event emission to user messages and tool calls (src/index.ts hooks) and verify user_message and tool_call events are logged
-- [ ] 5.5 Implement dual-write pattern (L0 first, then existing storage) and verify both L0 log and audit.json contain same events
-- [ ] 5.6 Add error handling for L0 write failures (abort operation if L0 write fails) and verify operation is aborted when L0 is unavailable
+- [x] 5.1 Add L0 event emission to memory write operations (src/index.ts) and verify t1_memory_write events are logged
+- [x] 5.2 Add L0 event emission to candidate lifecycle (src/candidate-lifecycle.ts) and verify candidate_created, candidate_confirmed, candidate_rejected events are logged
+- [x] 5.3 Add L0 event emission to routing decisions (src/routing.ts) and verify routing_decision events are logged
+- [x] 5.4 Add L0 event emission to user messages and tool calls (src/index.ts hooks) and verify user_message and tool_call events are logged
+- [x] 5.5 Implement dual-write pattern (L0 first, then existing storage) and verify both L0 log and audit.json contain same events
+- [x] 5.6 Add error handling for L0 write failures (abort operation if L0 write fails) and verify operation is aborted when L0 is unavailable
 
 ### 6. L0 Context Derivation
 
-- [ ] 6.1 Implement deterministic context derivation from L0 log (src/l0/context-derivation.ts) and verify same log produces same derived context
-- [ ] 6.2 Implement event type filtering based on context policy and verify filtered view omits excluded event types
-- [ ] 6.3 Implement context budget application (fold older events when budget exceeded) and verify older events are represented by folding markers
-- [ ] 6.4 Implement folding marker generation and verify markers reference correct event range
+- [x] 6.1 Implement deterministic context derivation from L0 log (src/l0/context-derivation.ts) and verify same log produces same derived context
+- [x] 6.2 Implement event type filtering based on context policy and verify filtered view omits excluded event types
+- [x] 6.3 Implement context budget application (fold older events when budget exceeded) and verify older events are represented by folding markers
+- [x] 6.4 Implement folding marker generation and verify markers reference correct event range
 
 ### 7. L0 Commands and Validation
 
-- [ ] 7.1 Add `xpi-memo l0 status` command showing session count, event count, disk usage and verify it reports accurate statistics
-- [ ] 7.2 Add `xpi-memo doctor --reconcile` command to check L0 vs existing storage and verify it detects divergence
-- [ ] 7.3 Implement reconciliation logic to replay missing events and verify missing mnemosyne writes can be recovered from L0
-- [ ] 7.4 Add L0 enable/disable config flag and verify disabling L0 falls back to v0.1 behavior
-- [ ] 7.5 Add comprehensive L0 integration tests and verify L0 layer works end-to-end
+- [x] 7.1 Add `xpi-memo l0 status` command showing session count, event count, disk usage and verify it reports accurate statistics
+- [x] 7.2 Add `xpi-memo doctor --reconcile` command to check L0 vs existing storage and verify it detects divergence
+- [x] 7.3 Implement reconciliation logic to replay missing events and verify missing mnemosyne writes can be recovered from L0
+- [x] 7.4 Add L0 enable/disable config flag and verify disabling L0 falls back to v0.1 behavior
+- [x] 7.5 Add comprehensive L0 integration tests and verify L0 layer works end-to-end
 - [ ] 7.6 Tag v0.2.0 and create release and verify release notes document L0 features
 
 ## Phase 3: v0.3 - Markdown Export (Week 5-6)
