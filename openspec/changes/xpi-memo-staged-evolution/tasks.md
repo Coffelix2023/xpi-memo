@@ -34,8 +34,8 @@
 - [x] 3.2 Write MIGRATION.md guide explaining breaking changes (command/tool/env var renames) and migration process and verify it covers all scenarios
 - [x] 3.3 Update package.json with repository URL, keywords ("xpi-memo", "memory", "mnemosyne"), description, and license and verify metadata is complete
 - [x] 3.4 Run full test suite (pnpm typecheck && pnpm lint && pnpm test) and verify all pass with 0 errors
-- [ ] 3.5 Create GitHub repository (if not exists), commit all changes with comprehensive commit message documenting breaking changes, and push code
-- [ ] 3.6 Tag v0.1.0 with release notes documenting breaking changes and migration path, push tag, and create GitHub release
+- [x] 3.5 Create GitHub repository (if not exists), commit all changes with comprehensive commit message documenting breaking changes, and push code
+- [x] 3.6 Tag v0.1.0 with release notes documenting breaking changes and migration path, push tag, and create GitHub release
 
 ## Phase 2: v0.2 - L0 Session Trace (Week 3-4)
 
