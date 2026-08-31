@@ -26,7 +26,7 @@
 - [x] 2.6 Implement migration dry-run mode showing files to copy, config translations, and disk space requirements without modifying any files
 - [x] 2.7 Implement migration apply mode with progress reporting (copying banks, audit log, candidates, config) and verify it creates new xpi-memo data directory without touching originals
 - [x] 2.8 Add migration validation checks (verify file counts match, check config translation correctness, detect incomplete migrations) and verify they catch issues
-- [x] 2.9 Implement migration report generation (Markdown summary with file counts, data sizes, any warnings) and verify report is written to <dataDir>/migration-report-<timestamp>.md
+- [x] 2.9 Implement migration report generation (Markdown summary with file counts, data sizes, any warnings) and verify report is written to `<dataDir>/migration-report-<timestamp>.md`
 
 ### 3. Documentation and Release
 
@@ -71,34 +71,34 @@
 - [x] 7.3 Implement reconciliation logic to replay missing events and verify missing mnemosyne writes can be recovered from L0
 - [x] 7.4 Add L0 enable/disable config flag and verify disabling L0 falls back to v0.1 behavior
 - [x] 7.5 Add comprehensive L0 integration tests and verify L0 layer works end-to-end
-- [ ] 7.6 Tag v0.2.0 and create release and verify release notes document L0 features
+- [x] 7.6 Tag v0.2.0 and create release and verify release notes document L0 features
 
 ## Phase 3: v0.3 - Markdown Export (Week 5-6)
 
 ### 8. Markdown Exporter Core
 
-- [ ] 8.1 Implement L0-to-Markdown transformer (src/markdown-export/transformer.ts) and verify it converts events to prose
-- [ ] 8.2 Implement MEMORY.md generator (src/markdown-export/memory-generator.ts) with sections for decisions/preferences/constraints and verify it groups memories by kind
-- [ ] 8.3 Implement daily log generator (src/markdown-export/daily-generator.ts) creating daily/YYYY-MM-DD.md files and verify dates use ISO 8601 format
-- [ ] 8.4 Implement source traceability (embed event position in Markdown) and verify each entry references source L0 event
-- [ ] 8.5 Implement duplicate detection for MEMORY.md and verify only latest version of duplicate content appears
-- [ ] 8.6 Implement handoff log generation on compaction and verify handoff entries are marked with "Handoff:" prefix
+- [x] 8.1 Implement L0-to-Markdown transformer (src/markdown-export/transformer.ts) and verify it converts events to prose
+- [x] 8.2 Implement MEMORY.md generator (src/markdown-export/memory-generator.ts) with sections for decisions/preferences/constraints and verify it groups memories by kind
+- [x] 8.3 Implement daily log generator (src/markdown-export/daily-generator.ts) creating daily/YYYY-MM-DD.md files and verify dates use ISO 8601 format
+- [x] 8.4 Implement source traceability (embed event position in Markdown) and verify each entry references source L0 event
+- [x] 8.5 Implement duplicate detection for MEMORY.md and verify only latest version of duplicate content appears
+- [x] 8.6 Implement handoff log generation on compaction and verify handoff entries are marked with "Handoff:" prefix
 
 ### 9. Export Commands and Configuration
 
-- [ ] 9.1 Add `xpi-memo export` command with --session and --all flags and verify it generates Markdown files
-- [ ] 9.2 Implement export progress reporting for long-running exports and verify progress percentage is displayed
-- [ ] 9.3 Add auto-export on session end (configurable) and verify Markdown is generated when session ends
-- [ ] 9.4 Implement export configuration (output directory, content filters, privacy redaction) and verify config is respected
-- [ ] 9.5 Implement incremental export (only process new L0 events since last export) and verify re-export is fast
-- [ ] 9.6 Add export error handling (disk full, permission denied, corrupt events) and verify errors don't block session
+- [x] 9.1 Add `xpi-memo export` command with --session and --all flags and verify it generates Markdown files
+- [x] 9.2 Implement export progress reporting for long-running exports and verify progress percentage is displayed
+- [x] 9.3 Add auto-export on session end (configurable) and verify Markdown is generated when session ends
+- [x] 9.4 Implement export configuration (output directory, content filters, privacy redaction) and verify config is respected
+- [x] 9.5 Implement incremental export (only process new L0 events since last export) and verify re-export is fast
+- [x] 9.6 Add export error handling (disk full, permission denied, corrupt events) and verify errors don't block session
 
 ### 10. Export Validation and Polish
 
-- [ ] 10.1 Implement export validation (verify all events were exported) and verify validation reports missing exports
-- [ ] 10.2 Add Git-friendly formatting (append-only, stable ordering) and verify diffs are clean
-- [ ] 10.3 Add Markdown export tests covering all event types and verify exported Markdown is human-readable
-- [ ] 10.4 Document Markdown file format in MARKDOWN-FORMAT.md and verify documentation is complete
+- [x] 10.1 Implement export validation (verify all events were exported) and verify validation reports missing exports
+- [x] 10.2 Add Git-friendly formatting (append-only, stable ordering) and verify diffs are clean
+- [x] 10.3 Add Markdown export tests covering all event types and verify exported Markdown is human-readable
+- [x] 10.4 Document Markdown file format in MARKDOWN-FORMAT.md and verify documentation is complete
 - [ ] 10.5 Tag v0.3.0 and create release and verify release notes document Markdown export
 
 ## Phase 4: v0.4 - Pluggable Search (Week 7-8)

@@ -11,11 +11,14 @@ import { dirname, join } from "node:path";
 
 import type { RecallPolicy } from "./recall-policy.js";
 export const DEFAULT_XPI_MEMO_CONFIG = {
+  autoExport: false,
   dataDir: join(homedir(), ".pi", "agent", "xpi-memo"),
+  excludeToolResults: false,
   globalLimit: 5,
   l0Enabled: true,
   limit: 5,
   paused: false,
+  privacy: false,
   projectLimit: 5,
   recallPolicy: "high-value-auto",
   retrievalMode: "hybrid",
@@ -30,22 +33,28 @@ export function legacyDataDirExists(): boolean {
 export type RetrievalMode = "fts5" | "hybrid";
 
 export interface XpiMemoConfig {
+  autoExport: boolean;
   dataDir: string;
+  excludeToolResults: boolean;
   globalLimit: number;
   l0Enabled: boolean;
   limit: number;
   paused: boolean;
+  privacy: boolean;
   projectLimit: number;
   recallPolicy: RecallPolicy;
   retrievalMode: RetrievalMode;
 }
 
 export interface UserConfig {
+  autoExport?: unknown;
   dataDir?: unknown;
+  excludeToolResults?: unknown;
   globalLimit?: unknown;
   l0Enabled?: unknown;
   limit?: unknown;
   paused?: unknown;
+  privacy?: unknown;
   projectLimit?: unknown;
   recallPolicy?: unknown;
   retrievalMode?: unknown;
@@ -126,19 +135,25 @@ export interface SaveUserConfigOptions {
 }
 
 const WRITABLE_KEYS = new Set([
+  "autoExport",
+  "excludeToolResults",
   "globalLimit",
   "l0Enabled",
   "limit",
   "paused",
+  "privacy",
   "projectLimit",
   "recallPolicy",
   "retrievalMode",
 ]);
 const ENV_KEYS: Record<string, string> = {
+  autoExport: "XPI_MEMO_AUTO_EXPORT",
+  excludeToolResults: "XPI_MEMO_EXCLUDE_TOOL_RESULTS",
   globalLimit: "XPI_MEMO_GLOBAL_LIMIT",
   l0Enabled: "XPI_MEMO_L0_ENABLED",
   limit: "XPI_MEMO_LIMIT",
   paused: "XPI_MEMO_PAUSED",
+  privacy: "XPI_MEMO_PRIVACY",
   projectLimit: "XPI_MEMO_PROJECT_LIMIT",
   recallPolicy: "XPI_MEMO_RECALL_POLICY",
   retrievalMode: "XPI_MEMO_RETRIEVAL_MODE",
@@ -238,12 +253,30 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
   const environmentRecallPolicy = envString(env, "XPI_MEMO_RECALL_POLICY");
   const environmentRetrievalMode = envString(env, "XPI_MEMO_RETRIEVAL_MODE");
   const environmentPaused = envString(env, "XPI_MEMO_PAUSED");
+  const envBool = (name: string, fallback: boolean): boolean => {
+    const value = envString(env, name);
+    if (value === "true") return true;
+    if (value === "false") return false;
+    return fallback;
+  };
   const config: XpiMemoConfig = {
+    autoExport: envBool(
+      "XPI_MEMO_AUTO_EXPORT",
+      boolean(user.config.autoExport)
+        ? user.config.autoExport
+        : DEFAULT_XPI_MEMO_CONFIG.autoExport,
+    ),
     dataDir:
       envString(env, "XPI_MEMO_DATA_DIR") ??
       (nonEmptyString(user.config.dataDir)
         ? user.config.dataDir.trim()
         : DEFAULT_XPI_MEMO_CONFIG.dataDir),
+    excludeToolResults: envBool(
+      "XPI_MEMO_EXCLUDE_TOOL_RESULTS",
+      boolean(user.config.excludeToolResults)
+        ? user.config.excludeToolResults
+        : DEFAULT_XPI_MEMO_CONFIG.excludeToolResults,
+    ),
     globalLimit:
       envPositiveInteger(env, "XPI_MEMO_GLOBAL_LIMIT") ??
       (positiveInteger(user.config.globalLimit)
@@ -269,6 +302,12 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
         ? user.config.paused
         : DEFAULT_XPI_MEMO_CONFIG.paused;
     })(),
+    privacy: envBool(
+      "XPI_MEMO_PRIVACY",
+      boolean(user.config.privacy)
+        ? user.config.privacy
+        : DEFAULT_XPI_MEMO_CONFIG.privacy,
+    ),
     projectLimit:
       envPositiveInteger(env, "XPI_MEMO_PROJECT_LIMIT") ??
       (positiveInteger(user.config.projectLimit)

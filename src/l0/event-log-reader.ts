@@ -10,8 +10,9 @@ export interface EventLogReaderOptions {
   /** session directory containing events.jsonl and rotated files */
   sessionDir: string;
 }
-
 export interface EventLogReader {
+  /** Raw lines that failed to parse during the most recent read (visible-warning support). */
+  corruptLines(): string[];
   /** JSONL file paths in read order (oldest rotation first, active last). */
   files(): string[];
   /** Read all events (active + rotated) in position order, streaming. */
@@ -66,20 +67,32 @@ function parseLine(line: string): L0Event | null {
   }
 }
 
+interface ReadResult {
+  corruptLines: string[];
+  events: L0Event[];
+}
+
 async function readFilter(
   sessionDir: string,
   accept: (event: L0Event) => boolean,
-): Promise<L0Event[]> {
+): Promise<ReadResult> {
+  const corruptLines: string[] = [];
   const files = listFiles(sessionDir);
-  const perFile = await Promise.all(files.map((file) => readLines(file)));
+  const perFile = await Promise.all(files.map((file) => readLines(file, corruptLines)));
   const events: L0Event[] = [];
   for (const content of perFile)
     for (const event of content) if (accept(event)) events.push(event);
-  return events;
+  return {
+    corruptLines,
+    events,
+  };
 }
 
 /** Read one JSONL file into parsed events, tolerating corrupt lines. */
-async function readLines(file: string): Promise<L0Event[]> {
+async function readLines(
+  file: string,
+  corruptLines: string[] = [],
+): Promise<L0Event[]> {
   const events: L0Event[] = [];
   const stream = createReadStream(file, {
     encoding: "utf8",
@@ -91,20 +104,24 @@ async function readLines(file: string): Promise<L0Event[]> {
   for await (const line of lines) {
     const event = parseLine(line);
     if (event) events.push(event);
+    else if (line.trim()) corruptLines.push(line);
   }
   return events;
 }
 
 export function createEventLogReader(options: EventLogReaderOptions): EventLogReader {
+  let lastCorruptLines: string[] = [];
+  const run = async (accept: (event: L0Event) => boolean): Promise<L0Event[]> => {
+    const result = await readFilter(options.sessionDir, accept);
+    lastCorruptLines = result.corruptLines;
+    return result.events;
+  };
   return {
+    corruptLines: () => lastCorruptLines,
     files: () => listFiles(options.sessionDir),
-    readAll: () => readFilter(options.sessionDir, () => true),
-    readByType: (type) =>
-      readFilter(options.sessionDir, (event) => event.type === type),
+    readAll: () => run(() => true),
+    readByType: (type) => run((event) => event.type === type),
     readRange: (from, to) =>
-      readFilter(
-        options.sessionDir,
-        (event) => event.position >= from && event.position <= to,
-      ),
+      run((event) => event.position >= from && event.position <= to),
   };
 }

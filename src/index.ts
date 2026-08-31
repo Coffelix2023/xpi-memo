@@ -26,6 +26,7 @@ import { clearFooterStatus, setFooterStatus } from "./footer.ts";
 import { resolveProjectIdentity } from "./identity.ts";
 import { isMemoryKind, type MemoryKind } from "./kinds.ts";
 import { createL0Coordinator, type L0Coordinator } from "./l0/l0-runtime.ts";
+import { exportMarkdown, validateExport } from "./markdown-export/exporter.js";
 import {
   createMnemosyneAdapter,
   type MnemosyneRunner,
@@ -967,6 +968,57 @@ export default function xpiMemo(
       ctx.ui.notify(output, "info");
     },
   });
+
+  pi.registerCommand("xpi-memo-export", {
+    description:
+      "Export L0 events to Markdown (usage: /xpi-memo-export [--session <id>] [--force] [--validate])",
+    handler: async (args, ctx) => {
+      const env = dependencies.env ?? process.env;
+      const flags = args.split(WS_SPLIT).filter(Boolean);
+      if (flags.includes("--validate")) {
+        const validation = await validateExport(
+          loadConfig({
+            env,
+          }).config.dataDir,
+        );
+        ctx.ui.notify(
+          validation.ok
+            ? `Export validation OK: all ${validation.sessions} session(s) exported.`
+            : `Export validation: ${validation.missing} event(s) not yet exported across ${validation.sessions} session(s). Re-run export.`,
+          validation.ok ? "info" : "warning",
+        );
+        return;
+      }
+      const config = loadConfig({
+        env,
+      }).config;
+      const sessionFlag = flags.indexOf("--session");
+      const result = await exportMarkdown({
+        env,
+        force: flags.includes("--force"),
+        sessionId: sessionFlag >= 0 ? flags[sessionFlag + 1] : undefined,
+        filters: {
+          excludeToolResults: config.excludeToolResults,
+          privacy: config.privacy,
+        },
+      });
+      const exported = result.sessions.reduce(
+        (sum, session) => sum + session.exportedEvents,
+        0,
+      );
+      const errors = result.sessions.filter((session) => session.error);
+      const lines = [
+        `Exported ${exported} event(s) from ${result.sessions.length} session(s).`,
+        `Daily files written: ${result.dailyFiles}. MEMORY.md: ${result.memoryMd ? "updated" : "unchanged"}.`,
+        `Output: ${result.markdownDir}`,
+        ...result.warnings.map((warning) => `warning: ${warning}`),
+        ...errors.map(
+          (session) => `error: session ${session.sessionId}: ${session.error}`,
+        ),
+      ];
+      ctx.ui.notify(lines.join("\n"), errors.length > 0 ? "warning" : "info");
+    },
+  });
   const surfaceByContext = new WeakMap<
     object,
     ReturnType<typeof createMemorySurface>
@@ -1090,6 +1142,23 @@ export default function xpiMemo(
     pendingStartupContext.delete(ctx);
     getSurface(ctx).clear();
     clearFooterStatus(ctx);
+    // Auto-export on session end (Task 9.3): best-effort, never blocks shutdown.
+    const config = loadConfig({
+      env: dependencies.env,
+    }).config;
+    if (config.autoExport && config.l0Enabled) {
+      try {
+        await exportMarkdown({
+          env: dependencies.env,
+          filters: {
+            excludeToolResults: config.excludeToolResults,
+            privacy: config.privacy,
+          },
+        });
+      } catch {
+        // Export failure must not block session shutdown.
+      }
+    }
   });
 
   pi.registerTool(

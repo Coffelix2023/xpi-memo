@@ -163,6 +163,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       "xpi-memo-status",
       "xpi-memo-l0",
       "xpi-memo-migrate",
+      "xpi-memo-export",
     ]);
     expect(tools.map(({ name }) => name)).toEqual([
       "xpi_memo_remember",
