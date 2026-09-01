@@ -9,13 +9,7 @@
     "url": "git+https://github.com/Coffelix2023/xpi-memo.git"
   },
   "packageManager": "pnpm@11.24.0",
-  "keywords": [
-    "pi-package",
-    "pi-extension",
-    "memory",
-    "mnemosyne",
-    "xpi-memo"
-  ],
+  "keywords": ["pi-package", "pi-extension", "memory", "mnemosyne", "xpi-memo"],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
@@ -41,12 +35,8 @@
     "vitest": "^3.0.0"
   },
   "pi": {
-    "extensions": [
-      "./src/index.ts"
-    ],
-    "skills": [
-      "./skills"
-    ],
+    "extensions": ["./src/index.ts"],
+    "skills": ["./skills"],
     "searchBackends": {
       "default": "auto",
       "optional": {
