@@ -80,11 +80,29 @@ export function projectIdFor(commonDir: string): string {
   return `p-${hash.slice(0, 12)}`;
 }
 
+// ponytail: identity is stable for a running process; cached per cwd so every
+// tool call does not re-run 3+ git subprocesses (task 14.3). Cache key is the
+// lexical cwd. Ceiling: a directory cached as null (not a git repo) is not
+// re-checked — a `git init` mid-session is picked up on process restart only.
+const identityCache = new Map<string, ProjectIdentity | null>();
+
+export function clearIdentityCache(): void {
+  identityCache.clear();
+}
+
 /**
  * Resolve the project identity for `cwd`, or null when cwd is not inside a
  * Git work tree (non-Git directories get global-only memory routing).
  */
 export function resolveProjectIdentity(cwd: string): ProjectIdentity | null {
+  const key = resolve(cwd);
+  if (identityCache.has(key)) return identityCache.get(key) ?? null;
+  const identity = resolveProjectIdentityUncached(cwd);
+  identityCache.set(key, identity);
+  return identity;
+}
+
+function resolveProjectIdentityUncached(cwd: string): ProjectIdentity | null {
   const root = git(
     [
       "rev-parse",
@@ -101,8 +119,12 @@ export function resolveProjectIdentity(cwd: string): ProjectIdentity | null {
     cwd,
   );
   if (!commonRaw) return null;
-  // --git-common-dir may be relative to the worktree root
-  const commonDir = real(resolve(root, commonRaw));
+  // --git-common-dir may print a path relative to the *invocation cwd* (any
+  // directory inside the worktree), not the toplevel. Ask git for an absolute
+  // path via --absolute-git-dir instead of guessing the base directory.
+  // --git-common-dir may print a path relative to the *invocation cwd* (any
+  // directory inside the worktree), not the toplevel — resolve it against cwd.
+  const commonDir = real(resolve(cwd, commonRaw));
 
   // main worktree root = dirname of the common dir's ".git"
   const canonicalRoot = commonDir.endsWith("/.git")

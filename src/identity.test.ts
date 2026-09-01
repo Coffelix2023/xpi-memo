@@ -12,7 +12,12 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { normalizeRemote, projectIdFor, resolveProjectIdentity } from "./identity.ts";
+import {
+  clearIdentityCache,
+  normalizeRemote,
+  projectIdFor,
+  resolveProjectIdentity,
+} from "./identity.ts";
 
 const temporaryDirectories: string[] = [];
 const PROJECT_ID_PATTERN = /^p-[a-f0-9]{12}$/;
@@ -161,6 +166,22 @@ describe("project identity spike", () => {
     const directory = createTemporaryDirectory();
 
     expect(resolveProjectIdentity(directory)).toBeNull();
+  });
+
+  it("caches the identity per cwd across repeated calls (task 14.3)", () => {
+    const parent = createTemporaryDirectory();
+    const repository = createRepository(parent, "cached-repo");
+    const subdirectory = join(repository, "packages");
+    mkdirSync(subdirectory);
+    const first = resolveProjectIdentity(repository);
+    const second = resolveProjectIdentity(repository);
+    expect(second).toBe(first); // same object reference = cache hit
+    // distinct cache key resolves fresh, but must land on the same project id
+    expect(resolveProjectIdentity(subdirectory)?.id).toBe(first?.id);
+    clearIdentityCache();
+    const third = resolveProjectIdentity(repository);
+    expect(third).not.toBe(first); // fresh resolve after explicit invalidation
+    expect(third?.id).toBe(first?.id);
   });
 });
 
