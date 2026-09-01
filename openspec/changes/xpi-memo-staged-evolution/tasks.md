@@ -126,7 +126,7 @@
 - [x] 13.3 Add backend installation guidance in error messages and verify messages include installation commands
 - [x] 13.4 Update status command to show available backends and active backend and verify output is accurate
 - [x] 13.5 Add comprehensive search backend tests and verify all backends pass integration tests
-- [ ] 13.6 Tag v0.4.0 and create release and verify release notes document pluggable search
+- [x] 13.6 Tag v0.4.0 and create release and verify release notes document pluggable search
 
 ## Phase 5: v1.0 - Polish & Stabilization (Week 9+)
 
