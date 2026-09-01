@@ -6,29 +6,30 @@ A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension
 
 ## Features
 
-- **T1 Governed Memory**: Routing (global/project/session), write governance with candidate confirmation, recall policies
-- **Mnemosyne Banks**: SQLite vector databases per bank with hybrid FTS5 retrieval
-- **TUI Console**: Full interactive memory console
-- **Migration Tool**: One-command upgrade from memoharness
-- **Roadmap**: L0 session-trace (v0.2), Markdown export (v0.3), pluggable search backends (v0.4)
+- **T1 Governed Memory** — routing (global/project/session), write governance with candidate confirmation, policy-driven recall
+- **L0 Session Trace** — lossless append-only JSONL log per session (10 MB rotation); source of truth for everything derived
+- **Markdown Export** — human-readable `MEMORY.md` + daily logs derived from L0; incremental, privacy redaction, Git-friendly
+- **Pluggable Search** — recall through a fallback chain: mnemosyne (vector+FTS5) → ripgrep (full-text) → qmd (semantic); any subset installed works
+- **TUI Console** — interactive memory console
+- **Migration Tool** — one-command upgrade from memoharness (banks, audit, candidates, config)
+
+Details: [GUIDE.md](./GUIDE.md) (usage) · [ARCHITECTURE.md](./ARCHITECTURE.md) (L0/T1 layers) · [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md) (versions) · [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md) (export format)
 
 ## Installation
 
-From the GitHub repository (pinned to a tag):
-
 ```bash
-pi install git:github.com/Coffelix2023/xpi-memo@v0.4.0
+pi install git:github.com/Coffelix2023/xpi-memo@v1.0.0
 ```
 
-Or a local clone / working copy:
+Updating an existing install:
 
 ```bash
-pi install /absolute/path/to/xpi-memo
+pi update --extension git:github.com/Coffelix2023/xpi-memo
 ```
 
 `pi install` runs `npm install` inside the package; the extension itself has no build step (Pi loads `src/index.ts` directly).
 
-**Optional search backends** (any subset; the search chain falls back automatically — mnemosyne → ripgrep → qmd — and status reports what is available):
+**Optional search backends** (any subset; the search chain falls back automatically and `/xpi-memo-status` reports what is available):
 
 ```bash
 uv tool install mnemosyne-memory   # vector + FTS5 search
@@ -64,9 +65,7 @@ Environment variables:
 - `XPI_MEMO_DATA_DIR`
 - `XPI_MEMO_PAUSED`
 - `XPI_MEMO_L0_ENABLED`
-- `XPI_MEMO_LIMIT`
-- `XPI_MEMO_GLOBAL_LIMIT`
-- `XPI_MEMO_PROJECT_LIMIT`
+- `XPI_MEMO_LIMIT` / `XPI_MEMO_GLOBAL_LIMIT` / `XPI_MEMO_PROJECT_LIMIT`
 - `XPI_MEMO_AUTO_EXPORT`
 - `XPI_MEMO_EXCLUDE_TOOL_RESULTS`
 - `XPI_MEMO_PRIVACY`
@@ -74,11 +73,15 @@ Environment variables:
 - `XPI_MEMO_RECALL_POLICY`
 - `XPI_MEMO_RETRIEVAL_MODE`
 
+See [GUIDE.md](./GUIDE.md) for the full config table with defaults and effects.
+
 ## Migration from memoharness
 
-```bash
-xpi-memo migrate --from ~/.pi/agent/memoharness --dry-run
-xpi-memo migrate --from ~/.pi/agent/memoharness --apply
+Run inside Pi (dry-run first to preview):
+
+```text
+/xpi-memo-migrate --from ~/.pi/agent/memoharness --dry-run
+/xpi-memo-migrate --from ~/.pi/agent/memoharness --apply
 ```
 
 Copies banks, audit log, and candidates; translates `MEMOHARNESS_*` config keys to `XPI_MEMO_*`. See [docs/MIGRATION.md](./docs/MIGRATION.md).
@@ -90,6 +93,7 @@ pnpm install
 pnpm typecheck
 pnpm -w run lint
 pnpm test
+npx tsx scripts/bench.ts   # hot-path micro-benchmarks
 ```
 
 ## License
