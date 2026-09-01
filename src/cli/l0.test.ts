@@ -94,10 +94,15 @@ describe("l0Status (Task 7.1)", () => {
   });
 
   it("reports zero sessions when none exist", () => {
+    // Isolate from the real ~/.pi/agent/xpi-memo: an empty configHome falls
+    // back to the machine's default dataDir, which may hold live sessions.
     const configHome = makeTempDir("xpi-l0-empty-");
+    const emptyDataDir = makeTempDir("xpi-l0-empty-data-");
     const status = l0Status({
       configHome,
-      env: {},
+      env: {
+        XPI_MEMO_DATA_DIR: emptyDataDir,
+      },
     });
     expect(status.sessionCount).toBe(0);
     expect(status.totalEvents).toBe(0);

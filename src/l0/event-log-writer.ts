@@ -4,7 +4,6 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
-  statSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { createL0Event, type L0Event, type L0EventType } from "./types.js";
@@ -29,6 +28,10 @@ export interface EventLogWriter {
 /**
  * JSONL append: single-line appendFileSync writes are atomic in practice on
  * local filesystems for line-sized payloads. Rotation is same-dir rename.
+ *
+ * Large-session performance (task 14.1): the active file size is tracked in
+ * memory so per-append `statSync` is not needed. Restart resyncs from the
+ * actual file, so external appends are tolerated across writer instances.
  */
 export function createEventLogWriter(options: EventLogWriterOptions): EventLogWriter {
   const rotateBytes = options.rotateBytes ?? L0_ROTATE_BYTES;
@@ -38,19 +41,19 @@ export function createEventLogWriter(options: EventLogWriterOptions): EventLogWr
   });
   const activePath = join(options.sessionDir, "events.jsonl");
 
-  let nextPosition = scanLastPosition(activePath);
+  const scan = scanActiveLog(activePath);
+  let activeBytes = scan.activeBytes;
+  let nextPosition = scan.nextPosition;
 
   return {
     append(type, payload) {
-      rotateIfNeeded(activePath, rotateBytes);
       const event = createL0Event(type, nextPosition + 1, payload);
-      mkdirSync(dirname(activePath), {
-        mode: 0o700,
-        recursive: true,
-      });
-      appendFileSync(activePath, `${JSON.stringify(event)}\n`, {
+      const line = JSON.stringify(event);
+      if (activeBytes >= rotateBytes) rotate(activePath);
+      appendFileSync(activePath, `${line}\n`, {
         mode: 0o600,
       });
+      activeBytes += line.length + 1;
       nextPosition = event.position;
       return event;
     },
@@ -63,8 +66,7 @@ export function createEventLogWriter(options: EventLogWriterOptions): EventLogWr
   };
 }
 
-function rotateIfNeeded(activePath: string, rotateBytes: number): void {
-  if (!existsSync(activePath) || statSync(activePath).size < rotateBytes) return;
+function rotate(activePath: string): void {
   const dir = dirname(activePath);
   // Count existing rotations, shift each up: .003 -> .004 ... .001 -> .002
   let count = 0;
@@ -81,9 +83,19 @@ function rotateIfNeeded(activePath: string, rotateBytes: number): void {
   renameSync(activePath, join(dir, "events.001.jsonl"));
 }
 
-/** Scan the active log for the highest position so writers survive restarts. */
-function scanLastPosition(path: string): number {
-  if (!existsSync(path)) return 0;
+/**
+ * One pass over the active log for restart recovery: highest position and
+ * current byte size. Scanning is O(file); append is O(1) afterwards.
+ */
+function scanActiveLog(path: string): {
+  activeBytes: number;
+  nextPosition: number;
+} {
+  if (!existsSync(path))
+    return {
+      activeBytes: 0,
+      nextPosition: 0,
+    };
   try {
     const content = readFileSync(path, "utf8");
     let max = 0;
@@ -99,8 +111,15 @@ function scanLastPosition(path: string): number {
         // corrupt line: skip
       }
     }
-    return max;
+    // Byte size from the UTF-8 buffer so multi-byte payload text counts correctly.
+    return {
+      activeBytes: Buffer.byteLength(content, "utf8"),
+      nextPosition: max,
+    };
   } catch {
-    return 0;
+    return {
+      activeBytes: 0,
+      nextPosition: 0,
+    };
   }
 }

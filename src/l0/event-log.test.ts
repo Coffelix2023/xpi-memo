@@ -135,6 +135,33 @@ describe("createEventLogWriter", () => {
       );
     });
   });
+  it("append after rotation resumes at the right position and rotation is not skipped", () => {
+    const dataDir = makeTempDir("xpi-l0-rotate-resume-");
+    const session = createSession(dataDir);
+    const writer = createEventLogWriter({
+      rotateBytes: 150,
+      sessionDir: session.dir,
+    });
+    writer.append("user_message", {
+      index: 1,
+    });
+    expect(writer.currentPosition()).toBe(1);
+    const next = writer.append("user_message", {
+      index: 2,
+    });
+    expect(next.position).toBe(2);
+    // all 2 events still readable after one rotation
+    const reader = createEventLogReader({
+      sessionDir: session.dir,
+    });
+    return reader.readAll().then((events: L0Event[]) => {
+      expect(events).toHaveLength(2);
+      expect(events.map((event) => event.position)).toEqual([
+        1,
+        2,
+      ]);
+    });
+  });
 
   it("recovers from corrupt line during position scan", () => {
     const dataDir = makeTempDir("xpi-l0-corrupt-");
