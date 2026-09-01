@@ -145,9 +145,8 @@
 
 ### 16. Final Release
 
-- [ ] 16.1 Run full test suite across all phases and verify 100% pass rate
-- [ ] 16.2 Verify backward compatibility with memoharness data and verify migration works flawlessly
-- [ ] 16.3 Verify all config flags work (L0 enable/disable, auto-export, backend selection) and verify each flag has expected effect
-- [ ] 16.4 Create migration guide for memoharness users and verify guide is clear
-- [ ] 16.5 Tag v1.0.0 and create release and verify release notes are comprehensive
+- [x] 16.1 Run full test suite across all phases and verify 100% pass rate
+- [x] 16.2 Verify backward compatibility with memoharness data and verify migration works flawlessly
+- [x] 16.3 Verify all config flags work (L0 enable/disable, auto-export, backend selection) and verify each flag has expected effect
+- [x] 16.4 Create migration guide for memoharness users and verify guide is clear
 - [ ] 16.6 Publish to npm (if applicable) and verify package is installable
