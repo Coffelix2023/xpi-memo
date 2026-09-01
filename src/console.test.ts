@@ -21,7 +21,10 @@ import {
   recentLines,
   recentWindow,
   SETTINGS_TAB,
+  STATUS_TAB,
   settingsItems,
+  statusLines,
+  statusWindow,
   tabTitleLines,
 } from "./console.js";
 import type { PendingCandidate } from "./pending-candidate.js";
@@ -113,6 +116,7 @@ function options(
     done: () => undefined,
     keybindings,
     status: status(),
+    statusJson: "{}",
     terminalRows: 50,
     pending: [
       candidate("a"),
@@ -143,6 +147,7 @@ function viewModel(overrides: Partial<ConsoleComponentOptions> = {}): ConsoleVie
     pending: o.pending,
     rows: settingsItems(o.config, o.env),
     status: o.status,
+    statusJson: o.statusJson,
   };
 }
 
@@ -235,10 +240,12 @@ describe("4.2 console directional navigation", () => {
     expect(panel.getTab()).toBe(RECENT_TAB);
     panel.handleInput("\u001b[C"); // →
     expect(panel.getTab()).toBe(SETTINGS_TAB);
-    panel.handleInput("\u001b[C"); // → wrap
+    panel.handleInput("\u001b[C"); // → Status
+    expect(panel.getTab()).toBe(STATUS_TAB);
+    panel.handleInput("\u001b[C"); // → wrap to Pending
     expect(panel.getTab()).toBe(PENDING_TAB);
     panel.handleInput("\u001b[D"); // ← wrap from 0
-    expect(panel.getTab()).toBe(SETTINGS_TAB);
+    expect(panel.getTab()).toBe(STATUS_TAB);
   });
 
   it("recent ↑/↓ move inside the tab with wrap and never leave it", () => {
@@ -299,8 +306,8 @@ describe("4.2 console directional navigation", () => {
   });
 
   it("navigation pure functions: nextTab wrap, moveRow wrap", () => {
-    expect(nextTab(0, -1)).toBe(SETTINGS_TAB);
-    expect(nextTab(SETTINGS_TAB, 1)).toBe(PENDING_TAB);
+    expect(nextTab(0, -1)).toBe(STATUS_TAB);
+    expect(nextTab(STATUS_TAB, 1)).toBe(PENDING_TAB);
     expect(moveRow(0, -1, 3)).toBe(2);
     expect(moveRow(2, 1, 3)).toBe(0);
     expect(moveRow(0, 1, 0)).toBe(0);
@@ -487,6 +494,66 @@ describe("4.5 Recent tab", () => {
       }),
     });
     panel.handleInput("\u001b[C"); // → Recent
+    const before = panel.render(70).length;
+    panel.handleInput("\u001b[B"); // ↓
+    panel.handleInput("\u001b[B"); // ↓
+    expect(panel.render(70).length).toBe(before);
+  });
+});
+
+// 4.5b — Status tab: windowed JSON, scrolling inside the body region
+describe("4.5b Status tab", () => {
+  const json = JSON.stringify(
+    {
+      counts: {
+        global: 3,
+      },
+      l0: {
+        sessionCount: 2,
+      },
+      search: {
+        active: "ripgrep",
+      },
+    },
+    null,
+    2,
+  );
+
+  it("statusLines splits the JSON and statusWindow is exactly rows long", () => {
+    const lines = statusLines(json);
+    expect(lines).toHaveLength(11);
+    expect(lines[0]).toBe("{");
+    for (const row of [
+      0,
+      7,
+      10,
+    ]) {
+      expect(statusWindow(json, row, 3)).toHaveLength(3);
+    }
+    expect(statusWindow(json, 10, 3).at(-1)).toContain("}");
+  });
+
+  it("renders the Status tab with JSON content at fixed height", () => {
+    const panel = component({
+      statusJson: json,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Status
+    expect(panel.getTab()).toBe(STATUS_TAB);
+    const rendered = panel.render(70).join("\n");
+    expect(rendered).toContain('"active": "ripgrep"');
+    expect(rendered).toContain('"sessionCount": 2');
+    expect(panel.render(70)).toHaveLength(50);
+  });
+
+  it("scrolling Status does not grow the panel", () => {
+    const panel = component({
+      statusJson: json,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Status
     const before = panel.render(70).length;
     panel.handleInput("\u001b[B"); // ↓
     panel.handleInput("\u001b[B"); // ↓

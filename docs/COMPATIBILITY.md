@@ -5,7 +5,7 @@ Tested configurations for xpi-memo releases. "Tested" = the project's own develo
 ## xpi-memo v1.0.0
 
 | Component | Tested | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Pi Coding Agent | 0.84.x | Loads `src/index.ts` directly; no build step |
 | Node.js | 24.12+ | LTS required by Pi |
 | pnpm | 11.x | Development only (tests, lint); runtime needs none |
@@ -18,9 +18,7 @@ Tested configurations for xpi-memo releases. "Tested" = the project's own develo
 ## Data compatibility
 
 | From | To | Path |
-|---|---|---|
-| memoharness (any version with `~/.pi/agent/memoharness/`) | xpi-memo v1.0.0 | `/xpi-memo-migrate --from ~/.pi/agent/memoharness --apply` (dry-run first) |
-| xpi-memo v0.1 | v1.0.0 | none needed; banks/audit/candidates formats unchanged |
+| --- | --- | --- |
 | xpi-memo v0.2 | v1.0.0 | none needed; L0 JSONL schema version 1 unchanged |
 | xpi-memo v0.3 | v1.0.0 | none needed; Markdown layout unchanged (`markdown/MEMORY.md`, `daily/`) |
 | xpi-memo v0.4 | v1.0.0 | none needed; `searchBackend` config unchanged |
@@ -28,11 +26,9 @@ Tested configurations for xpi-memo releases. "Tested" = the project's own develo
 ## Feature availability by release
 
 | Feature | v0.1 | v0.2 | v0.3 | v0.4 | v1.0.0 |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | T1 memory (remember/recall/forget/sleep) | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Migration tool | ✓ | ✓ | ✓ | ✓ | ✓ |
 | L0 session trace | — | ✓ | ✓ | ✓ | ✓ |
-| `doctor` L0 reconcile | — | ✓ | ✓ | ✓ | ✓ |
 | Markdown export (incremental) | — | — | ✓ | ✓ | ✓ |
 | Pluggable search backends | — | — | — | ✓ | ✓ |
 | Performance: stat-free L0 append, export skip-read, identity cache | — | — | — | — | ✓ |

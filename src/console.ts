@@ -9,9 +9,10 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+import { l0Status } from "./cli/l0.js";
 import type { XpiMemoConfig } from "./config.js";
 import type { PendingCandidate } from "./pending-candidate.js";
-import type { MemoryStatus } from "./status.js";
+import { formatStatusJson, type MemoryStatus } from "./status.js";
 
 export type ConsoleSettings = Partial<
   Pick<
@@ -61,11 +62,12 @@ export function panelLayout(terminalRows: number): {
   };
 }
 
-/** Tab order is fixed: 0 Pending, 1 Recent, 2 Settings. Overview is the info bar. */
+/** Tab order is fixed: 0 Pending, 1 Recent, 2 Settings, 3 Status. Overview is the info bar. */
 export const TAB_TITLES = [
   "Pending",
   "Recent",
   "Settings",
+  "Status",
 ] as const;
 export const TAB_COUNT = TAB_TITLES.length;
 export const TAB_HINT = "←/→ tab · ↑/↓ move · Enter select · Tab field · Esc close";
@@ -74,6 +76,7 @@ export const TAB_HINT = "←/→ tab · ↑/↓ move · Enter select · Tab fiel
 export const PENDING_TAB = 0;
 export const RECENT_TAB = 1;
 export const SETTINGS_TAB = 2;
+export const STATUS_TAB = 3;
 
 export function nextTab(current: number, step: number): number {
   return (((current + step) % TAB_COUNT) + TAB_COUNT) % TAB_COUNT;
@@ -106,6 +109,8 @@ export interface ConsoleViewModel {
   pending: PendingCandidate[];
   rows: SettingItem[];
   status: MemoryStatus;
+  /** Indented JSON shown on the Status tab (rendered status + L0 summary). */
+  statusJson: string;
 }
 
 export function humanBytes(bytes: number): string {
@@ -192,6 +197,10 @@ export function recentLines(status: MemoryStatus): string[] {
   );
 }
 
+/** Split the Status-tab JSON into display lines. */
+export function statusLines(json: string): string[] {
+  return json.split("\n");
+}
 /**
  * Settings items for `SettingsList`. An environment-locked field omits
  * `values`, which makes Enter a no-op on it, so the panel cannot persist a
@@ -330,6 +339,10 @@ export function recentWindow(
   );
 }
 
+/** Windowed Status-tab JSON lines, always exactly `rows` long. */
+export function statusWindow(json: string, row: number, rows: number): string[] {
+  return windowSlice(statusLines(json), row, rows);
+}
 function windowSlice(lines: string[], row: number, rows: number): string[] {
   const count = lines.length;
   const safe = count === 0 ? 0 : Math.max(0, Math.min(row, count - 1));
@@ -351,6 +364,7 @@ export interface ConsoleComponentOptions {
   keybindings: Pick<KeybindingsManager, "matches">;
   pending: PendingCandidate[];
   status: MemoryStatus;
+  statusJson: string;
   terminalRows: number;
   theme: Pick<Theme, "bold" | "fg">;
   tui: {
@@ -368,6 +382,7 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
     pending: options.pending,
     rows: settingsItems(options.config, options.env),
     status: options.status,
+    statusJson: options.statusJson,
   };
   // Height is fixed at open time; the render guard only ever shrinks it.
   let { body, height } = panelLayout(options.terminalRows);
@@ -435,15 +450,15 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
         tui.requestRender();
         return;
       }
-      if (tab === RECENT_TAB) {
+      if (tab === RECENT_TAB || tab === STATUS_TAB) {
         let step = 0;
         if (keybindings.matches(data, "tui.select.up")) step = -1;
         else if (keybindings.matches(data, "tui.select.down")) step = 1;
-        recentRow = moveRow(
-          recentRow,
-          step,
-          Math.max(recentLines(model.status).length, 1),
-        );
+        const lineCount =
+          tab === RECENT_TAB
+            ? Math.max(recentLines(model.status).length, 1)
+            : Math.max(statusLines(model.statusJson).length, 1);
+        recentRow = moveRow(recentRow, step, lineCount);
         tui.requestRender();
         return;
       }
@@ -480,6 +495,14 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
     if (tab === RECENT_TAB) {
       recentText.setText(
         recentWindow(model.status, recentRow, body)
+          .map((line) => truncateToWidth(line, width, ""))
+          .join("\n"),
+      );
+      return recentText.render(width);
+    }
+    if (tab === STATUS_TAB) {
+      recentText.setText(
+        statusWindow(model.statusJson, recentRow, body)
           .map((line) => truncateToWidth(line, width, ""))
           .join("\n"),
       );
@@ -544,6 +567,12 @@ export async function openConsole(
         keybindings,
         pending,
         status,
+        statusJson: formatStatusJson(
+          status,
+          l0Status({
+            env,
+          }),
+        ),
         terminalRows: tui.terminal.rows,
         theme,
         tui,

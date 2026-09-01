@@ -10,8 +10,6 @@ A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension
 - **L0 Session Trace** — lossless append-only JSONL log per session (10 MB rotation); source of truth for everything derived
 - **Markdown Export** — human-readable `MEMORY.md` + daily logs derived from L0; incremental, privacy redaction, Git-friendly
 - **Pluggable Search** — recall through a fallback chain: mnemosyne (vector+FTS5) → ripgrep (full-text) → qmd (semantic); any subset installed works
-- **TUI Console** — interactive memory console
-- **Migration Tool** — one-command upgrade from memoharness (banks, audit, candidates, config)
 
 Details: [GUIDE.md](./GUIDE.md) (usage) · [ARCHITECTURE.md](./ARCHITECTURE.md) (L0/T1 layers) · [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md) (versions) · [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md) (export format)
 
@@ -42,9 +40,8 @@ brew install ripgrep               # full-text search (macOS); dnf install ripgr
 ### Commands
 
 - `/xpi-memo` — Open TUI console
-- `/xpi-memo-status` — Show JSON status (includes search backend availability)
-- `/xpi-memo-l0` — L0 session-trace status; `--reconcile` checks divergence
-- `/xpi-memo-migrate --help` — Migrate data from memoharness
+- `/xpi-memo` — Open TUI console (Pending / Recent / Settings / Status tabs; Status shows indented JSON incl. L0 summary)
+- `/xpi-memo-status` — Scrollable status panel in the TUI; single-line JSON elsewhere
 - `/xpi-memo-export [--session <id>] [--force] [--validate]` — Export L0 events to Markdown
 
 ### Tools
@@ -74,17 +71,6 @@ Environment variables:
 - `XPI_MEMO_RETRIEVAL_MODE`
 
 See [GUIDE.md](./GUIDE.md) for the full config table with defaults and effects.
-
-## Migration from memoharness
-
-Run inside Pi (dry-run first to preview):
-
-```text
-/xpi-memo-migrate --from ~/.pi/agent/memoharness --dry-run
-/xpi-memo-migrate --from ~/.pi/agent/memoharness --apply
-```
-
-Copies banks, audit log, and candidates; translates `MEMOHARNESS_*` config keys to `XPI_MEMO_*`. See [docs/MIGRATION.md](./docs/MIGRATION.md).
 
 ## Development
 
