@@ -140,8 +140,8 @@
 - [x] 15.2 Write architecture documentation (ARCHITECTURE.md) and verify it explains L0/T1 layers
 - [x] 15.3 Write troubleshooting guide (TROUBLESHOOTING.md) and verify it covers common issues
 - [x] 15.4 Add integration tests covering all phases (v0.1 → v0.2 → v0.3 → v0.4) and verify upgrade path works
-- [ ] 15.5 Create version compatibility matrix and verify it documents tested configurations
-- [ ] 15.6 Update README with full feature list and verify documentation is complete
+- [x] 15.5 Create version compatibility matrix and verify it documents tested configurations
+- [x] 15.6 Update README with full feature list and verify documentation is complete
 
 ### 16. Final Release
 
