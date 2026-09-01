@@ -55,8 +55,8 @@ pnpm test             # vitest run
 
 - 提交前三条全绿。
 - 若 lint 输出意外出现 ESLint,先确认 `scripts.lint` 仍为 `biome check .`,再运行 `pnpm exec biome check .` 诊断;禁止安装 ESLint。
-- **冒烟**:`pi -e ./src/index.ts`(quick test,不支持热载)。
-- **日常开发**:软链到 `~/.pi/agent/extensions/xpi-memo`,在 Pi 内 `/reload` 热载。
+- **实机调试**:git 源安装 `pi install git:github.com/Coffelix2023/xpi-memo`(免 pin ref);发布/改代码后 `pi update --extension git:github.com/Coffelix2023/xpi-memo` 拉取并自动 clean+reinstall,单包更新不影响其他扩展。不用本地软链/路径安装——避免正式安装后遗漏清理。
+- **冒烟**:`pi -e git:github.com/Coffelix2023/xpi-memo`(临时装,不落 settings)。
 
 ## 6. Git 与回滚纪律
 - 只要任务碰到 git / GitHub / 远端仓库 / release，先读 `docs/GIT-WORKFLOW.md`，再读 `docs/GITHUB-GUARD.md`。
