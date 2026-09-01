@@ -35,6 +35,19 @@ export interface MemoryStatus {
     embeddingAvailable: boolean | null;
     mode: "fts5" | "hybrid";
   };
+  /** Pluggable search backends (Phase 4): availability + active backend. */
+  search?: {
+    active: string | null;
+    backends: Array<{
+      capabilities: {
+        fullText: boolean;
+        semantic: boolean;
+        vector: boolean;
+      };
+      installed: boolean;
+      name: string;
+    }>;
+  };
   sleep: {
     dedicatedModelSupported: boolean;
     enabled: boolean;
@@ -174,6 +187,22 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
       embeddingAvailable: status.retrieval.embeddingAvailable,
       mode: status.retrieval.mode,
     },
+    ...(status.search
+      ? {
+          search: {
+            active: status.search.active,
+            backends: status.search.backends.map((backend) => ({
+              installed: backend.installed,
+              name: backend.name,
+              capabilities: {
+                fullText: backend.capabilities.fullText,
+                semantic: backend.capabilities.semantic,
+                vector: backend.capabilities.vector,
+              },
+            })),
+          },
+        }
+      : {}),
     sleep: {
       dedicatedModelSupported: status.sleep.dedicatedModelSupported,
       enabled: status.sleep.enabled,

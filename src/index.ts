@@ -36,9 +36,11 @@ import {
   generatePendingCandidate,
   type PendingCandidateReason,
 } from "./pending-candidate.ts";
-import { type RecallResponse, recall, recallWithPolicy } from "./recall.ts";
+import type { RecallResponse } from "./recall.ts";
 import { decideRecall } from "./recall-policy.ts";
 import { routeMemoryKind } from "./routing.ts";
+import { createSearchRuntime } from "./search/runtime.ts";
+import type { SearchOutcome } from "./search/selector.ts";
 import {
   inspectSleepCapability,
   type SleepCapabilityResult,
@@ -94,6 +96,7 @@ interface Runtime {
   context: RoutingContext;
   l0: L0Coordinator;
   run: MnemosyneRunner;
+  search: ReturnType<typeof createSearchRuntime>;
 }
 
 function toolResult(details: ToolDetails, text: string) {
@@ -184,6 +187,7 @@ function createRuntime(cwd: string, dependencies: XpiMemoDependencies): Runtime 
     dataDir: configResult.config.dataDir,
     enabled: configResult.config.l0Enabled,
   });
+  const search = createSearchRuntime(context, configResult.config.searchBackend, run);
   return {
     adapter,
     audit,
@@ -192,6 +196,7 @@ function createRuntime(cwd: string, dependencies: XpiMemoDependencies): Runtime 
     context,
     l0,
     run,
+    search,
   };
 }
 
@@ -536,6 +541,43 @@ const recallParameters = Type.Object({
 });
 type RecallParams = Static<typeof recallParameters>;
 
+/**
+ * Convert a pluggable-search outcome into the legacy RecallResponse shape so
+ * tool output and KV-stable injection stay backend-agnostic (spec).
+ */
+function toRecallResponse(outcome: SearchOutcome): RecallResponse {
+  return {
+    results: outcome.results.map((result) => ({
+      bank: result.source.bank ?? "default",
+      content:
+        result.content.length > 500
+          ? `${result.content.slice(0, 500)}…`
+          : result.content,
+      id: null,
+      kind: result.kind ?? null,
+      scope: result.source.bank ?? "default",
+      score: result.score,
+      provenance: {
+        bank: result.source.bank ?? "default",
+        layer: "T1",
+        source: "mnemosyne",
+      },
+    })),
+    queriedBanks: [
+      ...new Set(
+        outcome.results
+          .map((result) => result.source.bank)
+          .filter((bank): bank is string => Boolean(bank)),
+      ),
+    ],
+    retrieval: {
+      embeddingAvailable: outcome.backendName === "mnemosyne",
+      fallback: outcome.backendName !== "mnemosyne",
+      mode: "hybrid",
+    },
+  };
+}
+
 async function executeRecall(
   params: RecallParams,
   ctx: ExtensionContext,
@@ -544,29 +586,58 @@ async function executeRecall(
   try {
     const runtime = createRuntime(ctx.cwd, dependencies);
     const limit = params.limit ?? runtime.config.limit;
-    const response: RecallResponse = await recall(
-      {
-        context: runtime.context,
-        globalLimit: Math.min(runtime.config.globalLimit, limit),
-        limit,
-        projectLimit: Math.min(runtime.config.projectLimit, limit),
-        query: params.query,
-      },
-      runtime.run,
-    );
+    // Phase 4: search backend chain (configured → mnemosyne → ripgrep → qmd).
+    const outcome = await runtime.search.runSearch({
+      limit,
+      query: params.query,
+      scope: runtime.context.projectBank ? "project" : "global",
+    });
+    if (outcome.backendName === null) {
+      // Spec: no backend available → empty results + warning, session continues.
+      runtime.audit.record("fallback", {
+        reason: "no-search-backend",
+        status: "recalled",
+      });
+      const empty: RecallResponse = {
+        queriedBanks: [],
+        results: [],
+        retrieval: {
+          embeddingAvailable: false,
+          fallback: true,
+          mode: "hybrid",
+        },
+      };
+      return toolResult(
+        {
+          reason: "no-search-backend",
+          resultCount: 0,
+          status: "recalled",
+        },
+        JSON.stringify({
+          ...empty,
+          warning: outcome.warning,
+        }),
+      );
+    }
+    const response: RecallResponse = toRecallResponse(outcome);
     runtime.audit.record("recall", {
-      fallback: response.retrieval.fallback,
+      fallback: outcome.backendName !== "mnemosyne",
       reason: params.query,
       status: "recalled",
     });
     return toolResult(
       {
         queriedBanks: response.queriedBanks,
-        reason: response.retrieval.fallback ? "fts5-fallback" : undefined,
+        reason:
+          outcome.warning ??
+          (response.retrieval.fallback ? "fts5-fallback" : undefined),
         resultCount: response.results.length,
         status: "recalled",
       },
-      JSON.stringify(response),
+      JSON.stringify({
+        ...response,
+        searchBackend: outcome.backendName,
+      }),
     );
   } catch (error) {
     return toolResult(
@@ -663,6 +734,69 @@ async function executeSleepTool(
       "Sleep failed.",
     );
   }
+}
+
+/** Snapshot available backends + configured preference for /xpi-memo-status. */
+async function searchStatusFor(
+  config: ReturnType<typeof loadConfig>["config"],
+): Promise<{
+  active: string | null;
+  backends: Array<{
+    capabilities: {
+      fullText: boolean;
+      semantic: boolean;
+      vector: boolean;
+    };
+    installed: boolean;
+    name: string;
+  }>;
+}> {
+  const { backendNames } = await import("./search/runtime.ts");
+  const { createSearchRuntime } = await import("./search/runtime.ts");
+  const search = createSearchRuntime(
+    {
+      dataDir: config.dataDir,
+      projectBank: null,
+    },
+    config.searchBackend,
+    async () => "",
+  );
+  const backends = await Promise.all(
+    backendNames(config.searchBackend).map(async (name) => {
+      const backend = search.registry.get(name);
+      if (!backend)
+        return {
+          installed: false,
+          capabilities: {
+            fullText: false,
+            semantic: false,
+            vector: false,
+          },
+          name,
+        };
+      const capabilities = backend.capabilities();
+      return {
+        installed: capabilities.installed,
+        name: backend.name,
+        capabilities: {
+          fullText: capabilities.fullText,
+          semantic: capabilities.semantic,
+          vector: capabilities.vector,
+        },
+      };
+    }),
+  );
+  let active: string | null = null;
+  for (const backend of search.registry.all()) {
+    if (await backend.isAvailable()) {
+      active = backend.name;
+      break;
+    }
+  }
+  return {
+    active,
+    backends,
+  };
 }
 
 async function statusForContext(
@@ -775,6 +909,7 @@ async function statusForContext(
       scope: project ? "current-project-plus-global" : "global-only",
     },
     recentEntries,
+    search: await searchStatusFor(config),
     retrieval: {
       embeddingAvailable: null,
       mode: "hybrid",
@@ -813,23 +948,21 @@ async function recallForContext(
   const runtime = createRuntime(ctx.cwd, dependencies);
   surface.begin(policy === "active" ? "inject" : "recall");
   try {
-    const result = await recallWithPolicy(
-      {
-        context: runtime.context,
-        globalLimit: runtime.config.globalLimit,
-        limit: runtime.config.limit,
-        projectLimit: runtime.config.projectLimit,
-        query,
-      },
-      policy,
-      runtime.run,
-      runtime.config.paused,
-    );
-    const context = result.response ? renderMemoryContext(result.response) : null;
+    const decision = decideRecall(policy, query, runtime.config.paused);
+    if (!decision.shouldRecall) {
+      surface.clear();
+      return null;
+    }
+    const outcome = await runtime.search.runSearch({
+      limit: runtime.config.limit,
+      query,
+      scope: runtime.context.projectBank ? "project" : "global",
+    });
+    const context = renderMemoryContext(toRecallResponse(outcome));
     if (context)
       surface.complete(
         policy === "active" ? "inject" : "recall",
-        result.response?.results.length ?? 0,
+        outcome.results.length,
       );
     else surface.clear();
     return context;

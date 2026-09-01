@@ -22,6 +22,7 @@ export type ConsoleSettings = Partial<
     | "projectLimit"
     | "recallPolicy"
     | "retrievalMode"
+    | "searchBackend"
   >
 >;
 
@@ -250,6 +251,18 @@ export function settingsItems(
         "hybrid",
       ],
       "XPI_MEMO_RETRIEVAL_MODE",
+    ),
+    item(
+      "searchBackend",
+      "Search backend",
+      config.searchBackend,
+      [
+        "auto",
+        "mnemosyne",
+        "ripgrep",
+        "qmd",
+      ],
+      "XPI_MEMO_SEARCH_BACKEND",
     ),
     item(
       "limit",
@@ -496,7 +509,7 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
       actions.save({
         paused: value === "on",
       });
-    else if (id === "recallPolicy" || id === "retrievalMode")
+    else if (id === "recallPolicy" || id === "retrievalMode" || id === "searchBackend")
       actions.save({
         [id]: value,
       } as ConsoleSettings);

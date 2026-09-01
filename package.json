@@ -36,7 +36,21 @@
   },
   "pi": {
     "extensions": ["./src/index.ts"],
-    "skills": ["./skills"]
+    "skills": ["./skills"],
+    "searchBackends": {
+      "default": "auto",
+      "optional": {
+        "mnemosyne": {
+          "install": "uv tool install mnemosyne-memory"
+        },
+        "qmd": {
+          "install": "https://github.com/tobi/qmd#installation"
+        },
+        "ripgrep": {
+          "install": "brew install ripgrep | dnf install ripgrep"
+        }
+      }
+    }
   },
   "scripts": {
     "lint": "biome check .",

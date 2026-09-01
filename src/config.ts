@@ -22,6 +22,7 @@ export const DEFAULT_XPI_MEMO_CONFIG = {
   projectLimit: 5,
   recallPolicy: "high-value-auto",
   retrievalMode: "hybrid",
+  searchBackend: "auto",
 } as const;
 
 const LEGACY_MEMOHARNESS_DATA_DIR = join(homedir(), ".local", "share", "memoharness");
@@ -31,6 +32,12 @@ export function legacyDataDirExists(): boolean {
 }
 
 export type RetrievalMode = "fts5" | "hybrid";
+
+/**
+ * Search backend selection (Task 13.1). "auto" walks the fallback chain
+ * (mnemosyne → ripgrep → qmd); a pinned name uses that backend first.
+ */
+export type SearchBackendSetting = "auto" | "mnemosyne" | "ripgrep" | "qmd";
 
 export interface XpiMemoConfig {
   autoExport: boolean;
@@ -44,6 +51,8 @@ export interface XpiMemoConfig {
   projectLimit: number;
   recallPolicy: RecallPolicy;
   retrievalMode: RetrievalMode;
+  /** "auto" walks the fallback chain; a backend name pins it. */
+  searchBackend: SearchBackendSetting;
 }
 
 export interface UserConfig {
@@ -58,6 +67,7 @@ export interface UserConfig {
   projectLimit?: unknown;
   recallPolicy?: unknown;
   retrievalMode?: unknown;
+  searchBackend?: unknown;
   [key: string]: unknown;
 }
 
@@ -130,6 +140,7 @@ export interface SaveUserConfigOptions {
       | "projectLimit"
       | "recallPolicy"
       | "retrievalMode"
+      | "searchBackend"
     >
   >;
 }
@@ -145,6 +156,7 @@ const WRITABLE_KEYS = new Set([
   "projectLimit",
   "recallPolicy",
   "retrievalMode",
+  "searchBackend",
 ]);
 const ENV_KEYS: Record<string, string> = {
   autoExport: "XPI_MEMO_AUTO_EXPORT",
@@ -157,6 +169,7 @@ const ENV_KEYS: Record<string, string> = {
   projectLimit: "XPI_MEMO_PROJECT_LIMIT",
   recallPolicy: "XPI_MEMO_RECALL_POLICY",
   retrievalMode: "XPI_MEMO_RETRIEVAL_MODE",
+  searchBackend: "XPI_MEMO_SEARCH_BACKEND",
 };
 
 export function saveUserConfig({
@@ -211,6 +224,12 @@ function retrievalMode(value: unknown): value is RetrievalMode {
   return value === "fts5" || value === "hybrid";
 }
 
+function searchBackend(value: unknown): value is SearchBackendSetting {
+  return (
+    value === "auto" || value === "mnemosyne" || value === "ripgrep" || value === "qmd"
+  );
+}
+
 function envString(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const value = env[name];
   return nonEmptyString(value) ? value.trim() : undefined;
@@ -243,6 +262,15 @@ function resolveRetrievalMode(
   return DEFAULT_XPI_MEMO_CONFIG.retrievalMode;
 }
 
+function resolveSearchBackend(
+  environmentValue: string | undefined,
+  userValue: unknown,
+): SearchBackendSetting {
+  if (searchBackend(environmentValue)) return environmentValue;
+  if (searchBackend(userValue)) return userValue;
+  return DEFAULT_XPI_MEMO_CONFIG.searchBackend;
+}
+
 export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
   const env = options.env ?? process.env;
   const configHome =
@@ -252,6 +280,7 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
   const user = readUserConfig(configFilePath(configHome));
   const environmentRecallPolicy = envString(env, "XPI_MEMO_RECALL_POLICY");
   const environmentRetrievalMode = envString(env, "XPI_MEMO_RETRIEVAL_MODE");
+  const environmentSearchBackend = envString(env, "XPI_MEMO_SEARCH_BACKEND");
   const environmentPaused = envString(env, "XPI_MEMO_PAUSED");
   const envBool = (name: string, fallback: boolean): boolean => {
     const value = envString(env, name);
@@ -320,6 +349,10 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
     retrievalMode: resolveRetrievalMode(
       environmentRetrievalMode,
       user.config.retrievalMode,
+    ),
+    searchBackend: resolveSearchBackend(
+      environmentSearchBackend,
+      user.config.searchBackend,
     ),
   };
 

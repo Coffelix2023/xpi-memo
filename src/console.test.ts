@@ -503,6 +503,7 @@ describe("4.6 Settings tab", () => {
       "paused",
       "recallPolicy",
       "retrievalMode",
+      "searchBackend",
       "limit",
       "globalLimit",
       "projectLimit",
@@ -557,7 +558,9 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    // Walk to limit (3 Tab presses from paused: recallPolicy, retrievalMode, limit)
+    // Walk to limit (4 Tab presses from paused: recallPolicy, retrievalMode,
+    // searchBackend, limit)
+    panel.handleInput("\t");
     panel.handleInput("\t");
     panel.handleInput("\t");
     panel.handleInput("\t");
@@ -598,8 +601,8 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    // Walk to sleep (last field): 6 Tab presses
-    for (let i = 0; i < 6; i += 1) panel.handleInput("\t");
+    // Walk to sleep (last field): 7 Tab presses
+    for (let i = 0; i < 7; i += 1) panel.handleInput("\t");
     panel.handleInput("\r");
     await Promise.resolve();
     await Promise.resolve();
@@ -625,7 +628,7 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    for (let i = 0; i < 6; i += 1) panel.handleInput("\t");
+    for (let i = 0; i < 7; i += 1) panel.handleInput("\t");
     panel.handleInput("\r");
     await Promise.resolve();
     await Promise.resolve();
