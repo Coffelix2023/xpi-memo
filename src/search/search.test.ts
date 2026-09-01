@@ -53,6 +53,9 @@ function stubBackend(
     }),
     isAvailable: async () => options.available ?? true,
     name,
+    plannedBanks: () => [
+      "default",
+    ],
     search: async () => {
       if (options.throwOnSearch) throw new Error(`${name} exploded`);
       return (
@@ -147,6 +150,40 @@ describe("Task 11.3 — fallback chain", () => {
     expect(outcome.backendName).toBeNull();
     expect(outcome.results).toEqual([]);
     expect(outcome.warning).toContain("no search backend available");
+  });
+
+  it("reports planned banks with empty results when a backend ran", async () => {
+    const registry = {
+      all: () => [
+        stubBackend("mnemosyne"),
+      ],
+      get: () => undefined,
+    };
+    const runSearch = createSearchRunner(registry, new BackendMetrics());
+    const outcome = await runSearch(
+      query({
+        scope: "global",
+      }),
+    );
+    expect(outcome.results.length).toBeGreaterThan(0);
+    expect(outcome.queriedBanks).toEqual([
+      "default",
+    ]);
+  });
+
+  it("keeps queriedBanks empty when no backend ran", async () => {
+    const registry = {
+      all: () => [
+        stubBackend("mnemosyne", {
+          available: false,
+        }),
+      ],
+      get: () => undefined,
+    };
+    const runSearch = createSearchRunner(registry, new BackendMetrics());
+    const outcome = await runSearch(query());
+    expect(outcome.backendName).toBeNull();
+    expect(outcome.queriedBanks).toEqual([]);
   });
 });
 
@@ -249,6 +286,34 @@ describe("Task 12.1 — MnemosyneBackend", () => {
     expect(banks[0]).toBe("project-acme");
   });
 
+  it("plannedBanks lists project and default banks for project scope", async () => {
+    const backend = new MnemosyneBackend(
+      {
+        dataDir: "/tmp/x",
+        projectBank: "project-acme",
+      },
+      async () => "[]",
+    );
+    expect(
+      backend.plannedBanks(
+        query({
+          scope: "project",
+        }),
+      ),
+    ).toEqual([
+      "project-acme",
+      "default",
+    ]);
+    expect(
+      backend.plannedBanks(
+        query({
+          scope: "global",
+        }),
+      ),
+    ).toEqual([
+      "default",
+    ]);
+  });
   it("falls back to FTS5-flagged results on CLI failure rather than throwing", async () => {
     const backend = new MnemosyneBackend(
       {

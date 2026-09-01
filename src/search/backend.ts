@@ -57,6 +57,12 @@ export interface SearchBackend {
   capabilities(): BackendCapabilities;
   isAvailable(): Promise<boolean>;
   name: string;
+  /**
+   * Bank names this backend would query for the given scope, independent of
+   * results. Reported as queriedBanks even when the search returns empty
+   * (spec: recall observability). Backends without bank semantics omit it.
+   */
+  plannedBanks?(query: SearchQuery): string[];
   search(query: SearchQuery): Promise<SearchResult[]>;
 }
 

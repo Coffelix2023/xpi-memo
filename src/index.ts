@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type {
@@ -20,10 +20,17 @@ import { l0Status } from "./cli/l0.js";
 import { loadConfig, saveUserConfig } from "./config.ts";
 import { openConsole } from "./console.ts";
 import { classifyProhibitedContent } from "./content-policy.ts";
+import {
+  buildMemoryDoctorReport,
+  detectMemoryRootSurfaces,
+  type MemoryDoctorReport,
+} from "./doctor.ts";
 import { createEvidenceRecord } from "./evidence.ts";
 import { clearFooterStatus, setFooterStatus } from "./footer.ts";
 import { resolveProjectIdentity } from "./identity.ts";
-import { isMemoryKind, type MemoryKind } from "./kinds.ts";
+import { isMemoryKind, MEMORY_KINDS, type MemoryKind } from "./kinds.ts";
+import { createEventLogReader } from "./l0/event-log-reader.js";
+import { sessionsDirFor } from "./l0/l0-runtime.js";
 import { createL0Coordinator, type L0Coordinator } from "./l0/l0-runtime.ts";
 import { exportMarkdown, validateExport } from "./markdown-export/exporter.js";
 import {
@@ -33,6 +40,7 @@ import {
 } from "./operations.ts";
 import {
   generatePendingCandidate,
+  type PendingCandidate,
   type PendingCandidateReason,
 } from "./pending-candidate.ts";
 import type { RecallResponse } from "./recall.ts";
@@ -207,8 +215,33 @@ function pendingReasonFor(kind: MemoryKind): PendingCandidateReason {
   return "high-impact-durable";
 }
 
+type CandidateDecision = "store" | "later" | "reject";
+
+/**
+ * Three-way candidate confirmation (Design Decision 3): Store / Later / Reject.
+ * Non-TUI modes queue the candidate and never block on a dialog.
+ */
+async function chooseCandidateAction(
+  ctx: ExtensionContext,
+  candidate: PendingCandidate,
+): Promise<CandidateDecision> {
+  if (ctx.mode !== "tui") return "later";
+  const title = [
+    `Store ${candidate.kind} in ${candidate.targetBank}?`,
+    candidate.evidenceSummary,
+  ].join("\n");
+  const choice = await ctx.ui.select(title, [
+    "Store",
+    "Later",
+    "Reject",
+  ]);
+  if (choice === "Store") return "store";
+  if (choice === "Reject") return "reject";
+  return "later";
+}
+
 function operationFor(params: RememberParams, runtime: Runtime): T1MemoryOperation {
-  const kindValue = params.kind ?? "session_context";
+  const kindValue = params.kind;
   if (!isMemoryKind(kindValue)) {
     throw new Error(`Unsupported memory kind: ${kindValue}`);
   }
@@ -239,10 +272,11 @@ const rememberParameters = Type.Object({
   content: Type.String({
     description: "Candidate memory content",
   }),
-  kind: Type.Optional(
-    Type.String({
-      description: "T1 memory kind",
-    }),
+  kind: Type.Union(
+    MEMORY_KINDS.map((kind) => Type.Literal(kind)),
+    {
+      description: "T1 memory kind (required, closed enum)",
+    },
   ),
   source: Type.Optional(
     Type.String({
@@ -375,84 +409,97 @@ async function executeRemember(
           "Memory candidate queued while T1 is paused.",
         );
       }
-      const confirmed = await ctx.ui.confirm(
-        "Confirm T1 memory",
-        `Store ${candidate.kind} in ${candidate.targetBank}?\n\n${candidate.content}`,
-      );
-      if (confirmed) {
-        if (
-          operation.targetBank !== GLOBAL_BANK &&
-          !(await ensureProjectBank(runtime.context, runtime.run))
-        ) {
-          return toolResult(
-            {
-              bank: candidate.targetBank,
-              candidateId: candidate.id,
-              kind: candidate.kind,
-              reason: "project-bank-unavailable",
-              scope: candidate.targetScope,
-              status: "error",
-            },
-            "Project bank is unavailable; memory was not stored.",
-          );
-        }
-        const stored = await runtime.candidates.confirm(candidate.id);
-        runtime.l0.recordSafe("candidate_confirmed", {
+      const decision = await chooseCandidateAction(ctx, candidate);
+      if (decision === "later") {
+        return toolResult(
+          {
+            bank: candidate.targetBank,
+            candidateId: candidate.id,
+            kind: candidate.kind,
+            scope: candidate.targetScope,
+            status: "candidate",
+          },
+          JSON.stringify({
+            candidateId: candidate.id,
+            kind: candidate.kind,
+            status: "candidate",
+          }),
+        );
+      }
+      if (decision === "reject") {
+        const rejected = await runtime.candidates.reject(candidate.id);
+        runtime.l0.recordSafe("candidate_rejected", {
           bank: candidate.targetBank,
           candidateId: candidate.id,
           kind: candidate.kind,
+          reason: rejected.reason,
           scope: candidate.targetScope,
         });
-        runtime.audit.record("confirmation", {
+        runtime.audit.record("rejection", {
           bank: candidate.targetBank,
           kind: candidate.kind,
-          reason: stored.reason,
+          reason: rejected.reason,
           scope: candidate.targetScope,
-          status: stored.status,
+          status: rejected.status,
         });
         return toolResult(
           {
             bank: candidate.targetBank,
             candidateId: candidate.id,
             kind: candidate.kind,
-            reason: stored.reason,
+            reason: rejected.reason,
             scope: candidate.targetScope,
-            status: stored.status === "stored" ? "stored" : "rejected",
+            status: "rejected",
           },
           JSON.stringify({
             candidateId: candidate.id,
-            kind: candidate.kind,
-            status: stored.status,
+            status: "rejected",
           }),
         );
       }
-      const rejected = await runtime.candidates.reject(candidate.id);
-      runtime.l0.recordSafe("candidate_rejected", {
+      if (
+        operation.targetBank !== GLOBAL_BANK &&
+        !(await ensureProjectBank(runtime.context, runtime.run))
+      ) {
+        return toolResult(
+          {
+            bank: candidate.targetBank,
+            candidateId: candidate.id,
+            kind: candidate.kind,
+            reason: "project-bank-unavailable",
+            scope: candidate.targetScope,
+            status: "error",
+          },
+          "Project bank is unavailable; memory was not stored.",
+        );
+      }
+      const stored = await runtime.candidates.confirm(candidate.id);
+      runtime.l0.recordSafe("candidate_confirmed", {
         bank: candidate.targetBank,
         candidateId: candidate.id,
         kind: candidate.kind,
-        reason: rejected.reason,
         scope: candidate.targetScope,
       });
-      runtime.audit.record("rejection", {
+      runtime.audit.record("confirmation", {
         bank: candidate.targetBank,
         kind: candidate.kind,
-        reason: rejected.reason,
+        reason: stored.reason,
         scope: candidate.targetScope,
-        status: rejected.status,
+        status: stored.status,
       });
       return toolResult(
         {
           bank: candidate.targetBank,
           candidateId: candidate.id,
           kind: candidate.kind,
-          reason: rejected.reason,
+          reason: stored.reason,
           scope: candidate.targetScope,
-          status: "rejected",
+          status: stored.status === "stored" ? "stored" : "rejected",
         },
         JSON.stringify({
           candidateId: candidate.id,
-          status: "rejected",
+          kind: candidate.kind,
+          status: stored.status,
         }),
       );
     }
@@ -548,6 +595,7 @@ type RecallParams = Static<typeof recallParameters>;
  */
 function toRecallResponse(outcome: SearchOutcome): RecallResponse {
   return {
+    queriedBanks: outcome.queriedBanks,
     results: outcome.results.map((result) => ({
       bank: result.source.bank ?? "default",
       content:
@@ -564,13 +612,6 @@ function toRecallResponse(outcome: SearchOutcome): RecallResponse {
         source: "mnemosyne",
       },
     })),
-    queriedBanks: [
-      ...new Set(
-        outcome.results
-          .map((result) => result.source.bank)
-          .filter((bank): bank is string => Boolean(bank)),
-      ),
-    ],
     retrieval: {
       embeddingAvailable: outcome.backendName === "mnemosyne",
       fallback: outcome.backendName !== "mnemosyne",
@@ -800,6 +841,31 @@ async function searchStatusFor(
   };
 }
 
+/** Count t1_memory_write events across all L0 sessions (read-only). */
+async function countL0T1WriteEvents(dataDir: string): Promise<number> {
+  const sessionsRoot = sessionsDirFor(dataDir);
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(sessionsRoot);
+  } catch {
+    return 0;
+  }
+  const perSession = await Promise.all(
+    entries.map(async (entry) => {
+      try {
+        const reader = createEventLogReader({
+          sessionDir: join(sessionsRoot, entry),
+        });
+        return (await reader.readByType("t1_memory_write")).length;
+      } catch {
+        // Unreadable session dir contributes zero events (read-only doctor).
+        return 0;
+      }
+    }),
+  );
+  return perSession.reduce((sum, count) => sum + count, 0);
+}
+
 async function statusForContext(
   cwd: string,
   dependencies: XpiMemoDependencies = {},
@@ -878,6 +944,23 @@ async function statusForContext(
       projectDb: projectDbPath ? existsSync(projectDbPath) : false,
     },
   };
+  // Doctor (task 4.3): read-only evidence bundle + empty-memory classification.
+  const bankRows: Record<string, number | null> = {
+    default: globalStats?.total ?? null,
+  };
+  if (projectBank && bankExists(config.dataDir, projectBank))
+    bankRows[projectBank] = projectStats?.working ?? null;
+  const l0T1WriteEvents = await countL0T1WriteEvents(config.dataDir);
+  const doctor: MemoryDoctorReport = buildMemoryDoctorReport(
+    {
+      auditActions: auditEntries.map((entry) => entry.action),
+      auditStatuses: auditEntries.map((entry) => entry.metadata.status),
+      bankRows,
+      l0T1WriteEvents,
+      pendingCandidates,
+    },
+    detectMemoryRootSurfaces(config.dataDir),
+  );
   return renderStatus({
     currentProject: project
       ? {
@@ -886,6 +969,7 @@ async function statusForContext(
           label: project.label,
         }
       : null,
+    doctor,
     diskBytes: visibleBankDiskBytes(config.dataDir, projectBank),
     fallback: null,
     paused: config.paused,
@@ -996,27 +1080,9 @@ export default function xpiMemo(
         {
           confirm: ctx.ui.confirm.bind(ctx.ui),
           async reviewCandidate(candidate) {
-            const confirmed = await ctx.ui.confirm(
-              "Confirm T1 memory",
-              `Store ${candidate.kind} in ${candidate.targetBank}?\n\n${candidate.content}`,
-            );
-            if (confirmed) {
-              const stored = await runtime.candidates.confirm(candidate.id);
-              runtime.l0.recordSafe("candidate_confirmed", {
-                bank: candidate.targetBank,
-                candidateId: candidate.id,
-                kind: candidate.kind,
-                scope: candidate.targetScope,
-              });
-              runtime.audit.record("confirmation", {
-                bank: candidate.targetBank,
-                kind: candidate.kind,
-                scope: candidate.targetScope,
-                status: stored.status,
-              });
-              if (stored.status === "stored")
-                setFooterStatus(ctx, runtime.config.paused, true);
-            } else {
+            const decision = await chooseCandidateAction(ctx, candidate);
+            if (decision === "later") return;
+            if (decision === "reject") {
               const rejected = await runtime.candidates.reject(candidate.id);
               runtime.l0.recordSafe("candidate_rejected", {
                 bank: candidate.targetBank,
@@ -1032,7 +1098,24 @@ export default function xpiMemo(
                 scope: candidate.targetScope,
                 status: rejected.status,
               });
+              return;
             }
+            const stored = await runtime.candidates.confirm(candidate.id);
+            runtime.l0.recordSafe("candidate_confirmed", {
+              bank: candidate.targetBank,
+              candidateId: candidate.id,
+              kind: candidate.kind,
+              scope: candidate.targetScope,
+            });
+            runtime.audit.record("confirmation", {
+              bank: candidate.targetBank,
+              kind: candidate.kind,
+              reason: stored.reason,
+              scope: candidate.targetScope,
+              status: stored.status,
+            });
+            if (stored.status === "stored")
+              setFooterStatus(ctx, runtime.config.paused, true);
           },
           save(values) {
             saveUserConfig({

@@ -67,6 +67,31 @@ afterEach(() => {
 });
 
 describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
+  it("makes an extension store visible to CLI stats under the same MNEMOSYNE_DATA_DIR", async () => {
+    // Task 5.1: extension spawn pins MNEMOSYNE_DATA_DIR to the configured
+    // dataDir, so a bare CLI `stats` with the same env sees the new row.
+    const dataDir = createTemporaryDirectory();
+    const adapter = createMnemosyneAdapter();
+    await adapter.store(
+      operation(
+        dataDir,
+        "task 5.1 shared-root marker",
+        "global_preference",
+        "default",
+        "global",
+      ),
+    );
+    const statsOutput = await runMnemosyne(
+      [
+        "stats",
+      ],
+      {
+        dataDir,
+      },
+    );
+    expect(statsOutput).toContain("Total memories: 1");
+  });
+
   it("routes scoped kinds, recalls multilingual content, and excludes another project bank", async () => {
     const dataDir = createTemporaryDirectory();
     const projectA = "project-a-7-2";
@@ -229,10 +254,13 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
     });
     const ctx = {
       cwd: dataDir,
+      mode: "tui",
       ui: {
         confirm: async () => true,
         notify: () => undefined,
+        select: async () => "Store",
         setStatus: () => undefined,
+        setWidget: () => undefined,
       },
     } as unknown as ExtensionContext;
     const tool = (name: string): ToolDefinition => {

@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import type { AuditEntry } from "./audit.js";
 import type { L0Status } from "./cli/l0.js";
+import type { MemoryDoctorReport } from "./doctor.js";
 export interface MemoryStatus {
   counts: {
     global: number | null;
@@ -15,6 +16,8 @@ export interface MemoryStatus {
     label: string;
   } | null;
   diskBytes: number | null;
+  /** Empty-memory diagnosis + evidence bundle (task 4.2/4.3). */
+  doctor?: MemoryDoctorReport;
   fallback: boolean | null;
   paused: boolean;
   pendingCandidates: number;
@@ -148,6 +151,7 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
         }
       : null,
     diskBytes: status.diskBytes,
+    doctor: status.doctor,
     fallback: status.fallback,
     paused: status.paused,
     pendingCandidates: status.pendingCandidates,

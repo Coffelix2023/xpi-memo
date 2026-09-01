@@ -30,6 +30,11 @@ export interface SearchOutcome {
   attempts: BackendAttempt[];
   /** null when no backend produced results (spec: no backend available) */
   backendName: string | null;
+  /**
+   * Banks/targets the active backend planned to query, empty only when no
+   * backend ran (spec: recall observability).
+   */
+  queriedBanks: string[];
   results: SearchResult[];
   warning?: string;
 }
@@ -118,6 +123,7 @@ export function createSearchRunner(registry: BackendRegistry, metrics: BackendMe
       return {
         attempts,
         backendName: null,
+        queriedBanks: [],
         results: [],
         warning:
           "no search backend available — recall returned empty; install mnemosyne (uv tool install mnemosyne-memory) or ripgrep, or configure xpi_memo.searchBackend",
@@ -135,6 +141,7 @@ export function createSearchRunner(registry: BackendRegistry, metrics: BackendMe
       return {
         attempts,
         backendName: backend.name,
+        queriedBanks: backend.plannedBanks?.(query) ?? [],
         results,
       };
     } catch (error) {
@@ -175,6 +182,7 @@ export function createSearchRunner(registry: BackendRegistry, metrics: BackendMe
           return {
             attempts,
             backendName: next.name,
+            queriedBanks: next.plannedBanks?.(query) ?? [],
             results,
             warning: `backend ${backend.name} failed, fell back to ${next.name}`,
           };
@@ -190,6 +198,7 @@ export function createSearchRunner(registry: BackendRegistry, metrics: BackendMe
       return {
         attempts,
         backendName: null,
+        queriedBanks: [],
         results: [],
         warning: "all search backends failed — recall returned empty",
       };

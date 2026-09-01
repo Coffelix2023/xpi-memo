@@ -90,27 +90,43 @@ export class MnemosyneBackend implements SearchBackend {
     return this.capabilities().installed;
   }
 
+  plannedBanks(query: SearchQuery): string[] {
+    const banks = [
+      "default",
+    ];
+    if (query.scope === "project" && this.context.projectBank)
+      banks.unshift(this.context.projectBank);
+    return banks;
+  }
+
   async search(query: SearchQuery): Promise<SearchResult[]> {
-    // Spec scope mapping: global → default bank, project → project bank,
-    // session → mnemosyne has no per-session store, use global.
-    const bank =
+    // Spec scope mapping (recall.ts parity): project queries both the project
+    // bank and the default bank; global and session query the default bank.
+    const banks =
       query.scope === "project" && this.context.projectBank
-        ? this.context.projectBank
-        : "default";
-    const output = await this.run(
-      [
-        "recall",
-        query.query,
-        String(query.limit),
-        "--explain",
-        "--json",
-      ],
-      {
-        bank: bank === "default" ? undefined : bank,
-        dataDir: this.context.dataDir,
-      },
+        ? this.plannedBanks(query)
+        : [
+            "default",
+          ];
+    const batches = await Promise.all(
+      banks.map(async (bank) => {
+        const output = await this.run(
+          [
+            "recall",
+            query.query,
+            String(query.limit),
+            "--explain",
+            "--json",
+          ],
+          {
+            bank: bank === "default" ? undefined : bank,
+            dataDir: this.context.dataDir,
+          },
+        );
+        return toResults(bank, output);
+      }),
     );
     // Limit enforcement (Task 12.5): the CLI caps internally, truncate anyway.
-    return toResults(bank, output).slice(0, query.limit);
+    return batches.flat().slice(0, query.limit);
   }
 }

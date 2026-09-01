@@ -13,7 +13,9 @@ description: Use xpi-memo T1 memory within fixed routing, evidence, confirmation
 
 ## Writes
 
-Before durable storage, classify the memory kind, target bank, scope, evidence, confidence, and provenance. Auto-store only explicit stable preferences/workflows and verified project facts. Project decisions, ambiguous preferences, broad gotchas, and cross-layer conclusions require a pending candidate and user confirmation.
+`xpi_memo_remember` requires `kind` — the tool schema enforces a closed enum of the seven T1 kinds; omitted or unknown kinds fail schema validation before any write. Every governed remember path returns exactly one of `stored`, `candidate`, or `rejected`.
+
+Before durable storage, classify the memory kind, target bank, scope, evidence, confidence, and provenance. Auto-store only explicit stable preferences/workflows and verified project facts. Project decisions, ambiguous preferences, broad gotchas, and cross-layer conclusions require a pending candidate and user confirmation (Store / Later / Reject; `Later` keeps the candidate pending, `Reject` discards it).
 
 Reject secrets, credentials, tokens, private keys, cookies, raw transcripts, raw tool output, raw L0 events, model reasoning, and unverified speculation. A rejected payload must not be copied into audit data.
 

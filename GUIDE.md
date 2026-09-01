@@ -35,12 +35,13 @@ Updating: `pi update --extension git:github.com/Coffelix2023/xpi-memo`
 - `xpi_memo_forget` — delete a memory
 - `xpi_memo_sleep` — consolidation; requires explicit authorization
 - `xpi_memo_recall` (previously named `memoharness_recall` — see migration docs if upgrading)
+
 ## Commands
 
 | Command | Purpose |
-|---|---|
+| --- | --- |
 | `/xpi-memo` | Open the interactive TUI console |
-| `/xpi-memo-status` | JSON status: banks, backend availability, active backend, config |
+| `/xpi-memo-status` | JSON status: banks, backend availability, active backend, config, and the doctor report (`doctor.state` + evidence) |
 | `/xpi-memo-l0` | L0 session-trace stats (sessions, events, disk usage); `--reconcile` checks L0 vs audit divergence |
 | `/xpi-memo-export` | Export L0 → Markdown; `--session <id>` limits scope, `--force` re-exports all, `--validate` reports coverage |
 
@@ -49,7 +50,7 @@ Updating: `pi update --extension git:github.com/Coffelix2023/xpi-memo`
 User config lives at `~/.config/xpi-memo/config.json` (or set keys via the console). Every key has an environment-variable override:
 
 | Config key | Env var | Default | Effect |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `dataDir` | `XPI_MEMO_DATA_DIR` | `~/.pi/agent/xpi-memo` | Data root (banks, sessions, markdown) |
 | `paused` | `XPI_MEMO_PAUSED` | `false` | Pause all T1 writes/recalls |
 | `l0Enabled` | `XPI_MEMO_L0_ENABLED` | `true` | Disable L0 logging (system behaves like v0.1) |
@@ -62,6 +63,25 @@ User config lives at `~/.config/xpi-memo/config.json` (or set keys via the conso
 | `searchBackend` | `XPI_MEMO_SEARCH_BACKEND` | `auto` | Pin `mnemosyne`/`ripgrep`/`qmd` or walk the chain |
 | `recallPolicy` | `XPI_MEMO_RECALL_POLICY` | `high-value-auto` | `active` / `assist` / `high-value-auto` |
 | `retrievalMode` | `XPI_MEMO_RETRIEVAL_MODE` | `hybrid` | `fts5` / `hybrid` |
+
+## Data roots and CLI cross-checks
+
+All three mnemosyne data roots live on disk side by side; the extension never merges or symlinks them:
+
+| Root | Path | Who writes there |
+| --- | --- | --- |
+| Configured root | `~/.pi/agent/xpi-memo` (or `XPI_MEMO_DATA_DIR`) | The extension — every spawn sets `MNEMOSYNE_DATA_DIR` to this path |
+| CLI default root | `~/.hermes/mnemosyne/data` | A bare `mnemosyne` command run without the env var |
+| Stale root | `~/xpi-memo` | Legacy installs; typically empty |
+
+`/xpi-memo-status` reports all three under `doctor.evidence.roots` (with distinct inodes, so a symlink merge is visible). Consolidating a split root is a **manual** check — there is no automated migration:
+
+```bash
+# See what the extension sees (same data root the extension writes to):
+MNEMOSYNE_DATA_DIR="$XPI_MEMO_DATA_DIR" mnemosyne stats
+# or, when XPI_MEMO_DATA_DIR is not set in your shell:
+MNEMOSYNE_DATA_DIR="$HOME/.pi/agent/xpi-memo" mnemosyne stats
+```
 
 ## Daily workflow examples
 

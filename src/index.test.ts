@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -51,15 +51,20 @@ function createTemporaryDirectory(): string {
   return directory;
 }
 
-function createToolContext(confirmed = false) {
+function createToolContext(
+  options: { confirm?: boolean; mode?: string; select?: string } = {},
+) {
+  const { confirm = false, mode = "rpc", select = undefined } = options;
   return {
     cwd: "/tmp",
     isError: false,
-    mode: "rpc",
+    mode,
     ui: {
-      confirm: async () => confirmed,
+      confirm: async () => confirm,
       notify: () => undefined,
+      select: async () => select,
       setStatus: () => undefined,
+      setWidget: () => undefined,
     },
   } as unknown as Parameters<ToolDefinition["execute"]>[4];
 }
@@ -260,20 +265,21 @@ describe("xpi-memo bootstrap entrypoint", () => {
     );
 
     let panel: Panel | undefined;
-    const confirmations: string[] = [];
+    const selections: string[] = [];
     await commandHandler(commands, "xpi-memo")("", {
       cwd: "/tmp",
       mode: "tui",
       ui: {
-        async confirm(title: string) {
-          confirmations.push(title);
-          return true;
-        },
+        confirm: async () => true,
         custom: async (factory: unknown) => {
           panel = mountPanel(factory);
           return undefined;
         },
         notify: () => undefined,
+        async select(title: string) {
+          selections.push(title);
+          return "Store";
+        },
         setStatus: () => undefined,
       },
     } as never);
@@ -290,7 +296,9 @@ describe("xpi-memo bootstrap entrypoint", () => {
       setTimeout(resolve, 0);
     });
 
-    expect(confirmations).toContain("Confirm T1 memory");
+    expect(selections[0]?.split("\n")[0]).toBe(
+      "Store project_decision in project-console-project?",
+    );
     expect(calls.map(([command]) => command)).toContain("store");
     expect(
       JSON.parse(readFileSync(join(dataDir, "candidates.json"), "utf8")).candidates,
@@ -489,7 +497,41 @@ describe("xpi-memo bootstrap entrypoint", () => {
       '"action": "recall"',
     );
   });
-  it("requires confirmation before storing a project decision", async () => {
+
+  it("reports queried banks on empty recall results", async () => {
+    const dataDir = createTemporaryDirectory();
+    const run = async (): Promise<string> =>
+      JSON.stringify({
+        results: [],
+      });
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      run,
+      resolveProjectIdentity: () => null,
+    });
+    const result = await toolByName(tools, "xpi_memo_recall").execute(
+      "recall",
+      {
+        query: "nothing matches this",
+      },
+      undefined,
+      undefined,
+      createToolContext(),
+    );
+    const details = result.details as Record<string, unknown>;
+
+    expect(details).toMatchObject({
+      resultCount: 0,
+      status: "recalled",
+      queriedBanks: [
+        "default",
+      ],
+    });
+  });
+  it("queues a project decision as a candidate in non-TUI mode", async () => {
     const dataDir = createTemporaryDirectory();
     const calls: string[][] = [];
     const run = async (args: string[]): Promise<string> => {
@@ -516,7 +558,52 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       undefined,
       undefined,
-      createToolContext(true),
+      createToolContext(),
+    );
+    const details = result.details as Record<string, unknown>;
+
+    expect(details).toMatchObject({
+      bank: "project-project-test",
+      kind: "project_decision",
+      scope: "global",
+      status: "candidate",
+    });
+    expect(calls).toEqual([]);
+    expect(readFileSync(join(dataDir, "candidates.json"), "utf8")).toContain(
+      "project-project-test",
+    );
+  });
+  it("stores a project decision when Store is chosen in TUI mode", async () => {
+    const dataDir = createTemporaryDirectory();
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      if (args[0] === "store") return "Stored: decision-123";
+      return "";
+    };
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      run,
+      resolveProjectIdentity: () => ({
+        id: "project-test",
+        label: "test-project",
+      }),
+    });
+    const result = await toolByName(tools, "xpi_memo_remember").execute(
+      "remember-decision",
+      {
+        content: "Use the existing adapter boundary.",
+        kind: "project_decision",
+      },
+      undefined,
+      undefined,
+      createToolContext({
+        mode: "tui",
+        select: "Store",
+      }),
     );
     const details = result.details as Record<string, unknown>;
 
@@ -533,6 +620,101 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(readFileSync(join(dataDir, "audit.json"), "utf8")).toContain(
       '"action": "confirmation"',
     );
+  });
+  it("rejects a candidate when Reject is chosen in TUI mode", async () => {
+    const dataDir = createTemporaryDirectory();
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      return "Stored: should-not-run";
+    };
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      run,
+      resolveProjectIdentity: () => ({
+        id: "project-test",
+        label: "test-project",
+      }),
+    });
+    const result = await toolByName(tools, "xpi_memo_remember").execute(
+      "remember-decision",
+      {
+        content: "Use the existing adapter boundary.",
+        kind: "project_decision",
+      },
+      undefined,
+      undefined,
+      createToolContext({
+        mode: "tui",
+        select: "Reject",
+      }),
+    );
+    const details = result.details as Record<string, unknown>;
+
+    expect(details).toMatchObject({
+      status: "rejected",
+    });
+    expect(calls).toEqual([]);
+    expect(
+      JSON.parse(readFileSync(join(dataDir, "candidates.json"), "utf8")).candidates,
+    ).toEqual({});
+  });
+
+  it("keeps a pending candidate when Later is chosen in TUI mode", async () => {
+    const dataDir = createTemporaryDirectory();
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      return "Stored: should-not-run";
+    };
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      run,
+      resolveProjectIdentity: () => ({
+        id: "project-test",
+        label: "test-project",
+      }),
+    });
+    const result = await toolByName(tools, "xpi_memo_remember").execute(
+      "remember-decision",
+      {
+        content: "Use the existing adapter boundary.",
+        kind: "project_decision",
+      },
+      undefined,
+      undefined,
+      createToolContext({
+        mode: "tui",
+        select: "Later",
+      }),
+    );
+    const details = result.details as Record<string, unknown>;
+
+    expect(details).toMatchObject({
+      kind: "project_decision",
+      status: "candidate",
+    });
+    expect(calls).toEqual([]);
+    const persisted = JSON.parse(
+      readFileSync(join(dataDir, "candidates.json"), "utf8"),
+    ) as {
+      candidates: Record<
+        string,
+        {
+          candidate: {
+            kind: string;
+          };
+        }
+      >;
+    };
+    const [entry] = Object.values(persisted.candidates);
+    expect(entry?.candidate.kind).toBe("project_decision");
   });
 
   it("rejects prohibited content before the auto-store path", async () => {
@@ -637,6 +819,50 @@ describe("xpi-memo bootstrap entrypoint", () => {
     ).properties;
 
     expect(properties).toHaveProperty("authorized");
+  });
+  it("requires an explicit kind in the remember tool schema", () => {
+    const { tools } = loadExtension();
+    const remember = tools.find((tool) => tool.name === "xpi_memo_remember");
+    if (!remember) throw new Error("remember tool is not registered");
+    const parameters = remember.parameters as {
+      properties?: Record<string, unknown>;
+      required?: string[];
+    };
+    expect(parameters.required).toContain("kind");
+    expect(parameters.properties?.kind).toMatchObject({
+      anyOf: expect.any(Array),
+    });
+  });
+  it("rejects an unknown remember kind with no audit write", async () => {
+    const dataDir = createTemporaryDirectory();
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      return "Stored: should-not-run";
+    };
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      run,
+      resolveProjectIdentity: () => null,
+    });
+    const result = await toolByName(tools, "xpi_memo_remember").execute(
+      "remember-unknown-kind",
+      {
+        content: "Some content.",
+        kind: "not-a-real-kind",
+      },
+      undefined,
+      undefined,
+      createToolContext(),
+    );
+    expect(result.details).toMatchObject({
+      status: "error",
+    });
+    expect(calls).toEqual([]);
+    expect(existsSync(join(dataDir, "audit.json"))).toBe(false);
   });
   it("reports real stats and pending candidates without creating a project bank", async () => {
     const dataDir = createTemporaryDirectory();
@@ -754,6 +980,50 @@ describe("xpi-memo bootstrap entrypoint", () => {
     });
     expect(status.recall.scope).toBe("global-only");
   });
+
+  it("includes the doctor state and read-only evidence in status output", async () => {
+    const dataDir = createTemporaryDirectory();
+    const run = async (args: string[]): Promise<string> =>
+      args[0] === "stats"
+        ? "Episodic memory: 0\nTotal memories: 0\nWorking memory: 0\n"
+        : "";
+    const { commands } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      run,
+      resolveProjectIdentity: () => null,
+    });
+    const command = commands.find(({ name }) => name === "xpi-memo-status");
+    if (!command) throw new Error("status command was not registered");
+    const notifications: string[] = [];
+
+    await command.options.handler("", {
+      cwd: "/tmp",
+      ui: {
+        confirm: async () => false,
+        notify(message: string) {
+          notifications.push(message);
+        },
+      },
+    } as never);
+
+    expect(notifications).toHaveLength(1);
+    const status = JSON.parse(notifications[0] ?? "{}") as {
+      doctor?: {
+        evidence: {
+          bankRows: Record<string, number | null>;
+          roots: unknown[];
+        };
+        state: string;
+      };
+    };
+    expect(status.doctor).toBeDefined();
+    expect(status.doctor?.state).toBe("NEVER_CALLED");
+    expect(status.doctor?.evidence.bankRows.default).toBe(0);
+    expect(status.doctor?.evidence.roots).toHaveLength(3);
+  });
 });
 
 describe("memory-boundaries skill", () => {
@@ -767,5 +1037,15 @@ describe("memory-boundaries skill", () => {
     expect(skill).toContain("user confirmation");
     expect(skill).toContain("sleep` is disabled by default");
     expect(skill).toContain("never silently fall back");
+    // Task 6.1: remember requires kind; outcomes are exactly three statuses.
+    expect(skill).toContain("requires `kind`");
+    expect(skill).not.toContain("kind optional");
+    for (const outcome of [
+      "`stored`",
+      "`candidate`",
+      "`rejected`",
+    ]) {
+      expect(skill).toContain(outcome);
+    }
   });
 });

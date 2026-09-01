@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  PANEL_WIDTH,
   buildGlimpseHtml,
   escapeHtml,
   openStatusPanel,
+  PANEL_WIDTH,
   padRow,
   renderStatusPanelLines,
   summarize,
@@ -24,6 +24,10 @@ describe("status-panel TUI rendering", () => {
 
   it("summarizes structured status correctly", () => {
     const rawJson = JSON.stringify({
+      diskBytes: 430592,
+      paused: false,
+      pendingCandidates: 0,
+      todayStored: 14,
       counts: {
         global: 128,
         project: 38,
@@ -31,13 +35,9 @@ describe("status-panel TUI rendering", () => {
       currentProject: {
         label: "xpi-memo",
       },
-      diskBytes: 430592,
-      paused: false,
-      pendingCandidates: 0,
       search: {
         active: "ripgrep",
       },
-      todayStored: 14,
     });
     const summary = summarize(rawJson);
     expect(summary.projectLabel).toBe("xpi-memo");
@@ -70,6 +70,7 @@ describe("status-panel TUI rendering", () => {
       pending: 0,
       project: 38,
       projectLabel: "xpi-memo",
+      state: "RECALL_EMPTY",
       today: 14,
     };
     const sampleDetails = [
@@ -96,11 +97,12 @@ describe("status-panel TUI rendering", () => {
     expect(lines[3]).toContain("Backend: ripgrep");
     expect(lines[4]).toContain("Records: 38 proj / 128 glob");
     expect(lines[4]).toContain("Disk/Today: 420.5 KB / +14");
+    expect(lines[5]).toContain("State: RECALL_EMPTY");
+    expect(lines[5]).toContain("Pending: 0");
 
     // Verify divider and footer
-    expect(lines[6]).toContain("├");
-    expect(lines[6]).toContain("┤");
-    expect(lines[lines.length - 2]).toContain("╰");
+    expect(lines[7]).toContain("├");
+    expect(lines[7]).toContain("┤");
     expect(lines[lines.length - 2]).toContain("╯");
     expect(lines[lines.length - 1]).toContain("Esc / Enter close");
   });
@@ -114,6 +116,7 @@ describe("status-panel TUI rendering", () => {
       pending: 0,
       project: 38,
       projectLabel: "xpi-memo",
+      state: "RECALL_EMPTY",
       today: 14,
     };
     const sampleDetails = [
@@ -121,7 +124,11 @@ describe("status-panel TUI rendering", () => {
       '{"storage": "very long path exceeding bounds"}',
     ];
 
-    for (const testWidth of [40, 60, 78]) {
+    for (const testWidth of [
+      40,
+      60,
+      78,
+    ]) {
       const lines = renderStatusPanelLines(
         sampleDetails,
         summary,
@@ -181,10 +188,15 @@ describe("status-panel TUI rendering", () => {
       overlay: true,
       overlayOptions: {
         anchor: "center",
-        margin: { bottom: 4, left: 2, right: 2, top: 2 },
         maxHeight: "70%",
         minWidth: 40,
         width: 78,
+        margin: {
+          bottom: 4,
+          left: 2,
+          right: 2,
+          top: 2,
+        },
       },
     });
   });

@@ -13,7 +13,12 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { matchesKey, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  matchesKey,
+  Text,
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 
 /** Preferred panel width in columns; minWidth clamps it on narrow terminals. */
 export const PANEL_WIDTH = 78;
@@ -52,6 +57,8 @@ export interface StatusSummary {
   pending: number;
   project: number | null;
   projectLabel: string | null;
+  /** Empty-memory doctor state (NEVER_CALLED etc.) when reported. */
+  state?: string;
   today: number;
 }
 
@@ -74,6 +81,9 @@ export function summarize(json: string): StatusSummary {
       currentProject?: {
         label?: string;
       } | null;
+      doctor?: {
+        state?: string;
+      };
       diskBytes?: number | null;
       paused?: boolean;
       pendingCandidates?: number;
@@ -90,6 +100,7 @@ export function summarize(json: string): StatusSummary {
       pending: parsed.pendingCandidates ?? 0,
       project: parsed.counts?.project ?? null,
       projectLabel: parsed.currentProject?.label ?? null,
+      state: parsed.doctor?.state,
       today: parsed.todayStored ?? 0,
     };
   } catch {
@@ -142,8 +153,15 @@ export function renderStatusPanelLines(
   const row1 = `  ${kvRow1Left.padEnd(colWidth)}  ${kvRow1Right}`;
 
   const kvRow2Left = `Records: ${project} proj / ${global} glob`.slice(0, colWidth);
-  const kvRow2Right = `Disk/Today: ${summary.disk} / +${summary.today}`.slice(0, colWidth);
+  const kvRow2Right = `Disk/Today: ${summary.disk} / +${summary.today}`.slice(
+    0,
+    colWidth,
+  );
   const row2 = `  ${kvRow2Left.padEnd(colWidth)}  ${kvRow2Right}`;
+
+  const stateLabel = summary.state ?? "unknown";
+  const stateColor = summary.state === undefined ? "muted" : "accent";
+  const row3 = `  ${`State: ${stateLabel}`.padEnd(colWidth)}  ${`Pending: ${summary.pending}`.slice(0, colWidth)}`;
 
   const divider = theme.fg("dim", `├${"─".repeat(inner)}┤`);
   const headerTitle = theme.fg("accent", theme.bold("XpiMemo Status"));
@@ -155,6 +173,7 @@ export function renderStatusPanelLines(
   rows.push(frame(""));
   rows.push(frame(theme.fg("muted", row1)));
   rows.push(frame(theme.fg("muted", row2)));
+  rows.push(frame(theme.fg(stateColor as never, row3)));
   rows.push(frame(""));
   rows.push(divider);
 
@@ -341,7 +360,9 @@ export async function resolveGlimpsePrompt(): Promise<GlimpsePromptFn | null> {
   try {
     const req = createRequire(import.meta.url);
     const resolved = req.resolve("glimpseui");
-    const mod = (await import(resolved)) as { prompt?: GlimpsePromptFn };
+    const mod = (await import(resolved)) as {
+      prompt?: GlimpsePromptFn;
+    };
     if (typeof mod.prompt === "function") {
       return mod.prompt;
     }
@@ -350,7 +371,16 @@ export async function resolveGlimpsePrompt(): Promise<GlimpsePromptFn | null> {
   }
 
   const candidatePaths = [
-    join(homedir(), ".pi", "agent", "npm", "node_modules", "glimpseui", "src", "glimpse.mjs"),
+    join(
+      homedir(),
+      ".pi",
+      "agent",
+      "npm",
+      "node_modules",
+      "glimpseui",
+      "src",
+      "glimpse.mjs",
+    ),
     join(homedir(), ".pi", "agent", "node_modules", "glimpseui", "src", "glimpse.mjs"),
   ];
 
@@ -359,7 +389,9 @@ export async function resolveGlimpsePrompt(): Promise<GlimpsePromptFn | null> {
       if (!existsSync(p)) {
         continue;
       }
-      const mod = (await import(p)) as { prompt?: GlimpsePromptFn };
+      const mod = (await import(p)) as {
+        prompt?: GlimpsePromptFn;
+      };
       if (typeof mod.prompt === "function") {
         return mod.prompt;
       }
@@ -376,9 +408,10 @@ export async function openStatusPanel(
   glimpsePromptOverride?: GlimpsePromptFn | null,
 ): Promise<void> {
   const summary = summarize(json);
-  const promptFn = glimpsePromptOverride !== undefined
-    ? glimpsePromptOverride
-    : await resolveGlimpsePrompt();
+  const promptFn =
+    glimpsePromptOverride !== undefined
+      ? glimpsePromptOverride
+      : await resolveGlimpsePrompt();
 
   if (promptFn) {
     try {
@@ -433,10 +466,15 @@ export async function openStatusPanel(
       overlay: true,
       overlayOptions: {
         anchor: "center",
-        margin: { bottom: 4, left: 2, right: 2, top: 2 },
         maxHeight: "70%",
         minWidth: MIN_WIDTH,
         width: PANEL_WIDTH,
+        margin: {
+          bottom: 4,
+          left: 2,
+          right: 2,
+          top: 2,
+        },
       },
     },
   );
