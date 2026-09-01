@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 /**
  * Discover legacy memoharness data: config, audit log, candidate queue,
@@ -106,14 +106,15 @@ export function buildCopyPlan(
     plan.push({
       bytes: statSync(bank).size,
       from: bank,
-      to: join(targetDataDir, "banks", basename(banksDirOf(bank)), "mnemosyne.db"),
+      to: join(targetDataDir, "banks", banksDirOf(bank), "mnemosyne.db"),
     });
   }
   return plan;
 }
 
 function banksDirOf(bankDbPath: string): string {
-  return basename(bankDbPath.split("/banks/")[1] ?? "");
+  // bankDbPath is <legacyDataDir>/banks/<projectDir>/mnemosyne.db
+  return basename(dirname(bankDbPath));
 }
 
 export function executeCopy(plan: CopyPlanItem[]): {
