@@ -105,27 +105,27 @@
 
 ### 11. Search Backend Abstraction
 
-- [ ] 11.1 Define SearchBackend interface (src/search/backend.ts) and verify interface is exported
-- [ ] 11.2 Define SearchResult and BackendCapabilities types and verify types cover all backends
-- [ ] 11.3 Implement backend selection logic with fallback chain and verify fallback order is respected
-- [ ] 11.4 Implement backend availability checking and verify unavailable backends are detected
-- [ ] 11.5 Add backend performance metrics tracking (latency, result count) and verify metrics are recorded
+- [x] 11.1 Define SearchBackend interface (src/search/backend.ts) and verify interface is exported
+- [x] 11.2 Define SearchResult and BackendCapabilities types and verify types cover all backends
+- [x] 11.3 Implement backend selection logic with fallback chain and verify fallback order is respected
+- [x] 11.4 Implement backend availability checking and verify unavailable backends are detected
+- [x] 11.5 Add backend performance metrics tracking (latency, result count) and verify metrics are recorded
 
 ### 12. Backend Implementations
 
-- [ ] 12.1 Implement MnemosyneBackend (src/search/mnemosyne-backend.ts) wrapping existing CLI code and verify it returns standardized results
-- [ ] 12.2 Implement RipgrepBackend (src/search/ripgrep-backend.ts) searching Markdown and JSONL and verify it finds matches with context
-- [ ] 12.3 Implement QmdBackend (src/search/qmd-backend.ts) for semantic search and verify it invokes qmd CLI correctly
-- [ ] 12.4 Implement scope mapping (global/project/session → backend-specific targets) and verify correct directories are searched
-- [ ] 12.5 Implement result limit enforcement across all backends and verify no backend exceeds requested limit
+- [x] 12.1 Implement MnemosyneBackend (src/search/mnemosyne-backend.ts) wrapping existing CLI code and verify it returns standardized results
+- [x] 12.2 Implement RipgrepBackend (src/search/ripgrep-backend.ts) searching Markdown and JSONL and verify it finds matches with context
+- [x] 12.3 Implement QmdBackend (src/search/qmd-backend.ts) for semantic search and verify it invokes qmd CLI correctly
+- [x] 12.4 Implement scope mapping (global/project/session → backend-specific targets) and verify correct directories are searched
+- [x] 12.5 Implement result limit enforcement across all backends and verify no backend exceeds requested limit
 
 ### 13. Backend Configuration and Polish
 
-- [ ] 13.1 Add backend configuration (preferred backend, fallback options) and verify runtime backend switching works
-- [ ] 13.2 Make mnemosyne an optionalDependency in package.json and verify package installs without mnemosyne
-- [ ] 13.3 Add backend installation guidance in error messages and verify messages include installation commands
-- [ ] 13.4 Update status command to show available backends and active backend and verify output is accurate
-- [ ] 13.5 Add comprehensive search backend tests and verify all backends pass integration tests
+- [x] 13.1 Add backend configuration (preferred backend, fallback options) and verify runtime backend switching works
+- [x] 13.2 Make mnemosyne an optionalDependency in package.json and verify package installs without mnemosyne
+- [x] 13.3 Add backend installation guidance in error messages and verify messages include installation commands
+- [x] 13.4 Update status command to show available backends and active backend and verify output is accurate
+- [x] 13.5 Add comprehensive search backend tests and verify all backends pass integration tests
 - [ ] 13.6 Tag v0.4.0 and create release and verify release notes document pluggable search
 
 ## Phase 5: v1.0 - Polish & Stabilization (Week 9+)
