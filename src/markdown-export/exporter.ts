@@ -130,9 +130,9 @@ async function readSession(
     const reader = createEventLogReader({
       sessionDir: sessionDirFor(dataDir, sessionId),
     });
-    const events = (await reader.readAll()).filter(
-      (event) => event.position > fromPosition,
-    );
+    // Incremental fast path (task 14.2): readAfter skips rotated files whose
+    // positions are all below the export mark; positions are monotonic.
+    const events = await reader.readAfter(fromPosition);
     return {
       corruptLines: reader.corruptLines(),
       events,

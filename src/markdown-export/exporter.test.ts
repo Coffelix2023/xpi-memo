@@ -170,6 +170,31 @@ describe("markdown export", () => {
     expect(readDaily().split("first run").length - 1).toBe(1);
   });
 
+  it("incremental export does not re-read fully exported sessions (fast path)", async () => {
+    writeEvents([
+      {
+        type: "user_message",
+        payload: {
+          text: "history",
+        },
+      },
+    ]);
+    await exportMarkdown({
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+    // no new events: second export must skip reading entirely
+    const second = await exportMarkdown({
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+    expect(second.sessions[0]?.exportedEvents).toBe(0);
+    expect(second.memoryMd).toBe(false);
+    expect(second.dailyFiles).toBe(0);
+  });
+
   it("validation reports missing exports, then passes after export", async () => {
     writeEvents([
       {

@@ -163,6 +163,29 @@ describe("createEventLogWriter", () => {
     });
   });
 
+  it("readAfter skips rotated files whose max position is already covered", () => {
+    const dataDir = makeTempDir("xpi-l0-read-after-");
+    const session = createSession(dataDir);
+    const writer = createEventLogWriter({
+      rotateBytes: 120,
+      sessionDir: session.dir,
+    });
+    for (let index = 1; index <= 6; index += 1)
+      writer.append("user_message", {
+        index,
+      });
+    const reader = createEventLogReader({
+      sessionDir: session.dir,
+    });
+    expect(reader.files().length).toBeGreaterThan(1);
+    return reader.readAfter(4).then((events) => {
+      expect(events.map((event) => event.position)).toEqual([
+        5,
+        6,
+      ]);
+    });
+  });
+
   it("recovers from corrupt line during position scan", () => {
     const dataDir = makeTempDir("xpi-l0-corrupt-");
     const session = createSession(dataDir);

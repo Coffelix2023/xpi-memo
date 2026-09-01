@@ -1,4 +1,12 @@
-import { createReadStream, existsSync, readdirSync } from "node:fs";
+import {
+  closeSync,
+  createReadStream,
+  existsSync,
+  openSync,
+  readdirSync,
+  readSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { L0Event, L0EventType } from "./types.js";
@@ -15,6 +23,13 @@ export interface EventLogReader {
   corruptLines(): string[];
   /** JSONL file paths in read order (oldest rotation first, active last). */
   files(): string[];
+  /**
+   * Read events with position > fromPosition, skipping files that cannot
+   * contain them (incremental-export fast path, task 14.2). Positions are
+   * monotonic per session, so a file whose maximum position is ≤ the mark
+   * holds nothing new.
+   */
+  readAfter(fromPosition: number): Promise<L0Event[]>;
   /** Read all events (active + rotated) in position order, streaming. */
   readAll(): Promise<L0Event[]>;
   /** Read events of one type, preserving order. */
@@ -119,9 +134,85 @@ export function createEventLogReader(options: EventLogReaderOptions): EventLogRe
   return {
     corruptLines: () => lastCorruptLines,
     files: () => listFiles(options.sessionDir),
+    readAfter: async (fromPosition) => {
+      const result = await readAfter(options.sessionDir, fromPosition);
+      lastCorruptLines = result.corruptLines;
+      return result.events;
+    },
     readAll: () => run(() => true),
     readByType: (type) => run((event) => event.type === type),
     readRange: (from, to) =>
       run((event) => event.position >= from && event.position <= to),
   };
+}
+
+/**
+ * Incremental fast path (task 14.2): read only events with position >
+ * fromPosition. Positions are monotonic within a session, so each file is
+ * pre-checked with a bounded tail read; a rotated file whose highest position
+ * is <= fromPosition is skipped entirely. The active file is always read
+ * (a writer may have appended since the mark). Corrupt lines are tolerated
+ * the same way as readAll.
+ */
+async function readAfter(
+  sessionDir: string,
+  fromPosition: number,
+): Promise<ReadResult> {
+  const corruptLines: string[] = [];
+  const files = listFiles(sessionDir);
+  if (files.length === 0)
+    return {
+      corruptLines: [],
+      events: [],
+    };
+  const toRead: string[] = [];
+  // All but the last file are rotated files; the last is always the active one.
+  for (const file of files.slice(0, -1)) {
+    const max = await maxPositionTail(file, corruptLines);
+    if (max > fromPosition || max === -1) toRead.push(file);
+  }
+  toRead.push(files.at(-1) as string);
+  const perFile = await Promise.all(
+    toRead.map((file) => readLines(file, corruptLines)),
+  );
+  const events: L0Event[] = [];
+  for (const content of perFile)
+    for (const event of content) if (event.position > fromPosition) events.push(event);
+  return {
+    corruptLines,
+    events,
+  };
+}
+
+/**
+ * Highest event position in a file, via a bounded tail scan (rotated files
+ * are position-ordered, so the max is the last valid line). Returns -1 when
+ * the tail is inconclusive (e.g. corrupt tail lines), forcing a full read.
+ */
+async function maxPositionTail(file: string, corruptLines: string[]): Promise<number> {
+  try {
+    const stats = statSync(file);
+    const tailSize = Math.min(stats.size, 64 * 1024);
+    const handle = openSync(file, "r");
+    try {
+      const buffer = Buffer.alloc(tailSize);
+      const read = readSync(handle, buffer, 0, tailSize, stats.size - tailSize);
+      const text = buffer.toString("utf8", 0, read);
+      // Drop the first partial line when reading from mid-file.
+      const lines = text.split("\n");
+      const relevant = stats.size > tailSize ? lines.slice(1) : lines;
+      let max = -1;
+      for (const line of relevant) {
+        if (!line.trim()) continue;
+        const parsed = parseLine(line);
+        if (parsed) max = Math.max(max, parsed.position);
+        else corruptLines.push(line);
+      }
+      return max;
+    } finally {
+      closeSync(handle);
+    }
+  } catch {
+    return -1;
+  }
 }

@@ -133,7 +133,7 @@
 ### 14. Performance Optimization
 
 - [x] 14.1 Optimize L0 log rotation for large sessions and verify rotation doesn't block operations
-- [ ] 14.2 Optimize Markdown export for large histories and verify incremental export is fast
+- [x] 14.2 Optimize Markdown export for large histories and verify incremental export is fast
 - [ ] 14.3 Add caching for expensive operations (project identity resolution, backend availability) and verify caching reduces latency
 - [ ] 14.4 Profile and optimize hot paths and verify improvements with benchmarks
 
