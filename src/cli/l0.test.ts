@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { formatL0Status, l0Status, reconcile } from "./l0.js";
+import { l0Status } from "./l0.js";
 
 const tempDirs: string[] = [];
 function makeTempDir(prefix: string): string {
@@ -21,7 +21,7 @@ afterEach(() => {
   }
 });
 
-function setupDataDir(withAuditWrites = 0): {
+function setupDataDir(): {
   dataDir: string;
   configHome: string;
 } {
@@ -54,25 +54,6 @@ function setupDataDir(withAuditWrites = 0): {
     join(sessionDir, "events.jsonl"),
     `${event(1, "user_message")}${event(2, "t1_memory_write")}${event(3, "t1_memory_write")}`,
   );
-  if (withAuditWrites > 0) {
-    const entries = Array.from(
-      {
-        length: withAuditWrites,
-      },
-      (_, index) => ({
-        action: "write",
-        metadata: {},
-        timestamp: `2024-01-01T00:00:0${index}Z`,
-      }),
-    );
-    writeFileSync(
-      join(dataDir, "audit.json"),
-      JSON.stringify({
-        entries,
-        version: 1,
-      }),
-    );
-  }
   return {
     configHome,
     dataDir,
@@ -106,44 +87,5 @@ describe("l0Status (Task 7.1)", () => {
     });
     expect(status.sessionCount).toBe(0);
     expect(status.totalEvents).toBe(0);
-  });
-
-  it("formatL0Status renders human-readable summary", () => {
-    const { configHome } = setupDataDir();
-    const output = formatL0Status(
-      l0Status({
-        configHome,
-        env: {},
-      }),
-    );
-    expect(output).toContain("L0 enabled");
-    expect(output).toContain("Sessions: 1");
-    expect(output).toContain("Events: 3");
-  });
-});
-
-describe("reconcile (Task 7.2/7.3)", () => {
-  it("detects divergence when L0 has writes missing from audit", async () => {
-    const { configHome } = setupDataDir(0);
-    const report = await reconcile({
-      configHome,
-      env: {},
-    });
-    expect(report.l0Writes).toBe(2);
-    expect(report.auditWrites).toBe(0);
-    expect(report.divergences).toHaveLength(1);
-    expect(report.canReplay).toBe(true);
-  });
-
-  it("reports no divergence when audit matches L0", async () => {
-    const { configHome } = setupDataDir(2);
-    const report = await reconcile({
-      configHome,
-      env: {},
-    });
-    expect(report.l0Writes).toBe(2);
-    expect(report.auditWrites).toBe(2);
-    expect(report.divergences).toEqual([]);
-    expect(report.canReplay).toBe(false);
   });
 });

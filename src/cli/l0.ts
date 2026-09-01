@@ -1,9 +1,7 @@
 /**
- * L0 operational commands (Task 7.1-7.3).
+ * L0 operational status (Task 7.1).
  *
- * - `l0 status`: session count, event count, disk usage per session.
- * - `doctor --reconcile`: compare L0 t1_memory_write events with audit.json
- *   writes; report divergence and whether replay can recover missing writes.
+ * - `l0Status`: session count, event count, disk usage per session.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -11,8 +9,6 @@ import { join } from "node:path";
 import { loadConfig } from "../config.js";
 import { createEventLogReader } from "../l0/event-log-reader.js";
 import { sessionsDirFor } from "../l0/l0-runtime.js";
-import type { L0Event } from "../l0/types.js";
-
 export interface SessionStats {
   bytes: number;
   eventCount: number;
@@ -25,12 +21,6 @@ export interface L0Status {
   sessions: SessionStats[];
   totalBytes: number;
   totalEvents: number;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function countLines(file: string): number {
@@ -77,83 +67,4 @@ export function l0Status(
     totalBytes: sessions.reduce((sum, session) => sum + session.bytes, 0),
     totalEvents: sessions.reduce((sum, session) => sum + session.eventCount, 0),
   };
-}
-
-export interface ReconcileReport {
-  /** write entries recorded in audit.json */
-  auditWrites: number;
-  /** true when L0 has writes missing from audit (replayable) */
-  canReplay: boolean;
-  divergences: string[];
-  /** t1_memory_write events found in L0 */
-  l0Writes: number;
-}
-
-export async function reconcile(
-  options: { configHome?: string; env?: NodeJS.ProcessEnv } = {},
-): Promise<ReconcileReport> {
-  const { config } = loadConfig({
-    configHome: options.configHome,
-    env: options.env,
-  });
-  const sessionsRoot = sessionsDirFor(config.dataDir);
-  const l0Writes: L0Event[] = [];
-
-  if (existsSync(sessionsRoot)) {
-    const readers = readdirSync(sessionsRoot).map((entry) =>
-      createEventLogReader({
-        sessionDir: join(sessionsRoot, entry),
-      }),
-    );
-    const allEvents = await Promise.all(readers.map((reader) => reader.readAll()));
-    for (const events of allEvents)
-      for (const event of events)
-        if (event.type === "t1_memory_write") l0Writes.push(event);
-  }
-
-  const auditPath = join(config.dataDir, "audit.json");
-  let auditWrites = 0;
-  if (existsSync(auditPath)) {
-    try {
-      const parsed = JSON.parse(readFileSync(auditPath, "utf8")) as {
-        entries?: Array<{
-          action?: unknown;
-        }>;
-      };
-      auditWrites = (parsed.entries ?? []).filter(
-        (entry) => entry.action === "write",
-      ).length;
-    } catch {
-      // corrupt audit counts as zero; divergence is reported below
-    }
-  }
-
-  const divergences: string[] = [];
-  if (l0Writes.length !== auditWrites) {
-    divergences.push(
-      `L0 has ${l0Writes.length} t1_memory_write events but audit.json has ${auditWrites} write entries`,
-    );
-  }
-
-  return {
-    auditWrites,
-    canReplay: l0Writes.length > auditWrites,
-    divergences,
-    l0Writes: l0Writes.length,
-  };
-}
-
-export function formatL0Status(status: L0Status): string {
-  const lines = [
-    `L0 ${status.enabled ? "enabled" : "DISABLED (v0.1 behavior)"}`,
-    `Sessions: ${status.sessionCount}`,
-    `Events: ${status.totalEvents}`,
-    `Disk usage: ${formatBytes(status.totalBytes)}`,
-  ];
-  for (const session of status.sessions.slice(-5)) {
-    lines.push(
-      `  ${session.sessionId}: ${session.eventCount} events, ${formatBytes(session.bytes)}`,
-    );
-  }
-  return lines.join("\n");
 }

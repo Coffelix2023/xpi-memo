@@ -25,12 +25,6 @@ export const DEFAULT_XPI_MEMO_CONFIG = {
   searchBackend: "auto",
 } as const;
 
-const LEGACY_MEMOHARNESS_DATA_DIR = join(homedir(), ".local", "share", "memoharness");
-
-export function legacyDataDirExists(): boolean {
-  return existsSync(LEGACY_MEMOHARNESS_DATA_DIR);
-}
-
 export type RetrievalMode = "fts5" | "hybrid";
 
 /**

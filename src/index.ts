@@ -16,9 +16,8 @@ import {
   type RoutingContext,
 } from "./banks.ts";
 import { type CandidateStore, createCandidateStore } from "./candidate-lifecycle.ts";
-import { formatL0Status, l0Status, reconcile } from "./cli/l0.js";
-import { runMigrateCommand } from "./cli/migrate.ts";
-import { legacyDataDirExists, loadConfig, saveUserConfig } from "./config.ts";
+import { l0Status } from "./cli/l0.js";
+import { loadConfig, saveUserConfig } from "./config.ts";
 import { openConsole } from "./console.ts";
 import { classifyProhibitedContent } from "./content-policy.ts";
 import { createEvidenceRecord } from "./evidence.ts";
@@ -47,11 +46,13 @@ import {
 } from "./sleep-capability.ts";
 import { executeSleep } from "./sleep-execution.ts";
 import {
+  formatStatusJson,
   type MemoryStatus,
   renderStatus,
   todayStored,
   visibleBankDiskBytes,
 } from "./status.ts";
+import { openStatusPanel } from "./status-panel.ts";
 import { createMemorySurface } from "./surface.ts";
 import { renderCallLine, renderToolLine } from "./tool-rendering.ts";
 
@@ -870,7 +871,6 @@ async function statusForContext(
   const projectDbPath = projectBank ? bankDbPath(config.dataDir, projectBank) : null;
   const storage = {
     dataDir: config.dataDir,
-    legacyDataDirExists: legacyDataDirExists(),
     files: {
       audit: existsSync(join(config.dataDir, "audit.json")),
       candidates: existsSync(join(config.dataDir, "candidates.json")),
@@ -985,10 +985,11 @@ export default function xpiMemo(
         ctx.ui.notify("Use /xpi-memo-status for JSON status outside the TUI.", "info");
         return;
       }
+      const status = await statusForContext(ctx.cwd, dependencies);
       const runtime = createRuntime(ctx.cwd, dependencies);
       await openConsole(
         ctx,
-        await statusForContext(ctx.cwd, dependencies),
+        status,
         runtime.config,
         dependencies.env ?? process.env,
         runtime.candidates.list(),
@@ -1055,50 +1056,22 @@ export default function xpiMemo(
   });
 
   pi.registerCommand("xpi-memo-status", {
-    description: "Show the XpiMemo T1 status",
+    description: "Show the XpiMemo T1 status (panel in TUI, JSON elsewhere)",
     handler: async (_args, ctx) => {
-      ctx.ui.notify(
-        JSON.stringify(await statusForContext(ctx.cwd, dependencies)),
-        "info",
-      );
-    },
-  });
-
-  pi.registerCommand("xpi-memo-l0", {
-    description: "L0 session-trace status; pass --reconcile to check divergence",
-    handler: async (args, ctx) => {
-      const env = dependencies.env ?? process.env;
-      if (args.includes("--reconcile")) {
-        const report = await reconcile({
-          env,
-        });
-        const lines = [
-          `L0 writes: ${report.l0Writes}`,
-          `Audit writes: ${report.auditWrites}`,
-          ...report.divergences.map((item) => `divergence: ${item}`),
-          report.canReplay
-            ? "Replay available: L0 is the source of truth; missing audit entries can be regenerated."
-            : "No replay needed.",
-        ];
-        ctx.ui.notify(lines.join("\n"), "info");
+      const status = await statusForContext(ctx.cwd, dependencies);
+      if (ctx.mode === "tui") {
+        await openStatusPanel(
+          ctx,
+          formatStatusJson(
+            status,
+            l0Status({
+              env: dependencies.env ?? process.env,
+            }),
+          ),
+        );
         return;
       }
-      ctx.ui.notify(
-        formatL0Status(
-          l0Status({
-            env,
-          }),
-        ),
-        "info",
-      );
-    },
-  });
-
-  pi.registerCommand("xpi-memo-migrate", {
-    description: "Migrate data from memoharness (usage: /xpi-memo-migrate --help)",
-    handler: async (args, ctx) => {
-      const output = await runMigrateCommand(args.split(WS_SPLIT).filter(Boolean));
-      ctx.ui.notify(output, "info");
+      ctx.ui.notify(JSON.stringify(status), "info");
     },
   });
 

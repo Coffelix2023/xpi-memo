@@ -73,7 +73,6 @@ describe("XpiMemo status", () => {
     },
     storage: {
       dataDir: "/tmp/xpi-memo",
-      legacyDataDirExists: false,
       files: {
         audit: true,
         candidates: true,

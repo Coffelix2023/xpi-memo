@@ -161,8 +161,6 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(commands.map(({ name }) => name)).toEqual([
       "xpi-memo",
       "xpi-memo-status",
-      "xpi-memo-l0",
-      "xpi-memo-migrate",
       "xpi-memo-export",
     ]);
     expect(tools.map(({ name }) => name)).toEqual([
@@ -718,7 +716,6 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(status.recentEntries).toBeDefined();
     expect(status.storage).toMatchObject({
       dataDir: dataDir,
-      legacyDataDirExists: expect.any(Boolean),
     });
     expect(status.retrieval).toEqual({
       embeddingAvailable: null,

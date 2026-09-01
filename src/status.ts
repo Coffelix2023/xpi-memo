@@ -2,7 +2,7 @@ import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AuditEntry } from "./audit.js";
-
+import type { L0Status } from "./cli/l0.js";
 export interface MemoryStatus {
   counts: {
     global: number | null;
@@ -61,7 +61,6 @@ export interface MemoryStatus {
       globalDb: boolean;
       projectDb: boolean;
     };
-    legacyDataDirExists?: boolean;
   };
   tiers: {
     L0: "external-session-trace";
@@ -164,7 +163,6 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
     storage: status.storage
       ? {
           dataDir: status.storage.dataDir,
-          legacyDataDirExists: status.storage.legacyDataDirExists,
           files: {
             audit: status.storage.files.audit,
             candidates: status.storage.files.candidates,
@@ -215,4 +213,24 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
       T3: "deferred-memvid",
     },
   };
+}
+
+/**
+ * Human-readable (indented) JSON status shared by /xpi-memo-status and the
+ * console Status tab: rendered MemoryStatus plus an L0 session-trace summary.
+ */
+export function formatStatusJson(status: MemoryStatus, l0: L0Status): string {
+  return JSON.stringify(
+    {
+      ...renderStatus(status),
+      l0: {
+        enabled: l0.enabled,
+        sessionCount: l0.sessionCount,
+        totalBytes: l0.totalBytes,
+        totalEvents: l0.totalEvents,
+      },
+    },
+    null,
+    2,
+  );
 }
