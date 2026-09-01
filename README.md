@@ -14,8 +14,26 @@ A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension
 
 ## Installation
 
+From the GitHub repository (pinned to a tag):
+
 ```bash
-pi install xpi-memo
+pi install git:github.com/Coffelix2023/xpi-memo@v0.4.0
+```
+
+Or a local clone / working copy:
+
+```bash
+pi install /absolute/path/to/xpi-memo
+```
+
+`pi install` runs `npm install` inside the package; the extension itself has no build step (Pi loads `src/index.ts` directly).
+
+**Optional search backends** (any subset; the search chain falls back automatically — mnemosyne → ripgrep → qmd — and status reports what is available):
+
+```bash
+uv tool install mnemosyne-memory   # vector + FTS5 search
+brew install ripgrep               # full-text search (macOS); dnf install ripgrep on Fedora
+# qmd (optional semantic search): https://github.com/tobi/qmd#installation
 ```
 
 ## Usage
@@ -23,8 +41,10 @@ pi install xpi-memo
 ### Commands
 
 - `/xpi-memo` — Open TUI console
-- `/xpi-memo-status` — Show JSON status
+- `/xpi-memo-status` — Show JSON status (includes search backend availability)
+- `/xpi-memo-l0` — L0 session-trace status; `--reconcile` checks divergence
 - `/xpi-memo-migrate --help` — Migrate data from memoharness
+- `/xpi-memo-export [--session <id>] [--force] [--validate]` — Export L0 events to Markdown
 
 ### Tools
 
@@ -43,9 +63,14 @@ Environment variables:
 
 - `XPI_MEMO_DATA_DIR`
 - `XPI_MEMO_PAUSED`
+- `XPI_MEMO_L0_ENABLED`
 - `XPI_MEMO_LIMIT`
 - `XPI_MEMO_GLOBAL_LIMIT`
 - `XPI_MEMO_PROJECT_LIMIT`
+- `XPI_MEMO_AUTO_EXPORT`
+- `XPI_MEMO_EXCLUDE_TOOL_RESULTS`
+- `XPI_MEMO_PRIVACY`
+- `XPI_MEMO_SEARCH_BACKEND` = `auto|mnemosyne|ripgrep|qmd`
 - `XPI_MEMO_RECALL_POLICY`
 - `XPI_MEMO_RETRIEVAL_MODE`
 
