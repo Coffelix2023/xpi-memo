@@ -168,6 +168,24 @@ describe("XpiMemo configuration", () => {
     expect(result.ignoredKeys).toEqual([]);
   });
 
+  it("loads offlineExtractionEnabled from the environment with safe fallback", () => {
+    const configHome = createTemporaryDirectory();
+    const enabled = loadConfig({
+      configHome,
+      env: {
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+    }).config.offlineExtractionEnabled;
+    expect(enabled).toBe(true);
+
+    const invalid = loadConfig({
+      configHome,
+      env: {
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "not-a-boolean",
+      },
+    }).config.offlineExtractionEnabled;
+    expect(invalid).toBe(false);
+  });
   it("uses XDG_CONFIG_HOME and falls back to the home config directory", () => {
     const xdgConfigHome = createTemporaryDirectory();
     mkdirSync(join(xdgConfigHome, "xpi-memo"), {

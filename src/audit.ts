@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import type { EvidenceType } from "./evidence.js";
 
 export const AUDIT_ACTIONS = [
   "write",
@@ -17,16 +18,24 @@ export const AUDIT_ACTIONS = [
   "fallback",
   "sleep-authorization",
   "cross-layer-promotion",
+  "extraction",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 export interface AuditMetadata {
+  /** Search backend name that executed the recall (task 5.6). */
+  backend?: string;
   bank?: string;
   confidence?: number;
+  evidenceType?: EvidenceType;
   fallback?: boolean;
+  /** Number of results actually injected after ranking and budgets (task 5.6). */
+  injectedCount?: number;
   kind?: string;
   reason?: string;
+  /** Number of results the backend returned (task 5.6). */
+  resultCount?: number;
   scope?: "global" | "session";
   status?: string;
   trigger?: string;
@@ -56,10 +65,14 @@ interface CreateAuditLogOptions {
 const DEFAULT_MAX_ENTRIES = 200;
 const ALLOWED_METADATA_KEYS = new Set([
   "bank",
+  "backend",
   "confidence",
+  "evidenceType",
   "fallback",
+  "injectedCount",
   "kind",
   "reason",
+  "resultCount",
   "scope",
   "status",
   "trigger",

@@ -28,9 +28,12 @@ export type MnemosyneSearchRunner = (
 interface RawRow {
   content?: unknown;
   id?: unknown;
+  importance?: unknown;
   scope?: unknown;
   score?: unknown;
   source?: unknown;
+  superseded_by?: unknown;
+  timestamp?: unknown;
 }
 
 interface RawPayload {
@@ -56,9 +59,36 @@ function toResults(bank: string, output: string): SearchResult[] {
   const results: SearchResult[] = [];
   for (const row of rows) {
     if (typeof row.content !== "string") continue;
+    const kind = decodeKind(row.source);
+    // Task 5.1: the default (global) bank may only surface global memories.
+    // Project-kind rows leaking into global recall would cross scope boundaries.
+    if (
+      bank === "default" &&
+      kind &&
+      kind !== "global_preference" &&
+      kind !== "global_workflow"
+    )
+      continue;
+    const confidence = typeof row.importance === "number" ? row.importance : undefined;
     results.push({
       content: row.content,
-      kind: decodeKind(row.source),
+      kind,
+      ...(typeof row.timestamp === "string"
+        ? {
+            timestamp: row.timestamp,
+          }
+        : {}),
+      ...(row.superseded_by !== undefined
+        ? {
+            supersededBy:
+              typeof row.superseded_by === "string" ? row.superseded_by : null,
+          }
+        : {}),
+      ...(confidence !== undefined
+        ? {
+            confidence,
+          }
+        : {}),
       score: typeof row.score === "number" ? row.score : 0,
       source: {
         bank,

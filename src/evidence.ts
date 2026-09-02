@@ -9,6 +9,24 @@ export const EVIDENCE_TYPES = [
 
 export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
 
+/**
+ * Provenance-safe evidence classification (task 2.4). Only provenance that
+ * points at a recorded L0 user event (`input:` prefix, set by the input hook)
+ * supports `explicit-user-statement`. Agent tool input, model inference,
+ * derived content, and missing provenance stay `verified-tool-result`.
+ */
+export function evidenceTypeForProvenance(
+  provenance:
+    | {
+        source: string;
+      }
+    | undefined,
+): EvidenceType {
+  return provenance?.source.startsWith("input:")
+    ? "explicit-user-statement"
+    : "verified-tool-result";
+}
+
 export interface EvidenceRecordInput {
   confidence: number;
   provenance: string;

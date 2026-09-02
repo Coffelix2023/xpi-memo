@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -231,5 +231,32 @@ describe("detectMemoryRootSurfaces", () => {
     expect(new Set(inodes.filter((inode) => inode !== null)).size).toBeLessThanOrEqual(
       inodes.length,
     );
+    expect(new Set(inodes.filter((inode) => inode !== null)).size).toBeLessThanOrEqual(
+      inodes.length,
+    );
+  });
+
+  it("detects a missing configured root read-only without creating it (task 6.4)", () => {
+    const missing = join(tmpdir(), `xpi-doctor-missing-${Date.now()}`);
+    expect(existsSync(missing)).toBe(false);
+
+    const surfaces = detectMemoryRootSurfaces(missing);
+    const configured = surfaces.find((surface) => surface.role === "configured");
+    expect(configured?.present).toBe(false);
+    expect(configured?.inode).toBeNull();
+
+    // Read-only doctor: the missing path stays missing; no root was created.
+    expect(existsSync(missing)).toBe(false);
+  });
+
+  it("does not create symlinks or merge roots during detection (task 6.4)", () => {
+    const configured = mkdtempSync(join(tmpdir(), "xpi-doctor-"));
+    created.push(configured);
+    const before = readdirSync(configured);
+
+    detectMemoryRootSurfaces(configured);
+
+    // No migration, symlink, or auto-merge side effect in the visible root.
+    expect(readdirSync(configured)).toEqual(before);
   });
 });

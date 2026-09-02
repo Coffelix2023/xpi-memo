@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { l0Status } from "./cli/l0.js";
 import type { XpiMemoConfig } from "./config.js";
+import { describeMemoryKindOrNull } from "./kinds.js";
 import type { PendingCandidate } from "./pending-candidate.js";
 import { formatStatusJson, type MemoryStatus } from "./status.js";
 
@@ -184,7 +185,7 @@ export function tabTitleLines(
 export function pendingItems(pending: PendingCandidate[]): SelectItem[] {
   return pending.map((candidate) => ({
     description: candidate.content.slice(0, 80),
-    label: `${candidate.kind} · ${candidate.targetBank}`,
+    label: `${describeMemoryKindOrNull(candidate.kind)?.label ?? candidate.kind} · ${candidate.targetBank}`,
     value: candidate.id,
   }));
 }
@@ -193,7 +194,7 @@ export function pendingItems(pending: PendingCandidate[]): SelectItem[] {
 export function recentLines(status: MemoryStatus): string[] {
   return (status.recentEntries ?? []).map(
     (entry) =>
-      `${entry.action} · ${entry.kind ?? "-"} · ${entry.bank ?? "-"} · ${entry.status ?? "-"} · ${entry.timestamp}`,
+      `${entry.action} · ${describeMemoryKindOrNull(entry.kind)?.label ?? entry.kind ?? "-"} · ${entry.bank ?? "-"} · ${entry.status ?? "-"} · ${entry.timestamp}`,
   );
 }
 

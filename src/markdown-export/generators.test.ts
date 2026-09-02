@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { describeMemoryKind, MEMORY_KINDS } from "../kinds.js";
 import { createL0Event, L0_EVENT_TYPES, type L0Event } from "../l0/types.js";
 import { generateDailyLogs } from "./daily-generator.js";
 import { collectMemoryEntries, generateMemoryMarkdown } from "./memory-generator.js";
@@ -120,6 +121,44 @@ describe("memory generator", () => {
     expect(doc.markdown.split("## ").length - 1).toBe(4);
   });
 
+  it("renders one canonical section for every supported kind", () => {
+    const doc = generateMemoryMarkdown([
+      {
+        events: MEMORY_KINDS.map((kind, position) =>
+          event("t1_memory_write", position + 1, {
+            content: `memory-${kind}`,
+            kind,
+          }),
+        ),
+        sessionId: SESSION,
+      },
+    ]);
+    for (const kind of MEMORY_KINDS) {
+      expect(doc.markdown).toContain(`## ${describeMemoryKind(kind).sectionTitle}`);
+    }
+    expect(doc.markdown).not.toContain("## Other");
+  });
+
+  it("groups every supported kind under its own canonical section, never Other", () => {
+    const doc = generateMemoryMarkdown([
+      {
+        events: MEMORY_KINDS.map((kind, position) =>
+          event("t1_memory_write", position + 1, {
+            content: `memory-${kind}`,
+            kind,
+          }),
+        ),
+        sessionId: SESSION,
+      },
+    ]);
+    const sectionTitles = MEMORY_KINDS.map(
+      (kind) => describeMemoryKind(kind).sectionTitle,
+    );
+    // One section per kind, in canonical order, each with exactly one entry.
+    expect(doc.sections.map((section) => section.title)).toEqual(sectionTitles);
+    expect(doc.markdown.split("\n## ").length - 1).toBe(MEMORY_KINDS.length);
+    expect(doc.markdown).not.toContain("## Other");
+  });
   it("keeps only the latest version of duplicate content (latest-wins)", () => {
     const entries = collectMemoryEntries([
       {

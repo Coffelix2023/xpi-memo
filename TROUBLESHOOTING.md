@@ -46,6 +46,32 @@ If that shows rows while a bare `mnemosyne stats` does not, you are looking at t
 3. Writes needing review become **candidates** — confirm them via the console (`/xpi-memo`).
 4. L0 write failure aborts governed writes by design (dual-write, L0 first). Check disk space and permissions on `<dataDir>/sessions/`.
 
+## Explicit intent not captured
+
+1. **Statement type** — only explicit durable statements are captured: preferences, workflow rules, project decisions, constraints, gotchas, bounded session context. Ordinary conversation and ambiguous statements are deliberately skipped (never guessed).
+2. **Repository facts** (`project_gene`) are never auto-extracted — they require verified evidence. Use `xpi_memo_remember` instead.
+3. **Project statements in a non-Git directory** are skipped (`missing-project-context`) — content never silently falls back to the global bank. Run inside the Git project or store it explicitly.
+4. **Candidate backlog** — project decisions/constraints/gotchas become candidates; confirm them in the Pending tab or they stay pending.
+5. **Idempotency** — replaying the same input or a simultaneous remember call is deduplicated by design; no duplicate row is created. This is not data loss.
+
+## Offline extraction (gated enrichment)
+
+- **Disabled by default.** `offlineExtractionEnabled` (or `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED=true`) must be set explicitly.
+- Extraction runs only at **session shutdown**, reads the last 200 L0 events, and has a 15 s timeout. Slow or failing runners never block the session; check `/xpi-memo-status` `observability.activation.extraction` for outcome counts.
+- Per-session budgets (1 execution / 20 proposals / 5 000 chars) stop further work on exhaustion; `extraction-budget.json` records only counts, never content.
+- Proposals always carry `l0-conclusion` evidence. High-confidence (≥0.9) short session context stores directly; everything else becomes a candidate for review.
+- Explicit deterministic capture never depends on extraction being present, enabled, or healthy.
+
+## Candidate backlog keeps growing
+
+- Review the Pending tab (`/xpi-memo`): Store / Later / Reject per candidate.
+- The startup reminder fires only when the backlog reaches 3+ pending candidates and is throttled to once per 6 hours; if you do not see it, the backlog is below the threshold or the cooldown is active.
+
+## Recall behaves differently than expected
+
+- **Nothing injected** — check `recallPolicy`: `assist` never injects automatically; `high-value-auto` (default) injects only on continuity/history triggers (e.g. "继续上次", "resume where we left off"). Switch to `active` for recall on every prompt.
+- **Stale or duplicate results** — ranking filters superseded memories and deduplicates content; results you expect may be filtered. Diagnostics in `/xpi-memo-status` (`observability.activation.recall` vs `recalledHits`) distinguish "backend queried with no hits" from "no backend executed".
+- **Memory block missing entirely** — when no result survives the budgets, the block is omitted by design rather than injecting an empty trace.
 ## L0 looks wrong
 
 - Stats: `/xpi-memo-l0` (sessions, events, disk usage).

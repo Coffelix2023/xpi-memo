@@ -16,6 +16,7 @@ export function toolLine(details: ToolLineDetails | undefined): string {
   if (status === "stored")
     return `stored ${String(details.kind ?? "memory")} → ${String(details.bank ?? "default")}`;
   if (status === "rejected") return `rejected: ${String(details.reason ?? "unknown")}`;
+  if (status === "skipped") return `skipped: ${String(details.reason ?? "unknown")}`;
   if (status === "executed") return "sleep completed";
   if (status === "candidate") return `candidate ${String(details.kind ?? "memory")}`;
   return status;

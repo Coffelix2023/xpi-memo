@@ -104,4 +104,28 @@ describe("T1 pending candidate generation", () => {
 
     expect(generatePendingCandidate(input)).toBeNull();
   });
+
+  it("forces candidate creation when allowAutoStore is false even for auto-eligible memory", () => {
+    const candidate = generatePendingCandidate({
+      allowAutoStore: false,
+      content: "The repository uses pnpm.",
+      evidence: createEvidenceRecord({
+        confidence: 0.95,
+        provenance: "git:abc123",
+        source: "package.json",
+        type: "verified-repository-fact",
+      }),
+      kind: "project_gene",
+      rationale: "Offline extraction requires review before persistence.",
+      reason: "high-impact-durable",
+      verified: true,
+      context: {
+        dataDir: "/tmp/xpi-memo-candidates",
+        projectBank: "project-p-0123456789ab",
+      },
+    });
+    expect(candidate).not.toBeNull();
+    expect(candidate?.kind).toBe("project_gene");
+    expect(candidate?.status).toBe("pending");
+  });
 });

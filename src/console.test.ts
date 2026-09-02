@@ -382,7 +382,7 @@ describe("4.4 Pending tab", () => {
     const items = pendingItems([
       candidate("a"),
     ]);
-    expect(items[0]?.label).toBe("project_decision · project-demo");
+    expect(items[0]?.label).toBe("Decision · project-demo");
     expect(items[0]?.description).toBe("Use the existing adapter boundary a.");
     expect(items[0]?.value).toBe("a");
   });
@@ -428,7 +428,7 @@ describe("4.5 Recent tab", () => {
   it("recentLines emit audit metadata only", () => {
     const lines = recentLines(status());
     expect(lines[0]).toBe(
-      "write · project_decision · project-demo · stored · 2026-08-29T10:00:00.000Z",
+      "write · Decision · project-demo · stored · 2026-08-29T10:00:00.000Z",
     );
     expect(lines.join(" ")).not.toContain("adapter boundary");
   });

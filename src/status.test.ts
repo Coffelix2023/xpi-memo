@@ -163,6 +163,13 @@ describe("XpiMemo status", () => {
       storage: status.storage,
       tiers: status.tiers,
     });
+    expect(rendered.recentEntries?.[0]).toMatchObject({
+      kind: "project_decision",
+      label: "Decision",
+      memoryScope: "project",
+      role: "contextual",
+      trustState: "Review required",
+    });
   });
 
   it("does not expose secrets or raw payload fields", () => {

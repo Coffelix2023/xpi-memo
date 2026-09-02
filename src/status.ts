@@ -4,6 +4,8 @@ import { join } from "node:path";
 import type { AuditEntry } from "./audit.js";
 import type { L0Status } from "./cli/l0.js";
 import type { MemoryDoctorReport } from "./doctor.js";
+import { describeMemoryKindOrNull } from "./kinds.js";
+import type { ObservabilitySnapshot } from "./observability.js";
 export interface MemoryStatus {
   counts: {
     global: number | null;
@@ -19,6 +21,7 @@ export interface MemoryStatus {
   /** Empty-memory diagnosis + evidence bundle (task 4.2/4.3). */
   doctor?: MemoryDoctorReport;
   fallback: boolean | null;
+  observability?: ObservabilitySnapshot;
   paused: boolean;
   pendingCandidates: number;
   provenance: string;
@@ -30,6 +33,10 @@ export interface MemoryStatus {
     action: string;
     bank?: string;
     kind?: string;
+    label?: string;
+    role?: "standing" | "contextual";
+    memoryScope?: "global" | "project" | "session";
+    trustState?: string;
     scope?: string;
     status?: string;
     timestamp: string;
@@ -153,6 +160,7 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
     diskBytes: status.diskBytes,
     doctor: status.doctor,
     fallback: status.fallback,
+    observability: status.observability,
     paused: status.paused,
     pendingCandidates: status.pendingCandidates,
     provenance: status.provenance,
@@ -160,6 +168,14 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
       action: entry.action,
       bank: entry.bank,
       kind: entry.kind,
+      ...(describeMemoryKindOrNull(entry.kind)
+        ? {
+            label: describeMemoryKindOrNull(entry.kind)?.label,
+            memoryScope: describeMemoryKindOrNull(entry.kind)?.scope,
+            role: describeMemoryKindOrNull(entry.kind)?.role,
+            trustState: describeMemoryKindOrNull(entry.kind)?.trustState,
+          }
+        : {}),
       scope: entry.scope,
       status: entry.status,
       timestamp: entry.timestamp,

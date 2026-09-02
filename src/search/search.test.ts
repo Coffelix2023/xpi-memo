@@ -286,6 +286,107 @@ describe("Task 12.1 — MnemosyneBackend", () => {
     expect(banks[0]).toBe("project-acme");
   });
 
+  it("filters project-kind rows out of the default (global) bank (task 5.1)", async () => {
+    const backend = new MnemosyneBackend(
+      {
+        dataDir: "/tmp/x",
+        projectBank: "project-acme",
+      },
+      async () =>
+        JSON.stringify({
+          results: [
+            {
+              content: "global preference",
+              id: "g1",
+              score: 0.9,
+              source:
+                "kind=global_preference;ev=explicit-user-statement;prov=user;ts=t;src=user",
+            },
+            {
+              content: "leaked project decision",
+              id: "p1",
+              score: 0.95,
+              source:
+                "kind=project_decision;ev=verified-tool-result;prov=pi;ts=t;src=task",
+            },
+          ],
+        }),
+    );
+    const results = await backend.search(
+      query({
+        scope: "global",
+      }),
+    );
+    expect(results.map(({ content }) => content)).toEqual([
+      "global preference",
+    ]);
+  });
+
+  it("parses row importance as confidence (task 5.3)", async () => {
+    const backend = new MnemosyneBackend(
+      {
+        dataDir: "/tmp/x",
+        projectBank: null,
+      },
+      async () =>
+        JSON.stringify({
+          results: [
+            {
+              content: "high confidence",
+              id: "m1",
+              importance: 0.9,
+              score: 0.5,
+              source:
+                "kind=global_preference;ev=explicit-user-statement;prov=user;ts=t;src=user",
+            },
+            {
+              content: "no confidence",
+              id: "m2",
+              score: 0.5,
+              source:
+                "kind=global_workflow;ev=explicit-user-statement;prov=user;ts=t;src=user",
+            },
+          ],
+        }),
+    );
+    const results = await backend.search(
+      query({
+        scope: "global",
+      }),
+    );
+    expect(results[0]?.confidence).toBe(0.9);
+    expect(results[1]?.confidence).toBeUndefined();
+  });
+
+  it("keeps project-kind rows when searching the project bank", async () => {
+    const backend = new MnemosyneBackend(
+      {
+        dataDir: "/tmp/x",
+        projectBank: "project-acme",
+      },
+      async () =>
+        JSON.stringify({
+          results: [
+            {
+              content: "project decision",
+              id: "p1",
+              score: 0.8,
+              source:
+                "kind=project_decision;ev=verified-tool-result;prov=pi;ts=t;src=task",
+            },
+          ],
+        }),
+    );
+    const results = await backend.search(
+      query({
+        scope: "project",
+      }),
+    );
+    expect(results.map(({ content }) => content)).toEqual([
+      "project decision",
+    ]);
+  });
+
   it("plannedBanks lists project and default banks for project scope", async () => {
     const backend = new MnemosyneBackend(
       {

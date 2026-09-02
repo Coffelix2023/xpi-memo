@@ -2,12 +2,12 @@
  * MEMORY.md generation (Tasks 8.2, 8.5).
  *
  * Long-term memory view derived from confirmed T1 writes (t1_memory_write
- * events). Sections: Decisions / Preferences / Constraints / Gotchas / Other.
+ * events). Sections are derived from the canonical T1 taxonomy.
  * Duplicate content keeps only its latest version; entry order within a
  * section is stable (by L0 position) so Git diffs stay minimal.
  */
 
-import type { MemoryKind } from "../kinds.js";
+import { describeMemoryKind, MEMORY_KINDS, type MemoryKind } from "../kinds.js";
 import type { L0Event } from "../l0/types.js";
 
 export interface MemoryEntry {
@@ -36,40 +36,17 @@ export interface MemorySource {
 export const MEMORY_SECTION_TITLES: ReadonlyArray<{
   kinds: readonly MemoryKind[];
   title: string;
-}> = [
-  {
-    title: "Decisions",
-    kinds: [
-      "project_decision",
-    ],
-  },
-  {
-    title: "Preferences",
-    kinds: [
-      "global_preference",
-      "global_workflow",
-    ],
-  },
-  {
-    title: "Constraints",
-    kinds: [
-      "project_constraint",
-    ],
-  },
-  {
-    title: "Gotchas",
-    kinds: [
-      "project_gotcha",
-    ],
-  },
-];
+}> = MEMORY_KINDS.map((kind) => ({
+  title: describeMemoryKind(kind).sectionTitle,
+  kinds: [
+    kind,
+  ],
+}));
 
 const WHITESPACE = /\s+/g;
 
 function sectionTitleOf(kind: MemoryKind): string {
-  for (const section of MEMORY_SECTION_TITLES)
-    if (section.kinds.includes(kind)) return section.title;
-  return "Other";
+  return describeMemoryKind(kind).sectionTitle;
 }
 
 function normalize(content: string): string {

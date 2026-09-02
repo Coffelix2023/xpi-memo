@@ -12,9 +12,12 @@ import {
 interface RawRecallRow {
   content?: unknown;
   id?: unknown;
+  importance?: unknown;
   scope?: unknown;
   score?: unknown;
   source?: unknown;
+  superseded_by?: unknown;
+  timestamp?: unknown;
 }
 
 interface RawRecallPayload {
@@ -48,6 +51,8 @@ export interface RecallProvenance {
 
 export interface RecallItem {
   bank: string;
+  /** Confidence (0-1) when the backend reports one, e.g. mnemosyne `importance` (task 5.3). */
+  confidence?: number;
   content: string;
   id: string | null;
   kind: MemoryKind | null;
@@ -55,6 +60,10 @@ export interface RecallItem {
   scope: string;
   score: number;
   source?: string;
+  /** Non-null when the backend reports this memory as superseded. */
+  supersededBy?: string | null;
+  /** ISO timestamp when the backend reports one; used by recency ranking. */
+  timestamp?: string;
 }
 
 export interface RecallResponse {
@@ -111,6 +120,7 @@ function toRecallItems(bank: string, rows: RawRecallRow[]): RecallItem[] {
             kind: null,
             source: undefined,
           };
+    const confidence = typeof row.importance === "number" ? row.importance : undefined;
     return [
       {
         bank,
@@ -119,6 +129,22 @@ function toRecallItems(bank: string, rows: RawRecallRow[]): RecallItem[] {
         kind: decoded.kind,
         scope: typeof row.scope === "string" ? row.scope : "global",
         score: typeof row.score === "number" ? row.score : 0,
+        ...(typeof row.timestamp === "string"
+          ? {
+              timestamp: row.timestamp,
+            }
+          : {}),
+        ...(confidence !== undefined
+          ? {
+              confidence,
+            }
+          : {}),
+        ...(row.superseded_by !== undefined
+          ? {
+              supersededBy:
+                typeof row.superseded_by === "string" ? row.superseded_by : null,
+            }
+          : {}),
         provenance: {
           bank,
           layer: "T1",

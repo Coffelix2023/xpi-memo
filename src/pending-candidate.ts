@@ -16,6 +16,8 @@ export const PENDING_CANDIDATE_REASONS = [
 export type PendingCandidateReason = (typeof PENDING_CANDIDATE_REASONS)[number];
 
 export interface PendingCandidateInput {
+  /** Force candidate creation even when the auto-store policy would store directly. */
+  allowAutoStore?: boolean;
   content: string;
   context: RoutingContext;
   evidence: EvidenceRecord;
@@ -49,6 +51,7 @@ export function generatePendingCandidate(
   input: PendingCandidateInput,
 ): PendingCandidate | null {
   if (
+    input.allowAutoStore !== false &&
     shouldAutoStore({
       contentLength: input.content.length,
       evidence: input.evidence,

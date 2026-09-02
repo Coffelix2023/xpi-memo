@@ -15,6 +15,7 @@ import {
   GLOBAL_BANK,
   type RoutingContext,
 } from "./banks.ts";
+import { buildCandidateDigest, renderCandidateDigest } from "./candidate-digest.ts";
 import { type CandidateStore, createCandidateStore } from "./candidate-lifecycle.ts";
 import { l0Status } from "./cli/l0.js";
 import { loadConfig, saveUserConfig } from "./config.ts";
@@ -26,13 +27,40 @@ import {
   type MemoryDoctorReport,
 } from "./doctor.ts";
 import { createEvidenceRecord } from "./evidence.ts";
+import {
+  createExtractionBudgetLedger,
+  type ExtractionBudgetLimits,
+} from "./extraction-budget.ts";
 import { clearFooterStatus, setFooterStatus } from "./footer.ts";
 import { resolveProjectIdentity } from "./identity.ts";
 import { isMemoryKind, MEMORY_KINDS, type MemoryKind } from "./kinds.ts";
 import { createEventLogReader } from "./l0/event-log-reader.js";
 import { sessionsDirFor } from "./l0/l0-runtime.js";
 import { createL0Coordinator, type L0Coordinator } from "./l0/l0-runtime.ts";
+import { sessionDirFor } from "./l0/session-manager.js";
+import type { L0Event } from "./l0/types.js";
 import { exportMarkdown, validateExport } from "./markdown-export/exporter.js";
+import {
+  activateExplicitMemoryIntent,
+  type MemoryActivationProvenance,
+} from "./memory-activation.ts";
+import {
+  contentFingerprint,
+  createMemoryIdempotencyStore,
+  type MemoryIdempotencyStore,
+} from "./memory-idempotency.ts";
+import { buildObservabilitySnapshot } from "./observability.ts";
+import {
+  DEFAULT_OFFLINE_EXTRACTION_MAX_CHARS_PER_SESSION,
+  DEFAULT_OFFLINE_EXTRACTION_MAX_EVENTS,
+  DEFAULT_OFFLINE_EXTRACTION_MAX_EXECUTIONS_PER_SESSION,
+  DEFAULT_OFFLINE_EXTRACTION_MAX_INPUT_CHARS,
+  DEFAULT_OFFLINE_EXTRACTION_MAX_PROPOSALS_PER_SESSION,
+  DEFAULT_OFFLINE_EXTRACTION_TIMEOUT_MS,
+  governOfflineExtractionOutput,
+  type OfflineExtractionRunner,
+  runOfflineExtraction,
+} from "./offline-extraction.ts";
 import {
   createMnemosyneAdapter,
   type MnemosyneRunner,
@@ -43,8 +71,9 @@ import {
   type PendingCandidate,
   type PendingCandidateReason,
 } from "./pending-candidate.ts";
-import type { RecallResponse } from "./recall.ts";
-import { decideRecall } from "./recall-policy.ts";
+import type { RecallItem, RecallResponse } from "./recall.ts";
+import { decideRecall, type RecallPolicy } from "./recall-policy.ts";
+import { rankRecallResults } from "./recall-ranking.ts";
 import { routeMemoryKind } from "./routing.ts";
 import { createSearchRuntime } from "./search/runtime.ts";
 import type { SearchOutcome } from "./search/selector.ts";
@@ -53,6 +82,7 @@ import {
   type SleepCapabilityResult,
 } from "./sleep-capability.ts";
 import { executeSleep } from "./sleep-execution.ts";
+import { formatSourceTrace, traceCandidate, traceMemoryEvent } from "./source-trace.ts";
 import {
   formatStatusJson,
   type MemoryStatus,
@@ -72,6 +102,7 @@ type ToolStatus =
   | "executed"
   | "recalled"
   | "rejected"
+  | "skipped"
   | "stored";
 
 interface ToolDetails {
@@ -88,6 +119,7 @@ interface ToolDetails {
 
 export interface XpiMemoDependencies {
   env?: NodeJS.ProcessEnv;
+  offlineExtractionRunner?: OfflineExtractionRunner;
   resolveProjectIdentity?: (
     cwd: string,
   ) => Pick<
@@ -103,9 +135,14 @@ interface Runtime {
   candidates: CandidateStore;
   config: ReturnType<typeof loadConfig>["config"];
   context: RoutingContext;
+  idempotency: MemoryIdempotencyStore;
   l0: L0Coordinator;
   run: MnemosyneRunner;
   search: ReturnType<typeof createSearchRuntime>;
+}
+
+interface InputProvenance extends MemoryActivationProvenance {
+  text: string;
 }
 
 function toolResult(details: ToolDetails, text: string) {
@@ -128,6 +165,7 @@ function realTool<TParams extends TSchema>(
   execute: (
     params: Static<TParams>,
     ctx: ExtensionContext,
+    toolCallId: string,
   ) => Promise<ReturnType<typeof toolResult>>,
 ): ToolDefinition<TParams, ToolDetails> {
   return {
@@ -142,7 +180,7 @@ function realTool<TParams extends TSchema>(
       else if (name === "xpi_memo_recall") action = "recall";
       if (action) surface.begin(action);
       try {
-        const result = await execute(params, ctx);
+        const result = await execute(params, ctx, _toolCallId);
         if (action) {
           if (
             result.details.status === "stored" ||
@@ -169,7 +207,12 @@ function realTool<TParams extends TSchema>(
   };
 }
 
-function createRuntime(cwd: string, dependencies: XpiMemoDependencies): Runtime {
+function createRuntime(
+  cwd: string,
+  dependencies: XpiMemoDependencies,
+  l0Override?: L0Coordinator,
+  idempotencyOverride?: MemoryIdempotencyStore,
+): Runtime {
   const configResult = loadConfig({
     env: dependencies.env,
   });
@@ -192,10 +235,17 @@ function createRuntime(cwd: string, dependencies: XpiMemoDependencies): Runtime 
     adapter,
     statePath: join(configResult.config.dataDir, "candidates.json"),
   });
-  const l0 = createL0Coordinator({
-    dataDir: configResult.config.dataDir,
-    enabled: configResult.config.l0Enabled,
-  });
+  const l0 =
+    l0Override ??
+    createL0Coordinator({
+      dataDir: configResult.config.dataDir,
+      enabled: configResult.config.l0Enabled,
+    });
+  const idempotency =
+    idempotencyOverride ??
+    createMemoryIdempotencyStore({
+      statePath: join(configResult.config.dataDir, "idempotency.json"),
+    });
   const search = createSearchRuntime(context, configResult.config.searchBackend, run);
   return {
     adapter,
@@ -203,10 +253,82 @@ function createRuntime(cwd: string, dependencies: XpiMemoDependencies): Runtime 
     candidates,
     config: configResult.config,
     context,
+    idempotency,
     l0,
     run,
     search,
   };
+}
+
+async function runOfflineExtractionForShutdown(
+  cwd: string,
+  config: ReturnType<typeof loadConfig>["config"],
+  dependencies: XpiMemoDependencies,
+  l0: L0Coordinator,
+  audit: AuditLog,
+): Promise<void> {
+  const sessionId = l0.sessionId();
+  if (!sessionId) return;
+  const ledger = createExtractionBudgetLedger({
+    sessionId,
+    statePath: join(config.dataDir, "extraction-budget.json"),
+  });
+  const limits: ExtractionBudgetLimits = {
+    maxCharsPerSession: DEFAULT_OFFLINE_EXTRACTION_MAX_CHARS_PER_SESSION,
+    maxExecutionsPerSession: DEFAULT_OFFLINE_EXTRACTION_MAX_EXECUTIONS_PER_SESSION,
+    maxProposalsPerSession: DEFAULT_OFFLINE_EXTRACTION_MAX_PROPOSALS_PER_SESSION,
+  };
+  // Execution budget is checked before reading event history so an exhausted
+  // session never reads unbounded history (task 3.3).
+  if (!ledger.executionAllowed(limits)) {
+    audit.record("extraction", {
+      reason: "budget-exhausted",
+      status: "budget-exhausted",
+      trigger: "session_shutdown",
+    });
+    return;
+  }
+  const current = l0.currentPosition();
+  const from = Math.max(0, current - DEFAULT_OFFLINE_EXTRACTION_MAX_EVENTS);
+  const reader = createEventLogReader({
+    sessionDir: sessionDirFor(config.dataDir, sessionId),
+  });
+  const events = (await reader.readAfter(from)).slice(
+    -DEFAULT_OFFLINE_EXTRACTION_MAX_EVENTS,
+  );
+  const result = await runOfflineExtraction({
+    enabled: true,
+    events,
+    ledger,
+    limits,
+    maxEvents: DEFAULT_OFFLINE_EXTRACTION_MAX_EVENTS,
+    maxInputChars: DEFAULT_OFFLINE_EXTRACTION_MAX_INPUT_CHARS,
+    runner: dependencies.offlineExtractionRunner,
+    sessionId,
+    timeoutMs: DEFAULT_OFFLINE_EXTRACTION_TIMEOUT_MS,
+  });
+  if (result.status === "completed") {
+    const runtime = createRuntime(cwd, dependencies, l0);
+    await governOfflineExtractionOutput(result.output, {
+      adapter: runtime.adapter,
+      audit,
+      candidates: runtime.candidates,
+      context: runtime.context,
+      config: {
+        dataDir: runtime.config.dataDir,
+        paused: runtime.config.paused,
+      },
+      l0,
+      ledger,
+      limits,
+      run: runtime.run,
+    });
+  }
+  audit.record("extraction", {
+    reason: result.status,
+    status: result.status,
+    trigger: "session_shutdown",
+  });
 }
 
 function pendingReasonFor(kind: MemoryKind): PendingCandidateReason {
@@ -249,7 +371,9 @@ function operationFor(params: RememberParams, runtime: Runtime): T1MemoryOperati
     confidence: 1,
     provenance: "pi:xpi_memo_remember",
     source: params.source?.trim() || "xpi_memo_remember",
-    type: "explicit-user-statement",
+    // Agent tool input: model-constructed content never counts as a user
+    // statement, even when the provenance points at a user event.
+    type: "verified-tool-result",
   });
   const route = routeMemoryKind(kindValue, runtime.context);
   return {
@@ -290,16 +414,33 @@ async function executeRemember(
   params: RememberParams,
   ctx: ExtensionContext,
   dependencies: XpiMemoDependencies,
+  l0Override?: L0Coordinator,
+  idempotencyOverride?: MemoryIdempotencyStore,
+  provenance?: MemoryActivationProvenance,
 ) {
   try {
-    const runtime = createRuntime(ctx.cwd, dependencies);
+    const runtime = createRuntime(
+      ctx.cwd,
+      dependencies,
+      l0Override,
+      idempotencyOverride,
+    );
     const operation = operationFor(params, runtime);
+    const evidenceType = operation.source.evidenceType;
+    const evidence = {
+      confidence: operation.confidence,
+      provenance: operation.provenance,
+      source: operation.source.source,
+      timestamp: operation.source.timestamp,
+      type: operation.source.evidenceType,
+    };
     const classification = classifyProhibitedContent({
       content: operation.content,
     });
     if (classification) {
       const reason = `prohibited-content:${classification}`;
       runtime.audit.record("rejection", {
+        evidenceType,
         kind: operation.kind,
         reason,
         scope: operation.scope,
@@ -318,6 +459,7 @@ async function executeRemember(
     if (operation.kind === "session_context" && operation.content.length > 500) {
       const reason = "session-context-too-long";
       runtime.audit.record("rejection", {
+        evidenceType,
         kind: operation.kind,
         reason,
         scope: operation.scope,
@@ -333,6 +475,8 @@ async function executeRemember(
         "Memory rejected: session context exceeds 500 characters.",
       );
     }
+
+    const fingerprint = contentFingerprint(operation.content);
     const candidate = generatePendingCandidate({
       content: operation.content,
       context: runtime.context,
@@ -342,17 +486,12 @@ async function executeRemember(
       rationale: "This memory requires T1 write governance before persistence.",
       reason: pendingReasonFor(operation.kind),
       verified: false,
-      evidence: {
-        confidence: operation.confidence,
-        provenance: operation.provenance,
-        source: operation.source.source,
-        timestamp: operation.source.timestamp,
-        type: operation.source.evidenceType,
-      },
+      evidence,
     });
     if (!candidate && runtime.config.paused) {
       const reason = "paused";
       runtime.audit.record("rejection", {
+        evidenceType,
         kind: operation.kind,
         reason,
         scope: operation.scope,
@@ -369,10 +508,40 @@ async function executeRemember(
         "Memory rejected: T1 is paused.",
       );
     }
+
+    const claim = provenance
+      ? runtime.idempotency.claim({
+          content: operation.content,
+          eventPosition: provenance.eventPosition,
+          kind: operation.kind,
+          sessionId: provenance.sessionId,
+          source: provenance.source,
+        })
+      : null;
+    if (claim && !claim.claimed) {
+      return toolResult(
+        {
+          kind: operation.kind,
+          reason: "duplicate-content",
+          scope: operation.scope,
+          status: "skipped",
+        },
+        "Memory already captured for this session.",
+      );
+    }
     if (candidate) {
       const added = runtime.candidates.add(candidate, operation);
       runtime.l0.recordSafe("candidate_created", {
+        ...(provenance
+          ? {
+              source: provenance.source,
+              sourceEventPosition: provenance.eventPosition,
+              sourceSessionId: provenance.sessionId,
+            }
+          : {}),
+        fingerprint,
         bank: candidate.targetBank,
+        evidenceType,
         candidateId: candidate.id,
         kind: candidate.kind,
         reason: candidate.reason,
@@ -380,6 +549,7 @@ async function executeRemember(
       });
       runtime.audit.record("candidate", {
         bank: candidate.targetBank,
+        evidenceType,
         kind: candidate.kind,
         reason: candidate.reason,
         scope: candidate.targetScope,
@@ -431,12 +601,14 @@ async function executeRemember(
         runtime.l0.recordSafe("candidate_rejected", {
           bank: candidate.targetBank,
           candidateId: candidate.id,
+          evidenceType,
           kind: candidate.kind,
           reason: rejected.reason,
           scope: candidate.targetScope,
         });
         runtime.audit.record("rejection", {
           bank: candidate.targetBank,
+          evidenceType,
           kind: candidate.kind,
           reason: rejected.reason,
           scope: candidate.targetScope,
@@ -476,12 +648,14 @@ async function executeRemember(
       const stored = await runtime.candidates.confirm(candidate.id);
       runtime.l0.recordSafe("candidate_confirmed", {
         bank: candidate.targetBank,
+        evidenceType,
         candidateId: candidate.id,
         kind: candidate.kind,
         scope: candidate.targetScope,
       });
       runtime.audit.record("confirmation", {
         bank: candidate.targetBank,
+        evidenceType,
         kind: candidate.kind,
         reason: stored.reason,
         scope: candidate.targetScope,
@@ -510,6 +684,7 @@ async function executeRemember(
     ) {
       runtime.audit.record("fallback", {
         bank: operation.targetBank,
+        evidenceType,
         kind: operation.kind,
         reason: "project-bank-unavailable",
         scope: operation.scope,
@@ -528,14 +703,32 @@ async function executeRemember(
     }
 
     runtime.l0.recordSafe("routing_decision", {
+      ...(provenance
+        ? {
+            source: provenance.source,
+            sourceEventPosition: provenance.eventPosition,
+            sourceSessionId: provenance.sessionId,
+          }
+        : {}),
+      fingerprint,
       bank: operation.targetBank,
+      evidenceType,
       kind: operation.kind,
       projectBank: runtime.context.projectBank,
       scope: operation.scope,
     });
     // Dual-write: L0 first (source of truth); abort the operation if it fails.
     runtime.l0.record("t1_memory_write", {
+      ...(provenance
+        ? {
+            source: provenance.source,
+            sourceEventPosition: provenance.eventPosition,
+            sourceSessionId: provenance.sessionId,
+          }
+        : {}),
+      fingerprint,
       bank: operation.targetBank,
+      evidenceType,
       confidence: operation.confidence,
       content: operation.content,
       kind: operation.kind,
@@ -545,6 +738,7 @@ async function executeRemember(
     runtime.audit.record("write", {
       bank: operation.targetBank,
       confidence: operation.confidence,
+      evidenceType,
       kind: operation.kind,
       scope: operation.scope,
       status: "stored",
@@ -606,6 +800,21 @@ function toRecallResponse(outcome: SearchOutcome): RecallResponse {
       kind: result.kind ?? null,
       scope: result.source.bank ?? "default",
       score: result.score,
+      ...(result.confidence !== undefined
+        ? {
+            confidence: result.confidence,
+          }
+        : {}),
+      ...(result.timestamp
+        ? {
+            timestamp: result.timestamp,
+          }
+        : {}),
+      ...(result.supersededBy !== undefined
+        ? {
+            supersededBy: result.supersededBy,
+          }
+        : {}),
       provenance: {
         bank: result.source.bank ?? "default",
         layer: "T1",
@@ -828,13 +1037,13 @@ async function searchStatusFor(
       };
     }),
   );
-  let active: string | null = null;
-  for (const backend of search.registry.all()) {
-    if (await backend.isAvailable()) {
-      active = backend.name;
-      break;
-    }
-  }
+  const availability = await Promise.all(
+    search.registry.all().map(async (backend) => ({
+      available: await backend.isAvailable(),
+      backend,
+    })),
+  );
+  const active = availability.find((entry) => entry.available)?.backend.name ?? null;
   return {
     active,
     backends,
@@ -972,6 +1181,7 @@ async function statusForContext(
     doctor,
     diskBytes: visibleBankDiskBytes(config.dataDir, projectBank),
     fallback: null,
+    observability: buildObservabilitySnapshot(auditEntries),
     paused: config.paused,
     todayStored: todayStored(auditEntries),
     counts: {
@@ -1012,9 +1222,9 @@ async function statusForContext(
     },
   });
 }
-function renderMemoryContext(response: RecallResponse): string | null {
-  if (response.results.length === 0) return null;
-  const lines = response.results.map((item, index) => {
+function renderMemoryContext(items: readonly RecallItem[]): string | null {
+  if (items.length === 0) return null;
+  const lines = items.map((item, index) => {
     const content = item.content.replace(/[\r\n]+/g, " ");
     const kind = item.kind ? ` [${item.kind}]` : "";
     return `${index + 1}. ${content}${kind}`;
@@ -1022,11 +1232,14 @@ function renderMemoryContext(response: RecallResponse): string | null {
   return `<memories>\n${lines.join("\n")}\n</memories>`;
 }
 
+/** Maximum characters of automatic-injection memory content (task 5.4). */
+const AUTO_INJECT_CHAR_BUDGET = 1500;
+
 async function recallForContext(
   ctx: ExtensionContext,
   dependencies: XpiMemoDependencies,
   query: string,
-  policy: "active" | "high-value-auto",
+  policy: RecallPolicy,
   surface: ReturnType<typeof createMemorySurface>,
 ): Promise<string | null> {
   const runtime = createRuntime(ctx.cwd, dependencies);
@@ -1042,12 +1255,33 @@ async function recallForContext(
       query,
       scope: runtime.context.projectBank ? "project" : "global",
     });
-    const context = renderMemoryContext(toRecallResponse(outcome));
+    const response = toRecallResponse(outcome);
+    const ranked = rankRecallResults(response.results, query, {
+      charBudget: AUTO_INJECT_CHAR_BUDGET,
+      itemBudget: runtime.config.limit,
+    });
+    const injected = ranked
+      ? [
+          ...ranked.standing,
+          ...ranked.contextual,
+        ]
+      : [];
+    // Task 5.6: distinguish "backend queried with no hits" from "no backend
+    // executed" and record result counts for observability.
+    runtime.audit.record("recall", {
+      backend: outcome.backendName ?? "none",
+      reason: query,
+      resultCount: outcome.results.length,
+      status: outcome.backendName === null ? "no-backend" : "recalled",
+      ...(injected.length > 0
+        ? {
+            injectedCount: injected.length,
+          }
+        : {}),
+    });
+    const context = renderMemoryContext(injected);
     if (context)
-      surface.complete(
-        policy === "active" ? "inject" : "recall",
-        outcome.results.length,
-      );
+      surface.complete(policy === "active" ? "inject" : "recall", injected.length);
     else surface.clear();
     return context;
   } catch {
@@ -1158,6 +1392,107 @@ export default function xpiMemo(
     },
   });
 
+  pi.registerCommand("xpi-memo-trace", {
+    description:
+      "Trace a memory or candidate back to its L0 source (usage: /xpi-memo-trace --session <id> --position <n> | --candidate <id>)",
+    handler: async (args, ctx) => {
+      const flags = args.split(WS_SPLIT).filter(Boolean);
+      const sessionFlag = flags.indexOf("--session");
+      const positionFlag = flags.indexOf("--position");
+      const candidateFlag = flags.indexOf("--candidate");
+      const config = loadConfig({
+        env: dependencies.env ?? process.env,
+      }).config;
+      const usage =
+        "Usage: /xpi-memo-trace --session <id> --position <n> | --candidate <id>";
+
+      // Candidate trace: pending queue + its candidate_created L0 event.
+      if (candidateFlag >= 0) {
+        const candidateId = flags[candidateFlag + 1];
+        if (!candidateId || candidateId.startsWith("--")) {
+          ctx.ui.notify(usage, "warning");
+          return;
+        }
+        const store = createCandidateStore({
+          // list() never touches the adapter; provide a no-op runner.
+          adapter: createMnemosyneAdapter(dependencies.run ?? (async () => "")),
+          statePath: join(config.dataDir, "candidates.json"),
+        });
+        const candidates = store.list();
+        if (!candidates.some((entry) => entry.id === candidateId)) {
+          ctx.ui.notify(`No pending candidate with id ${candidateId}.`, "warning");
+          return;
+        }
+        // Bounded scan: stop at the first candidate_created event that
+        // references the id; never reads full transcripts.
+        const sessionsRoot = sessionsDirFor(config.dataDir);
+        let creatingEvent: L0Event | undefined;
+        try {
+          const entries = readdirSync(sessionsRoot);
+          const createdPerSession = await Promise.all(
+            entries.map(async (entry) => {
+              try {
+                const reader = createEventLogReader({
+                  sessionDir: join(sessionsRoot, entry),
+                });
+                return await reader.readByType("candidate_created");
+              } catch {
+                // Unreadable session dirs contribute no events (read-only trace).
+                return [];
+              }
+            }),
+          );
+          creatingEvent = createdPerSession
+            .flat()
+            .find((event) => event.payload.candidateId === candidateId);
+        } catch {
+          // Unreadable session dirs contribute no events (read-only trace).
+        }
+        const trace = traceCandidate(
+          candidates,
+          creatingEvent
+            ? [
+                creatingEvent,
+              ]
+            : [],
+          candidateId,
+        );
+        if (!trace) {
+          ctx.ui.notify(`No trace found for candidate ${candidateId}.`, "warning");
+          return;
+        }
+        ctx.ui.notify(formatSourceTrace(trace), "info");
+        return;
+      }
+
+      // Memory trace: a confirming L0 event in a named session.
+      const sessionId = sessionFlag >= 0 ? flags[sessionFlag + 1] : undefined;
+      const positionRaw = positionFlag >= 0 ? flags[positionFlag + 1] : undefined;
+      if (!sessionId || sessionId.startsWith("--") || !positionRaw) {
+        ctx.ui.notify(usage, "warning");
+        return;
+      }
+      const position = Number(positionRaw);
+      if (!Number.isInteger(position) || position < 1) {
+        ctx.ui.notify(usage, "warning");
+        return;
+      }
+      const reader = createEventLogReader({
+        sessionDir: sessionDirFor(config.dataDir, sessionId),
+      });
+      const events = await reader.readRange(position, position);
+      const trace = traceMemoryEvent(events, sessionId, position);
+      if (!trace) {
+        ctx.ui.notify(
+          `No L0 event at session ${sessionId} position ${position}.`,
+          "warning",
+        );
+        return;
+      }
+      ctx.ui.notify(formatSourceTrace(trace), "info");
+    },
+  });
+
   pi.registerCommand("xpi-memo-export", {
     description:
       "Export L0 events to Markdown (usage: /xpi-memo-export [--session <id>] [--force] [--validate])",
@@ -1213,6 +1548,12 @@ export default function xpiMemo(
     ReturnType<typeof createMemorySurface>
   >();
   const pendingStartupContext = new WeakMap<object, Promise<string | null>>();
+  const lastInputByContext = new WeakMap<object, InputProvenance>();
+  const toolCallProvenance = new Map<string, MemoryActivationProvenance>();
+  // 4.2 session-start reminder cooldown (per extension process).
+  const CANDIDATE_REMINDER_MIN_PENDING = 3;
+  const CANDIDATE_REMINDER_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+  let candidateReminderLastShownAt = 0;
   const getSurface = (ctx: ExtensionContext) => {
     let surface = surfaceByContext.get(ctx);
     if (!surface) {
@@ -1233,27 +1574,91 @@ export default function xpiMemo(
   };
   let l0Shared: L0Coordinator | null = null;
   const l0ForHooks = (): L0Coordinator => (l0Shared ??= l0HookCoordinator());
+  let idempotencyShared: MemoryIdempotencyStore | null = null;
+  const idempotencyForHooks = (): MemoryIdempotencyStore => {
+    const config = loadConfig({
+      env: dependencies.env,
+    });
+    if (!idempotencyShared)
+      idempotencyShared = createMemoryIdempotencyStore({
+        statePath: join(config.config.dataDir, "idempotency.json"),
+      });
+    return idempotencyShared;
+  };
+  let auditShared: AuditLog | null = null;
+  const auditForHooks = (): AuditLog => {
+    const config = loadConfig({
+      env: dependencies.env,
+    });
+    if (!auditShared)
+      auditShared = createAuditLog({
+        statePath: join(config.config.dataDir, "audit.json"),
+      });
+    return auditShared;
+  };
 
-  pi.on("input", (event) => {
+  pi.on("input", (event, ctx) => {
     // 5.4 user_message capture: best-effort, never blocks the session.
-    l0ForHooks().recordSafe("user_message", {
+    const l0 = l0ForHooks();
+    const recorded = l0.recordSafe("user_message", {
       source: event.source,
       text: event.text,
     });
+    const sessionId = l0.sessionId();
+    if (recorded && sessionId)
+      lastInputByContext.set(ctx, {
+        eventPosition: recorded.position,
+        sessionId,
+        source: `input:${event.source}`,
+        text: event.text,
+      });
   });
   pi.on("tool_call", (event) => {
-    l0ForHooks().recordSafe("tool_call", {
+    const l0 = l0ForHooks();
+    const recorded = l0.recordSafe("tool_call", {
       arguments: event.input,
       toolCallId: event.toolCallId,
       toolName: event.toolName,
     });
+    const sessionId = l0.sessionId();
+    if (recorded && sessionId)
+      toolCallProvenance.set(event.toolCallId, {
+        eventPosition: recorded.position,
+        sessionId,
+        source: "tool_call",
+      });
   });
   pi.on("tool_result", (event) => {
     l0ForHooks().recordSafe("tool_result", {
       isError: event.isError,
       toolCallId: event.toolCallId,
     });
+    toolCallProvenance.delete(event.toolCallId);
   });
+  const rememberProvenanceFor = (
+    ctx: ExtensionContext,
+    toolCallId: string,
+  ): MemoryActivationProvenance | undefined => {
+    const input = lastInputByContext.get(ctx);
+    if (input) return input;
+    const toolCall = toolCallProvenance.get(toolCallId);
+    if (toolCall) return toolCall;
+
+    const l0 = l0ForHooks();
+    const recorded = l0.recordSafe("tool_call", {
+      source: "direct-tool-execution",
+      toolCallId,
+      toolName: "xpi_memo_remember",
+    });
+    const sessionId = l0.sessionId();
+    return recorded && sessionId
+      ? {
+          eventPosition: recorded.position,
+          sessionId,
+          source: "direct-tool-execution",
+        }
+      : undefined;
+  };
   pi.on("session_compact", (event) => {
     l0ForHooks().recordSafe("compaction", {
       reason: event.reason,
@@ -1262,13 +1667,24 @@ export default function xpiMemo(
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    if (ctx.mode === "tui")
-      setFooterStatus(
-        ctx,
-        loadConfig({
-          env: dependencies.env,
-        }).config.paused,
-      );
+    const startConfig = loadConfig({
+      env: dependencies.env,
+    }).config;
+    if (ctx.mode === "tui") setFooterStatus(ctx, startConfig.paused);
+    // 4.2 low-noise session-start backlog reminder: non-blocking, throttled.
+    const store = createCandidateStore({
+      adapter: createMnemosyneAdapter(dependencies.run ?? (async () => "")),
+      statePath: join(startConfig.dataDir, "candidates.json"),
+    });
+    const digest = buildCandidateDigest(store.list());
+    const now = Date.now();
+    if (
+      digest.pending >= CANDIDATE_REMINDER_MIN_PENDING &&
+      now - candidateReminderLastShownAt >= CANDIDATE_REMINDER_COOLDOWN_MS
+    ) {
+      candidateReminderLastShownAt = now;
+      ctx.ui.notify(renderCandidateDigest(digest), "info");
+    }
     pendingStartupContext.set(
       ctx,
       recallForContext(
@@ -1284,7 +1700,30 @@ export default function xpiMemo(
     const startup = pendingStartupContext.get(ctx);
     pendingStartupContext.delete(ctx);
     const startupContext = startup ? await startup : null;
-    const runtime = createRuntime(ctx.cwd, dependencies);
+    const runtime = createRuntime(
+      ctx.cwd,
+      dependencies,
+      l0ForHooks(),
+      idempotencyForHooks(),
+    );
+    const input = lastInputByContext.get(ctx);
+    if (input?.text === event.prompt)
+      await activateExplicitMemoryIntent(
+        event.prompt,
+        {
+          adapter: runtime.adapter,
+          audit: runtime.audit,
+          candidates: runtime.candidates,
+          context: runtime.context,
+          idempotency: runtime.idempotency,
+          l0: runtime.l0,
+          config: {
+            dataDir: runtime.config.dataDir,
+            paused: runtime.config.paused,
+          },
+        },
+        input,
+      );
     const decision = decideRecall(
       runtime.config.recallPolicy,
       event.prompt,
@@ -1295,7 +1734,7 @@ export default function xpiMemo(
           ctx,
           dependencies,
           event.prompt,
-          "high-value-auto",
+          runtime.config.recallPolicy,
           getSurface(ctx),
         )
       : null;
@@ -1348,6 +1787,20 @@ export default function xpiMemo(
         // Export failure must not block session shutdown.
       }
     }
+    // Gated offline extraction (task 3.1): best-effort, bounded, never blocks shutdown.
+    if (config.offlineExtractionEnabled && config.l0Enabled) {
+      try {
+        await runOfflineExtractionForShutdown(
+          ctx.cwd,
+          config,
+          dependencies,
+          l0ForHooks(),
+          auditForHooks(),
+        );
+      } catch {
+        // Extraction failure must not block session shutdown.
+      }
+    }
   });
 
   pi.registerTool(
@@ -1356,7 +1809,15 @@ export default function xpiMemo(
       "XpiMemo Remember",
       "Store a governed T1 memory after routing and evidence validation.",
       rememberParameters,
-      (params, ctx) => executeRemember(params, ctx, dependencies),
+      (params, ctx, toolCallId) =>
+        executeRemember(
+          params,
+          ctx,
+          dependencies,
+          l0ForHooks(),
+          idempotencyForHooks(),
+          rememberProvenanceFor(ctx, toolCallId),
+        ),
     ),
   );
 

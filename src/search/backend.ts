@@ -24,6 +24,8 @@ export interface SearchQuery {
  * metadata; backends may add kind when they can decode it.
  */
 export interface SearchResult {
+  /** Confidence (0-1) when the backend reports one, e.g. mnemosyne `importance` (task 5.3). */
+  confidence?: number;
   content: string;
   kind?: MemoryKind | null;
   /** Relevance score in the backend's own scale; callers interpret quality per result. */
@@ -37,6 +39,10 @@ export interface SearchResult {
     /** L0 event position for JSONL matches */
     position?: number;
   };
+  /** Non-null when the backend reports this memory as superseded (task 5.3). */
+  supersededBy?: string | null;
+  /** ISO timestamp of the memory, when the backend reports one (recency ranking). */
+  timestamp?: string;
 }
 
 /**

@@ -34,6 +34,7 @@ describe("bounded T1 audit metadata", () => {
       "fallback",
       "sleep-authorization",
       "cross-layer-promotion",
+      "extraction",
     ]);
   });
   it.each(AUDIT_ACTIONS)("records bounded metadata for %s", (action) => {

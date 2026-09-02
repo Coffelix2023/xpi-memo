@@ -4,6 +4,8 @@ import { createSession, sessionDirFor } from "./session-manager.js";
 import type { L0Event, L0EventType } from "./types.js";
 
 export interface L0Coordinator {
+  /** Highest written event position (0 before the first event). */
+  currentPosition(): number;
   /** Whether L0 writes are enabled by config. */
   readonly enabled: boolean;
   /**
@@ -48,6 +50,9 @@ export function createL0Coordinator(
 
   return {
     enabled: options.enabled,
+    currentPosition() {
+      return writer ? writer.currentPosition() : 0;
+    },
     record(type, payload) {
       if (!options.enabled) {
         throw new Error("l0-disabled");

@@ -17,6 +17,7 @@ export const DEFAULT_XPI_MEMO_CONFIG = {
   globalLimit: 5,
   l0Enabled: true,
   limit: 5,
+  offlineExtractionEnabled: false,
   paused: false,
   privacy: false,
   projectLimit: 5,
@@ -40,6 +41,7 @@ export interface XpiMemoConfig {
   globalLimit: number;
   l0Enabled: boolean;
   limit: number;
+  offlineExtractionEnabled: boolean;
   paused: boolean;
   privacy: boolean;
   projectLimit: number;
@@ -56,6 +58,7 @@ export interface UserConfig {
   globalLimit?: unknown;
   l0Enabled?: unknown;
   limit?: unknown;
+  offlineExtractionEnabled?: unknown;
   paused?: unknown;
   privacy?: unknown;
   projectLimit?: unknown;
@@ -130,6 +133,7 @@ export interface SaveUserConfigOptions {
       | "globalLimit"
       | "l0Enabled"
       | "limit"
+      | "offlineExtractionEnabled"
       | "paused"
       | "projectLimit"
       | "recallPolicy"
@@ -145,6 +149,7 @@ const WRITABLE_KEYS = new Set([
   "globalLimit",
   "l0Enabled",
   "limit",
+  "offlineExtractionEnabled",
   "paused",
   "privacy",
   "projectLimit",
@@ -158,6 +163,7 @@ const ENV_KEYS: Record<string, string> = {
   globalLimit: "XPI_MEMO_GLOBAL_LIMIT",
   l0Enabled: "XPI_MEMO_L0_ENABLED",
   limit: "XPI_MEMO_LIMIT",
+  offlineExtractionEnabled: "XPI_MEMO_OFFLINE_EXTRACTION_ENABLED",
   paused: "XPI_MEMO_PAUSED",
   privacy: "XPI_MEMO_PRIVACY",
   projectLimit: "XPI_MEMO_PROJECT_LIMIT",
@@ -318,6 +324,12 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
       (positiveInteger(user.config.limit)
         ? user.config.limit
         : DEFAULT_XPI_MEMO_CONFIG.limit),
+    offlineExtractionEnabled: envBool(
+      "XPI_MEMO_OFFLINE_EXTRACTION_ENABLED",
+      boolean(user.config.offlineExtractionEnabled)
+        ? user.config.offlineExtractionEnabled
+        : DEFAULT_XPI_MEMO_CONFIG.offlineExtractionEnabled,
+    ),
     paused: (() => {
       if (environmentPaused === "true") return true;
       if (environmentPaused === "false") return false;

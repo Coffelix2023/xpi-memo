@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,6 +19,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { CliOptions } from "./cli.ts";
 import xpiMemo from "./index.ts";
+import { createEventLogReader } from "./l0/event-log-reader.js";
+import type { OfflineExtractionRunner } from "./offline-extraction.js";
 
 interface RegisteredCommand {
   name: string;
@@ -30,12 +40,13 @@ interface RegisteredCommand {
 }
 
 interface RegisteredEvent {
-  handler: () => Promise<void>;
+  handler: (event?: unknown, ctx?: unknown) => unknown | Promise<unknown>;
   name: string;
 }
 
 interface TestDependencies {
   env?: NodeJS.ProcessEnv;
+  offlineExtractionRunner?: OfflineExtractionRunner;
   resolveProjectIdentity?: (cwd: string) => {
     id: string;
     label: string;
@@ -166,6 +177,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(commands.map(({ name }) => name)).toEqual([
       "xpi-memo",
       "xpi-memo-status",
+      "xpi-memo-trace",
       "xpi-memo-export",
     ]);
     expect(tools.map(({ name }) => name)).toEqual([
@@ -201,6 +213,93 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
     });
     expect(notifications[0]).toContain("/xpi-memo-status");
+  });
+
+  it("notifies a backlog digest at session start with a cooldown", async () => {
+    const dataDir = createTemporaryDirectory();
+    const candidates: Record<string, unknown> = {};
+    for (const [id, kind] of [
+      [
+        "c1",
+        "project_decision",
+      ],
+      [
+        "c2",
+        "global_preference",
+      ],
+      [
+        "c3",
+        "global_workflow",
+      ],
+    ] as const) {
+      candidates[id] = {
+        candidate: {
+          conflictState: "none",
+          content: `body-${id}`,
+          createdAt: "2026-09-01T00:00:00.000Z",
+          evidenceSummary: "test",
+          id,
+          kind,
+          rationale: "test",
+          reason: "high-impact-durable",
+          status: "pending",
+          targetBank: "default",
+          targetScope: "global",
+          evidence: {
+            confidence: 1,
+            provenance: "test",
+            source: "test",
+            timestamp: "2026-09-01T00:00:00.000Z",
+            type: "l0-conclusion",
+          },
+        },
+        operation: {
+          content: `body-${id}`,
+          kind,
+          scope: "global",
+          source: "test",
+          targetBank: "default",
+        },
+      };
+    }
+    writeFileSync(
+      join(dataDir, "candidates.json"),
+      JSON.stringify({
+        audit: [],
+        version: 1,
+        candidates,
+      }),
+    );
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const start = events.find(({ name }) => name === "session_start");
+    if (!start) throw new Error("session_start hook not registered");
+    const notifications: string[] = [];
+    const context = createToolContext({
+      mode: "rpc",
+    });
+    (
+      context as {
+        ui: {
+          notify: (m: string) => void;
+        };
+      }
+    ).ui.notify = (message: string) => {
+      notifications.push(message);
+    };
+    await start.handler({}, context);
+    await start.handler({}, context);
+    // First start surfaces the digest; the second is throttled by the
+    // 6-hour cooldown and stays silent (task 4.2).
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toContain("3 pending memory reviews");
+    expect(notifications[0]).toContain("/xpi-memo console");
+    expect(notifications[0]).not.toContain("body-c1");
   });
 
   it("confirms a pending candidate from the TUI console through the real candidate store", async () => {
@@ -288,7 +387,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     panel.handleInput("2");
     const rendered = panel.render(70).join("\n");
     // SelectList truncates the label to its primary column width.
-    expect(rendered).toContain("project_decision · project-con");
+    expect(rendered).toContain("Decision · project-con");
     expect(rendered.toLowerCase()).not.toContain("delete");
 
     panel.handleInput("\r");
@@ -335,9 +434,11 @@ describe("xpi-memo bootstrap entrypoint", () => {
       undefined,
       createToolContext(),
     );
+    // Agent tool input is verified-tool-result evidence, so a global
+    // preference becomes a governed candidate instead of a direct write;
+    // with T1 paused it queues in the review inbox (mode=rpc: no dialog).
     expect(stored.details).toMatchObject({
-      reason: "paused",
-      status: "rejected",
+      status: "candidate",
     });
     expect(calls).toEqual([]);
 
@@ -359,7 +460,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     ).not.toEqual({});
   });
 
-  it("stores an explicit global preference through the governed T1 path", async () => {
+  it("routes agent remember calls through the candidate inbox", async () => {
     const dataDir = createTemporaryDirectory();
     const calls: Array<{
       args: string[];
@@ -392,28 +493,243 @@ describe("xpi-memo bootstrap entrypoint", () => {
     );
     const details = result.details as Record<string, unknown>;
 
+    // Agent tool input is model-constructed content (verified-tool-result),
+    // so governance queues it for human confirmation instead of storing.
     expect(details).toMatchObject({
       bank: "default",
-      id: "memory-123",
       kind: "global_preference",
       scope: "global",
-      status: "stored",
+      status: "candidate",
     });
-    expect(calls[0]).toMatchObject({
-      args: [
-        "store",
-        "Prefer tests before implementation.",
-        expect.stringContaining("kind=global_preference"),
-        "1",
-      ],
-      options: {
-        dataDir,
-        scope: "global",
-      },
-    });
-    expect(readFileSync(join(dataDir, "audit.json"), "utf8")).toContain(
-      '"action": "write"',
+    expect(calls).toEqual([]);
+    const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"));
+    expect(audit.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "candidate",
+          metadata: expect.objectContaining({
+            evidenceType: "verified-tool-result",
+          }),
+        }),
+      ]),
     );
+    const [sessionId] = readdirSync(join(dataDir, "sessions"));
+    const events = await createEventLogReader({
+      sessionDir: join(dataDir, "sessions", sessionId),
+    }).readAll();
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            evidenceType: "verified-tool-result",
+          }),
+          type: "candidate_created",
+        }),
+      ]),
+    );
+  });
+
+  it("keeps explicit remember working when the offline extraction runner fails", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      // The runner is present but broken: it always rejects.
+      offlineExtractionRunner: async () => {
+        throw new Error("provider down");
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const result = await toolByName(tools, "xpi_memo_remember").execute(
+      "remember",
+      {
+        content: "Prefer tests before implementation.",
+        kind: "global_preference",
+      },
+      undefined,
+      undefined,
+      createToolContext(),
+    );
+    // Deterministic explicit capture must remain functional while the
+    // offline extraction provider is failing (task 3.4).
+    expect(result.details).toMatchObject({
+      status: "candidate",
+    });
+    expect(
+      JSON.parse(readFileSync(join(dataDir, "candidates.json"), "utf8")).candidates,
+    ).not.toEqual({});
+  });
+
+  it("coalesces repeated direct remember calls using tool provenance", async () => {
+    const dataDir = createTemporaryDirectory();
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      return args[0] === "store" ? "Stored: memory-1" : "";
+    };
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      run,
+      resolveProjectIdentity: () => null,
+    });
+    const remember = toolByName(tools, "xpi_memo_remember");
+    const context = createToolContext();
+    const params = {
+      content: "Prefer tests before implementation.",
+      kind: "global_preference",
+    } as const;
+
+    const first = await remember.execute(
+      "remember-1",
+      params,
+      undefined,
+      undefined,
+      context,
+    );
+    const second = await remember.execute(
+      "remember-2",
+      params,
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(first.details).toMatchObject({
+      status: "candidate",
+    });
+    expect(second.details).toMatchObject({
+      reason: "duplicate-content",
+      status: "skipped",
+    });
+    expect(calls.filter(([command]) => command === "store")).toHaveLength(0);
+    expect(
+      JSON.parse(readFileSync(join(dataDir, "idempotency.json"), "utf8")).entries,
+    ).toHaveLength(1);
+  });
+
+  it("coalesces automatic activation with an explicit remember call", async () => {
+    const dataDir = createTemporaryDirectory();
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      return args[0] === "store" ? "Stored: memory-1" : "";
+    };
+    const { events, tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_RECALL_POLICY: "assist",
+      },
+      run,
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const beforeAgentStart = events.find(({ name }) => name === "before_agent_start");
+    if (!input || !beforeAgentStart) throw new Error("activation hooks not registered");
+    const context = createToolContext();
+    const prompt = "Please remember: prefer concise answers.";
+
+    await input.handler(
+      {
+        source: "interactive",
+        text: prompt,
+        type: "input",
+      },
+      context,
+    );
+    await beforeAgentStart.handler(
+      {
+        prompt,
+        type: "before_agent_start",
+      },
+      context,
+    );
+    const explicit = await toolByName(tools, "xpi_memo_remember").execute(
+      "explicit-remember",
+      {
+        content: "Please remember: prefer concise answers.",
+        kind: "global_preference",
+      },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(explicit.details).toMatchObject({
+      reason: "duplicate-content",
+      status: "skipped",
+    });
+    expect(calls.filter(([command]) => command === "store")).toHaveLength(1);
+    expect(
+      JSON.parse(readFileSync(join(dataDir, "idempotency.json"), "utf8")).entries,
+    ).toHaveLength(1);
+  });
+  it("coalesces automatic activation with explicit remember for a candidate", async () => {
+    const dataDir = createTemporaryDirectory();
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      return args[0] === "store" ? "Stored: should-not-run" : "";
+    };
+    const { events, tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_RECALL_POLICY: "assist",
+      },
+      run,
+      resolveProjectIdentity: () => ({
+        id: "project-test",
+        label: "test-project",
+      }),
+    });
+    const input = events.find(({ name }) => name === "input");
+    const beforeAgentStart = events.find(({ name }) => name === "before_agent_start");
+    if (!input || !beforeAgentStart) throw new Error("activation hooks not registered");
+    const context = createToolContext();
+    const prompt = "We decided to keep the existing adapter.";
+
+    await input.handler(
+      {
+        source: "interactive",
+        text: prompt,
+        type: "input",
+      },
+      context,
+    );
+    await beforeAgentStart.handler(
+      {
+        prompt,
+        type: "before_agent_start",
+      },
+      context,
+    );
+    const explicit = await toolByName(tools, "xpi_memo_remember").execute(
+      "explicit-project-remember",
+      {
+        content: prompt,
+        kind: "project_decision",
+      },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(explicit.details).toMatchObject({
+      reason: "duplicate-content",
+      status: "skipped",
+    });
+    expect(calls.filter(([command]) => command === "store")).toHaveLength(0);
+    const candidates = JSON.parse(
+      readFileSync(join(dataDir, "candidates.json"), "utf8"),
+    ).candidates;
+    expect(Object.keys(candidates)).toHaveLength(1);
   });
 
   it("recalls bounded T1 memory and records the recall event", async () => {
@@ -530,6 +846,102 @@ describe("xpi-memo bootstrap entrypoint", () => {
         "default",
       ],
     });
+  });
+
+  it("records automatic recall with backend, result count, and injected count (task 5.6)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const run = async (args: string[]): Promise<string> => {
+      if (args[0] !== "recall") return "";
+      return JSON.stringify({
+        explain: {
+          embedding: {
+            available: true,
+          },
+        },
+        results: [
+          {
+            content: "Prefer concise answers.",
+            id: "m1",
+            importance: 0.9,
+            scope: "global",
+            score: 0.9,
+            source:
+              "kind=global_preference;ev=explicit-user-statement;prov=pi;ts=2026-01-01T00%3A00%3A00.000Z;src=user",
+          },
+        ],
+      });
+    };
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_RECALL_POLICY: "active",
+      },
+      run,
+      resolveProjectIdentity: () => null,
+    });
+    const beforeAgentStart = events.find(({ name }) => name === "before_agent_start");
+    if (!beforeAgentStart) throw new Error("before_agent_start hook not registered");
+    const context = createToolContext();
+    const result = await beforeAgentStart.handler(
+      {
+        prompt: "what do you prefer?",
+        type: "before_agent_start",
+      },
+      context,
+    );
+    expect(result).not.toBeUndefined();
+    const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8")).entries;
+    const recallEntry = audit.find(
+      (entry: { action: string }) => entry.action === "recall",
+    );
+    expect(recallEntry).toBeDefined();
+    expect(recallEntry.metadata).toMatchObject({
+      backend: "mnemosyne",
+      injectedCount: 1,
+      resultCount: 1,
+      status: "recalled",
+    });
+  });
+
+  it("records an empty recall from an executed backend without injectedCount (task 5.6)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_RECALL_POLICY: "active",
+      },
+      resolveProjectIdentity: () => null,
+      run: async (args) =>
+        args[0] === "recall"
+          ? JSON.stringify({
+              results: [],
+            })
+          : "",
+    });
+    const beforeAgentStart = events.find(({ name }) => name === "before_agent_start");
+    if (!beforeAgentStart) throw new Error("before_agent_start hook not registered");
+    const context = createToolContext();
+    const result = await beforeAgentStart.handler(
+      {
+        prompt: "continue the task",
+        type: "before_agent_start",
+      },
+      context,
+    );
+    // Backend ran but returned nothing: no memory block, no injectedCount.
+    expect(result).toBeUndefined();
+    const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8")).entries;
+    const recallEntry = audit.find(
+      (entry: { action: string }) => entry.action === "recall",
+    );
+    expect(recallEntry?.metadata).toMatchObject({
+      backend: "mnemosyne",
+      resultCount: 0,
+      status: "recalled",
+    });
+    expect(recallEntry?.metadata.injectedCount).toBeUndefined();
   });
   it("queues a project decision as a candidate in non-TUI mode", async () => {
     const dataDir = createTemporaryDirectory();
@@ -981,6 +1393,150 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(status.recall.scope).toBe("global-only");
   });
 
+  it("traces a stored memory to its L0 session event (task 6.2)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const sessionDir = join(dataDir, "sessions", "trace-session");
+    mkdirSync(sessionDir, {
+      recursive: true,
+    });
+    // JSONL line matching the L0 writer's serialized shape.
+    const line = JSON.stringify({
+      position: 3,
+      timestamp: "2026-08-28T00:00:00.000Z",
+      type: "t1_memory_write",
+      version: 1,
+      payload: {
+        bank: "project-trace-project",
+        content: "private body must stay out of trace",
+        kind: "project_decision",
+        source: "input:user",
+        sourceEventPosition: 2,
+        sourceSessionId: "source-session",
+      },
+    });
+    writeFileSync(join(sessionDir, "events.jsonl"), `${line}\n`);
+
+    const { commands } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => ({
+        id: "trace-project",
+        label: "trace-project",
+      }),
+    });
+    const command = commands.find(({ name }) => name === "xpi-memo-trace");
+    if (!command) throw new Error("trace command was not registered");
+    const notifications: string[] = [];
+
+    await command.options.handler("--session trace-session --position 3", {
+      cwd: "/tmp",
+      ui: {
+        confirm: async () => false,
+        notify(message) {
+          notifications.push(message);
+        },
+      },
+    });
+
+    expect(notifications).toHaveLength(1);
+    const rendered = notifications[0] ?? "";
+    expect(rendered).toContain("target: memory");
+    expect(rendered).toContain("kind: Decision (project_decision)");
+    expect(rendered).toContain("session: trace-session");
+    expect(rendered).toContain("position: 3");
+    expect(rendered).toContain("source event: session source-session @ position 2");
+    // Body-free trace: the memory body never leaves the log.
+    expect(rendered).not.toContain("private body");
+  });
+
+  it("traces a pending candidate with its review state (task 6.2)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const sessionDir = join(dataDir, "sessions", "candidate-session");
+    mkdirSync(sessionDir, {
+      recursive: true,
+    });
+    const createdLine = JSON.stringify({
+      position: 7,
+      timestamp: "2026-08-28T00:00:00.000Z",
+      type: "candidate_created",
+      version: 1,
+      payload: {
+        candidateId: "candidate-1",
+        kind: "project_constraint",
+        source: "tool_call",
+        sourceEventPosition: 6,
+        sourceSessionId: "source-session",
+      },
+    });
+    writeFileSync(join(sessionDir, "events.jsonl"), `${createdLine}\n`);
+    writeFileSync(
+      join(dataDir, "candidates.json"),
+      JSON.stringify({
+        audit: [],
+        version: 1,
+        candidates: {
+          "candidate-1": {
+            operation: {},
+            candidate: {
+              conflictState: "none",
+              content: "candidate body stays hidden",
+              createdAt: "2026-08-28T00:00:00.000Z",
+              evidenceSummary: "test",
+              id: "candidate-1",
+              kind: "project_constraint",
+              rationale: "test",
+              reason: "project-decision",
+              status: "pending",
+              targetBank: "project-trace-project",
+              targetScope: "session",
+              evidence: {
+                confidence: 1,
+                provenance: "test",
+                source: "test",
+                timestamp: "2026-08-28T00:00:00.000Z",
+                type: "explicit-user-statement",
+              },
+            },
+          },
+        },
+      }),
+    );
+
+    const { commands } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => ({
+        id: "trace-project",
+        label: "trace-project",
+      }),
+    });
+    const command = commands.find(({ name }) => name === "xpi-memo-trace");
+    if (!command) throw new Error("trace command was not registered");
+    const notifications: string[] = [];
+
+    await command.options.handler("--candidate candidate-1", {
+      cwd: "/tmp",
+      ui: {
+        confirm: async () => false,
+        notify(message) {
+          notifications.push(message);
+        },
+      },
+    });
+
+    expect(notifications).toHaveLength(1);
+    const rendered = notifications[0] ?? "";
+    expect(rendered).toContain("target: candidate");
+    expect(rendered).toContain("review state: pending");
+    expect(rendered).toContain("source event: session source-session @ position 6");
+    // Candidate body stays out of the trace.
+    expect(rendered).not.toContain("candidate body");
+  });
+
   it("includes the doctor state and read-only evidence in status output", async () => {
     const dataDir = createTemporaryDirectory();
     const run = async (args: string[]): Promise<string> =>
@@ -1023,6 +1579,121 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(status.doctor?.state).toBe("NEVER_CALLED");
     expect(status.doctor?.evidence.bankRows.default).toBe(0);
     expect(status.doctor?.evidence.roots).toHaveLength(3);
+  });
+  it("runs the offline extraction runner at session shutdown when enabled", async () => {
+    const dataDir = createTemporaryDirectory();
+    const seen: Array<{
+      events: number;
+      sessionId: string;
+    }> = [];
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      offlineExtractionRunner: async (input) => {
+        seen.push({
+          events: input.events.length,
+          sessionId: input.sessionId,
+        });
+        return [];
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext();
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.events).toBe(1);
+    expect(seen[0]?.sessionId).toBeTruthy();
+  });
+
+  it("does not run offline extraction when disabled", async () => {
+    const dataDir = createTemporaryDirectory();
+    let called = false;
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      offlineExtractionRunner: async () => {
+        called = true;
+        return [];
+      },
+    });
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!shutdown) throw new Error("shutdown hook not registered");
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      createToolContext(),
+    );
+    expect(called).toBe(false);
+  });
+
+  it("does not run the extraction runner twice for the same session (execution budget)", async () => {
+    const dataDir = createTemporaryDirectory();
+    let calls = 0;
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      offlineExtractionRunner: async () => {
+        calls += 1;
+        return [];
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext();
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    expect(calls).toBe(1);
+    const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"));
+    const extractionEntries = audit.entries.filter(
+      (entry: { action: string }) => entry.action === "extraction",
+    );
+    expect(extractionEntries).toHaveLength(2);
+    expect(extractionEntries[1]?.metadata?.status).toBe("budget-exhausted");
   });
 });
 

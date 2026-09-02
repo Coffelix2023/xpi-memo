@@ -4,6 +4,7 @@ import {
   createEvidenceRecord,
   EVIDENCE_TYPES,
   type EvidenceRecordInput,
+  evidenceTypeForProvenance,
   isEvidenceRecord,
 } from "./evidence.ts";
 
@@ -52,6 +53,39 @@ describe("T1 evidence records", () => {
 
     expect(record.timestamp).toMatch(ISO_TIMESTAMP_PATTERN);
     expect(Number.isNaN(Date.parse(record.timestamp))).toBe(false);
+  });
+
+  it.each([
+    [
+      "user input provenance",
+      "input:interactive",
+      "explicit-user-statement",
+    ],
+    [
+      "agent tool input",
+      "tool_call",
+      "verified-tool-result",
+    ],
+    [
+      "direct tool execution",
+      "direct-tool-execution",
+      "verified-tool-result",
+    ],
+    [
+      "missing provenance",
+      undefined,
+      "verified-tool-result",
+    ],
+  ] as const)("classifies %s", (_label, source, expected) => {
+    expect(
+      evidenceTypeForProvenance(
+        source
+          ? {
+              source,
+            }
+          : undefined,
+      ),
+    ).toBe(expected);
   });
 
   it.each([

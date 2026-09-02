@@ -9,7 +9,8 @@ xpi-memo is a Pi Coding Agent extension (TypeScript, loaded directly from `src/i
 │  Pi host (hooks, tools, commands, TUI)      │  src/index.ts
 ├─────────────────────────────────────────────┤
 │  T1 governed memory                         │  routing / candidate-lifecycle /
-│  (writes pass governance; policy recall)    │  recall-policy / audit / registry
+│  (activation loop; governance; recall)      │  memory-activation / recall-policy /
+│                                             │  recall-ranking / audit / registry / kinds
 ├─────────────────────────────────────────────┤
 │  Search backends (pluggable, fallback)      │  src/search/*
 ├─────────────────────────────────────────────┤
@@ -17,7 +18,8 @@ xpi-memo is a Pi Coding Agent extension (TypeScript, loaded directly from `src/i
 ├─────────────────────────────────────────────┤
 │  L0 session trace (append-only JSONL)       │  src/l0/*
 ├─────────────────────────────────────────────┤
-│  Storage: mnemosyne banks (SQLite) + files  │  banks/, audit.json, candidates.json
+│  Storage: mnemosyne banks (SQLite) + files  │  banks/, audit.json, candidates.json,
+│                                             │  idempotency.json, extraction-budget.json
 └─────────────────────────────────────────────┘
 ```
 
@@ -43,9 +45,27 @@ Dual-write: a T1 write appends to L0 first, then writes to mnemosyne + `audit.js
 ## T1 governance (top level `src/`)
 
 - **routing** (`routing.ts`, `banks.ts`) — global / project / session scope; project identity from git (`identity.ts`: canonical common dir hash + normalized remote aliases, cached per cwd) selects a per-project bank.
-- **candidate lifecycle** (`candidate-lifecycle.ts`, `pending-candidate.ts`) — writes that need review become candidates and are confirmed/rejected explicitly.
+- **candidate lifecycle** (`candidate-lifecycle.ts`, `pending-candidate.ts`) — writes that need review become candidates and are confirmed/rejected explicitly (Store / Later / Reject).
 - **policies** (`recall-policy.ts`, `auto-store-policy.ts`, `content-policy.ts`, `promotion-policy.ts`, `sleep-*.ts`) — recall decisions, auto-store gating, prohibited content, promotion, and consolidation.
 - **audit + registry** (`audit.ts`, `registry.ts`) — append-only audit trail (historical provenance values are never rewritten) and project registry with remote-based move repair.
+
+### Activation loop (`memory-intent.ts`, `memory-activation.ts`, `memory-idempotency.ts`)
+
+`src/memory-intent.ts` extracts explicit user intent deterministically (pattern-based, Chinese + English, correction signals; no LLM in the hot path). `src/memory-activation.ts` routes the result through the existing T1 governance path: prohibited-content check, scope routing via `routeMemoryKind`, evidence classification, and the candidate lifecycle. Global preferences/workflows store directly; project decisions, constraints, and gotchas become candidates; `project_gene` requires verified evidence and is never auto-extracted.
+
+Activation is wired to L0 provenance: the input hook records a `user_message` event, and activation runs against that event position so evidence classification can distinguish `explicit-user-statement` (provenance source `input:…`) from `verified-tool-result` (tool input, model inference, derived content — `src/evidence.ts` `evidenceTypeForProvenance`). `src/memory-idempotency.ts` persists a sha256 content fingerprint plus session/event/kind key, so replaying an event or a simultaneous explicit `xpi_memo_remember` never creates a duplicate row or candidate.
+
+### Gated offline extraction (`offline-extraction.ts`, `extraction-budget.ts`)
+
+Provider-neutral: the runner is injected by the host (`dependencies.offlineExtractionRunner`), so no model dependency lives in the module. Disabled by default (`offlineExtractionEnabled: false`); when enabled it runs only at session shutdown, reading the last 200 L0 events with a 15 s timeout. `extraction-budget.ts` enforces per-session budgets (1 execution / 20 proposals / 5 000 chars) via a persisted ledger; exhaustion stops further work before history is read. Proposals are normalized to `{content, kind, confidence, evidence type, source reference}`, always carry `l0-conclusion` evidence, and route to direct storage (only high-confidence ≥0.9, ≤500 char session context) or candidates. Every failure mode (disabled, unavailable, timeout, malformed, budget-exhausted) returns a bounded diagnostic and never blocks the active session.
+
+### Recall ranking (`recall-ranking.ts`)
+
+Pure backend-agnostic post-processing for automatic injection: standing vs contextual roles from the canonical taxonomy, query-intent weighting (`detectQueryIntent`), recency decay (30-day half-life), scope priority, superseded filtering, content deduplication, and per-role item + character budgets. Returns `null` when nothing survives so the caller omits the memory block. Explicit `xpi_memo_recall` output is untouched.
+
+### Observability (`observability.ts`, `candidate-digest.ts`, `status.ts`, `doctor.ts`)
+
+`src/kinds.ts` owns the single canonical taxonomy (7 kinds: label, role, scope, trust state, section title); status, console, and export consume it and never redefine labels. `src/observability.ts` derives the body-free `ObservabilitySnapshot` (capture/candidate/storage/recall/injection/rejection counts, per-kind taxonomy counts, bounded recent metadata — never memory bodies or rejection reasons) from the audit trail. `src/candidate-digest.ts` builds the body-free backlog digest (pending count, per-kind counts, oldest age, review surface) for TUI and startup notifications; session-start reminder is non-blocking and throttled to once per 6 hours when the backlog reaches 3+. `src/doctor.ts` classifies an empty T1 into `NEVER_CALLED` / `PENDING` / `WRITE_FAILED` / `RECALL_EMPTY`. `src/source-trace.ts` gives a bounded path back to the originating L0 session/event without dumping a transcript.
 
 ## Data layout
 
@@ -55,6 +75,8 @@ Dual-write: a T1 write appends to L0 first, then writes to mnemosyne + `audit.js
 ├── banks/project-*/mnemosyne.db
 ├── audit.json                  # append-only audit trail
 ├── candidates.json
+├── idempotency.json            # activation idempotency ledger (fingerprints)
+├── extraction-budget.json      # per-session offline-extraction budget ledger
 ├── sessions/<sessionId>/events.jsonl (+ events.NNN.jsonl)
 └── markdown/
     ├── MEMORY.md
