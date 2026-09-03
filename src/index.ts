@@ -64,6 +64,7 @@ import {
   DEFAULT_OFFLINE_EXTRACTION_MAX_PROPOSALS_PER_SESSION,
   DEFAULT_OFFLINE_EXTRACTION_TIMEOUT_MS,
   governOfflineExtractionOutput,
+  normalizeOfflineExtractionOutput,
   type OfflineExtractionRunner,
   runOfflineExtraction,
 } from "./offline-extraction.ts";
@@ -422,8 +423,14 @@ async function runOfflineExtractionForShutdown(
   // session never reads unbounded history (task 3.3).
   if (!ledger.executionAllowed(limits)) {
     audit.record("extraction", {
+      budgetRejectedCount: 1,
+      candidateCount: 0,
+      invalidProposals: 0,
+      proposalsTotal: 0,
       reason: "budget-exhausted",
+      rejectedCount: 0,
       status: "budget-exhausted",
+      storedCount: 0,
       trigger: "session_shutdown",
     });
     return;
@@ -447,9 +454,22 @@ async function runOfflineExtractionForShutdown(
     sessionId,
     timeoutMs: DEFAULT_OFFLINE_EXTRACTION_TIMEOUT_MS,
   });
+  const extractionCounts = {
+    budgetRejectedCount: 0,
+    candidateCount: 0,
+    invalidProposals: 0,
+    proposalsTotal: 0,
+    rejectedCount: 0,
+    storedCount: 0,
+    validProposals: 0,
+  };
   if (result.status === "completed") {
+    const normalized = normalizeOfflineExtractionOutput(result.output);
+    extractionCounts.proposalsTotal = normalized.proposalsTotal;
+    extractionCounts.validProposals = normalized.proposals.length;
+    extractionCounts.invalidProposals = normalized.invalid;
     const runtime = createRuntime(cwd, dependencies, l0);
-    await governOfflineExtractionOutput(result.output, {
+    const governed = await governOfflineExtractionOutput(result.output, {
       adapter: runtime.adapter,
       audit,
       candidates: runtime.candidates,
@@ -463,8 +483,21 @@ async function runOfflineExtractionForShutdown(
       limits,
       run: runtime.run,
     });
+    for (const outcome of governed) {
+      if (outcome.status === "stored") extractionCounts.storedCount += 1;
+      else if (outcome.status === "candidate") extractionCounts.candidateCount += 1;
+      else if (outcome.reason === "budget-exhausted")
+        extractionCounts.budgetRejectedCount += 1;
+      else extractionCounts.rejectedCount += 1;
+    }
   }
   audit.record("extraction", {
+    ...extractionCounts,
+    ...(result.status === "budget-exhausted"
+      ? {
+          budgetRejectedCount: 1,
+        }
+      : {}),
     reason: result.status,
     status: result.status,
     trigger: "session_shutdown",

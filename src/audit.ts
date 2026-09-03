@@ -27,6 +27,9 @@ export interface AuditMetadata {
   /** Search backend name that executed the recall (task 5.6). */
   backend?: string;
   bank?: string;
+  /** Bounded offline-extraction proposal counters; never memory bodies. */
+  budgetRejectedCount?: number;
+  candidateCount?: number;
   confidence?: number;
   evidenceType?: EvidenceType;
   fallback?: boolean;
@@ -35,19 +38,24 @@ export interface AuditMetadata {
   identity?: string;
   /** Number of results actually injected after ranking and budgets (task 5.6). */
   injectedCount?: number;
+  invalidProposals?: number;
   kind?: string;
   /** Actual sleep execution mode (task 3.4): dedicated / session-model /
    * mechanical / none / disabled. */
   mode?: string;
   /** Bounded outcome of a failed operation (task 3.1): rejected / degraded. */
   outcome?: string;
+  proposalsTotal?: number;
   reason?: string;
+  rejectedCount?: number;
   /** Number of results the backend returned (task 5.6). */
   resultCount?: number;
   /** Canonical semantic scope (task 1.2): global / project / session. */
   scope?: "global" | "project" | "session";
   status?: string;
+  storedCount?: number;
   trigger?: string;
+  validProposals?: number;
 }
 
 export interface AuditEntry {
@@ -73,20 +81,27 @@ interface CreateAuditLogOptions {
 
 const DEFAULT_MAX_ENTRIES = 200;
 const ALLOWED_METADATA_KEYS = new Set([
-  "bank",
   "backend",
+  "bank",
+  "budgetRejectedCount",
+  "candidateCount",
   "confidence",
   "evidenceType",
   "fallback",
-  "injectedCount",
-  "kind",
   "identity",
+  "injectedCount",
+  "invalidProposals",
+  "kind",
   "mode",
   "outcome",
+  "proposalsTotal",
   "reason",
+  "rejectedCount",
   "resultCount",
   "scope",
   "status",
+  "storedCount",
+  "validProposals",
   "trigger",
 ]);
 

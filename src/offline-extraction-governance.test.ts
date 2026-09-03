@@ -188,6 +188,11 @@ describe("offline extraction proposal normalization (task 3.2)", () => {
     expect(invalid).toBe(5);
     expect(proposals).toHaveLength(1);
     expect(proposals[0]?.content).toBe("ok");
+    expect(
+      normalizeOfflineExtractionOutput([
+        null,
+      ]).proposalsTotal,
+    ).toBe(1);
   });
 });
 

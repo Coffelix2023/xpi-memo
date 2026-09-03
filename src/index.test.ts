@@ -2695,6 +2695,15 @@ describe("xpi-memo bootstrap entrypoint", () => {
     );
     expect(extractionEntries).toHaveLength(2);
     expect(extractionEntries[1]?.metadata?.status).toBe("budget-exhausted");
+    expect(extractionEntries[0]?.metadata).toMatchObject({
+      budgetRejectedCount: 0,
+      candidateCount: 0,
+      invalidProposals: 0,
+      proposalsTotal: 0,
+      rejectedCount: 0,
+      storedCount: 0,
+      validProposals: 0,
+    });
   });
 
   it("does not retry a failed extraction runner during the same session", async () => {
@@ -2751,6 +2760,72 @@ describe("xpi-memo bootstrap entrypoint", () => {
       "failed",
       "budget-exhausted",
     ]);
+  });
+  it("audits proposal counts without recording proposal bodies", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      offlineExtractionRunner: async () => [
+        {
+          confidence: 0.95,
+          content: "User prefers concise answers.",
+          kind: "global_preference",
+          sourceReference: "l0:1",
+        },
+        {
+          confidence: 0.95,
+          content: "api_key=runner-secret",
+          kind: "global_preference",
+          sourceReference: "l0:2",
+        },
+        {
+          confidence: 0.95,
+          kind: "global_preference",
+          sourceReference: "l0:3",
+        },
+        "complete runner output must not appear",
+      ],
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext();
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    const auditText = readFileSync(join(dataDir, "audit.json"), "utf8");
+    const audit = JSON.parse(auditText) as {
+      entries: Array<{
+        action: string;
+        metadata: Record<string, unknown>;
+      }>;
+    };
+    const extraction = audit.entries.find((entry) => entry.action === "extraction");
+    expect(extraction?.metadata).toMatchObject({
+      candidateCount: 1,
+      invalidProposals: 2,
+      proposalsTotal: 4,
+      rejectedCount: 1,
+      validProposals: 2,
+    });
+    expect(auditText).not.toContain("runner-secret");
+    expect(auditText).not.toContain("complete runner output");
   });
 });
 

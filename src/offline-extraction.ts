@@ -333,6 +333,7 @@ function proposalsFromOutput(output: unknown): unknown[] {
 export interface NormalizedExtractionOutput {
   invalid: number;
   proposals: OfflineExtractionProposal[];
+  proposalsTotal: number;
 }
 
 /**
@@ -343,9 +344,10 @@ export interface NormalizedExtractionOutput {
 export function normalizeOfflineExtractionOutput(
   output: unknown,
 ): NormalizedExtractionOutput {
+  const rawProposals = proposalsFromOutput(output);
   const proposals: OfflineExtractionProposal[] = [];
   let invalid = 0;
-  for (const entry of proposalsFromOutput(output)) {
+  for (const entry of rawProposals) {
     const proposal = proposalFromEntry(entry);
     if (proposal) proposals.push(proposal);
     else invalid += 1;
@@ -353,6 +355,7 @@ export function normalizeOfflineExtractionOutput(
   return {
     invalid,
     proposals,
+    proposalsTotal: rawProposals.length,
   };
 }
 
