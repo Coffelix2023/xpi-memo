@@ -107,6 +107,32 @@ describe("status-panel TUI rendering", () => {
     expect(lines[lines.length - 1]).toContain("Esc / Enter close");
   });
 
+  it("surfaces ROUTING_REJECTED and the recall zero streak (plan-note-03)", () => {
+    const summary = summarize(
+      JSON.stringify({
+        doctor: {
+          state: "RECALL_EMPTY",
+          evidence: {
+            routingRejections: 4,
+          },
+          recallZeroStreak: {
+            alert: true,
+            count: 12,
+          },
+        },
+      }),
+    );
+    expect(summary.routingRejections).toBe(4);
+    expect(summary.recallZeroStreak).toEqual({
+      alert: true,
+      count: 12,
+    });
+    const lines = renderStatusPanelLines([], summary, 0, PANEL_WIDTH, mockTheme);
+    const joined = lines.join("\n");
+    expect(joined).toContain("RoutingRejected: 4");
+    expect(joined).toContain("Streak: 12 ⚠");
+  });
+
   it("ensures perfectly uniform visibleWidth across all rendered lines", () => {
     const summary = {
       backend: "ripgrep",

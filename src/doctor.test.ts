@@ -8,6 +8,7 @@ import {
   buildMemoryDoctorReport,
   classifyEmptyMemory,
   detectMemoryRootSurfaces,
+  recallZeroStreak,
 } from "./doctor.js";
 
 const base = {
@@ -95,6 +96,140 @@ describe("classifyEmptyMemory", () => {
   });
 });
 
+describe("recallZeroStreak (plan-note-03 RECALL_ZERO_STREAK)", () => {
+  const noRecalls = {
+    auditActions: [],
+    auditStatuses: [] as string[],
+  };
+
+  it("counts consecutive empty recalls", () => {
+    expect(
+      recallZeroStreak([
+        {
+          action: "recall",
+          resultCount: 0,
+        },
+        {
+          action: "write",
+        },
+        {
+          action: "recall",
+          resultCount: 0,
+        },
+        {
+          action: "recall",
+        },
+      ]),
+    ).toEqual({
+      alert: false,
+      count: 3,
+    });
+  });
+
+  it("resets on any recall with hits", () => {
+    expect(
+      recallZeroStreak([
+        {
+          action: "recall",
+          resultCount: 0,
+        },
+        {
+          action: "recall",
+          resultCount: 0,
+        },
+        {
+          action: "recall",
+          resultCount: 2,
+        },
+        {
+          action: "recall",
+          resultCount: 0,
+        },
+      ]),
+    ).toEqual({
+      alert: false,
+      count: 1,
+    });
+  });
+
+  it("alerts at the threshold of 10 consecutive zero-hit recalls", () => {
+    const zeros = Array.from(
+      {
+        length: 10,
+      },
+      () => ({
+        action: "recall",
+        resultCount: 0,
+      }),
+    );
+    expect(recallZeroStreak(zeros)).toEqual({
+      alert: true,
+      count: 10,
+    });
+    expect(recallZeroStreak(zeros.slice(0, 9))).toEqual({
+      alert: false,
+      count: 9,
+    });
+  });
+
+  it("reports zero when no recall audit entries exist", () => {
+    expect(
+      recallZeroStreak([
+        {
+          action: "write",
+        },
+      ]),
+    ).toEqual({
+      alert: false,
+      count: 0,
+    });
+  });
+
+  it("surfaces the streak through buildMemoryDoctorReport", () => {
+    const report = buildMemoryDoctorReport(
+      {
+        auditActions: [],
+        auditStatuses: [],
+        l0T1WriteEvents: 0,
+        pendingCandidates: 0,
+        auditEntries: [
+          {
+            action: "recall",
+            resultCount: 0,
+          },
+          {
+            action: "recall",
+            resultCount: 0,
+          },
+        ],
+        bankRows: {
+          default: 0,
+        },
+      },
+      [],
+    );
+    expect(report.recallZeroStreak).toEqual({
+      alert: false,
+      count: 2,
+    });
+  });
+
+  it("keeps the doctor report empty-streak-compatible without auditEntries", () => {
+    const report = buildMemoryDoctorReport(
+      {
+        ...noRecalls,
+        bankRows: {},
+        l0T1WriteEvents: 0,
+        pendingCandidates: 0,
+      },
+      [],
+    );
+    expect(report.recallZeroStreak).toEqual({
+      alert: false,
+      count: 0,
+    });
+  });
+});
 describe("buildMemoryDoctorReport", () => {
   it("emits audit counts, L0 counts, bank rows, and pending candidates", () => {
     const report = buildMemoryDoctorReport(

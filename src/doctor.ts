@@ -1,4 +1,34 @@
 /**
+ * Recall zero-hit streak (plan-note-03): consecutive recall audit entries that
+ * hit nothing. Any recall with results resets the streak; RECALL_ZERO_STREAK
+ * alert fires at RECALL_ZERO_STREAK_THRESHOLD.
+ */
+export const RECALL_ZERO_STREAK_THRESHOLD = 10;
+
+export interface RecallZeroStreak {
+  alert: boolean;
+  count: number;
+}
+
+export function recallZeroStreak(
+  entries: ReadonlyArray<{
+    action: string;
+    resultCount?: number;
+  }>,
+): RecallZeroStreak {
+  let count = 0;
+  for (const entry of entries) {
+    if (entry.action !== "recall") continue;
+    if ((entry.resultCount ?? 0) > 0) count = 0;
+    else count += 1;
+  }
+  return {
+    alert: count >= RECALL_ZERO_STREAK_THRESHOLD,
+    count,
+  };
+}
+
+/**
  * Empty-memory diagnosis (fix-zero-memory-activation task 4, design Decision 1).
  *
  * Classifies "T1 looks empty" into exactly one state using evidence the status
@@ -55,6 +85,11 @@ export function classifyEmptyMemory(input: EmptyMemoryEvidenceInput): EmptyMemor
 export interface MemoryDoctorInput {
   /** Audit entries (read-only) for counting remember outcomes. */
   auditActions: string[];
+  /** Recall audit entries with their result counts (plan-note-03 streak). */
+  auditEntries?: ReadonlyArray<{
+    action: string;
+    resultCount?: number;
+  }>;
   /** Audit statuses paired 1:1 with auditActions (same index). */
   auditStatuses: Array<string | undefined>;
   /** Row counts per queried bank, null when stats were unavailable. */
@@ -86,6 +121,8 @@ export interface MemoryDoctorReport {
     /** Pre-candidate routing rejection count (task 3.3). */
     routingRejections: number;
   };
+  /** Consecutive empty recalls + alert state (plan-note-03 RECALL_ZERO_STREAK). */
+  recallZeroStreak: RecallZeroStreak;
   state: EmptyMemoryState;
 }
 
@@ -162,7 +199,14 @@ export function buildMemoryDoctorReport(
     if (status === "routing_rejected") routingRejections += 1;
     if (status === "degraded") degraded += 1;
   }
+  const streak = recallZeroStreak(
+    (input.auditEntries ?? []).map((entry) => ({
+      action: entry.action,
+      resultCount: entry.resultCount,
+    })),
+  );
   return {
+    recallZeroStreak: streak,
     state: classifyInput({
       bankRows: input.bankRows,
       inFlight: audit.inFlight,

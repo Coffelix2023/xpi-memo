@@ -58,6 +58,7 @@ interface TestDependencies {
 
 const temporaryDirectories: string[] = [];
 const SOURCE_SID_PATTERN = /sid=([^;]+)/;
+const CHINESE_TEMPLATE_HIT = /决策|项目/;
 
 function createTemporaryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), "xpi-memo-index-"));
@@ -1179,7 +1180,14 @@ describe("xpi-memo bootstrap entrypoint", () => {
       context,
     );
     // Backend ran but returned nothing: no memory block, no injectedCount.
-    expect(result).toBeUndefined();
+    // Backend ran but returned nothing: no memory block, and the shared
+    // plan-note-03 status line is still visible (no silent injection).
+    expect(result).toMatchObject({
+      message: {
+        content: "✦ 无相关记忆",
+        display: false,
+      },
+    });
     const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8")).entries;
     const recallEntry = audit.find(
       (entry: { action: string }) => entry.action === "recall",
@@ -1190,6 +1198,70 @@ describe("xpi-memo bootstrap entrypoint", () => {
       status: "recalled",
     });
     expect(recallEntry?.metadata.injectedCount).toBeUndefined();
+  });
+  it("injects a Chinese memory via dual-query fusion and reports the status line (plan-note-03)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const recallQueries: string[] = [];
+    const run = async (args: string[]): Promise<string> => {
+      if (args[0] !== "recall") return "";
+      recallQueries.push(args[1] as string);
+      // Only the Chinese intent template hits the Chinese memory.
+      if (!CHINESE_TEMPLATE_HIT.test(args[1] ?? ""))
+        return JSON.stringify({
+          results: [],
+        });
+      return JSON.stringify({
+        results: [
+          {
+            content: "项目约定:流水线命令用 pnpm 执行。",
+            id: "zh-1",
+            importance: 0.8,
+            scope: "global",
+            score: 0.9,
+            source:
+              "kind=global_workflow;ev=explicit-user-statement;prov=pi;ts=2026-01-01T00%3A00%3A00.000Z;src=user",
+          },
+        ],
+      });
+    };
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_RECALL_POLICY: "active",
+      },
+      resolveProjectIdentity: () => null,
+      run,
+    });
+    const start = events.find(({ name }) => name === "session_start");
+    const beforeAgentStart = events.find(({ name }) => name === "before_agent_start");
+    if (!start || !beforeAgentStart) throw new Error("hooks not registered");
+    const context = createToolContext();
+    await start.handler({}, context);
+    const result = await beforeAgentStart.handler(
+      {
+        prompt: "继续",
+        type: "before_agent_start",
+      },
+      context,
+    );
+    // then the prompt-driven recall of the user's own query.
+    expect(recallQueries.slice(0, 2)).toEqual([
+      "restore project context decisions constraints preferences unfinished work",
+      "项目 决策 约束 偏好 未完成工作",
+    ]);
+    expect(recallQueries[2]).toBe("继续");
+    const content = (
+      result as
+        | {
+            message?: {
+              content?: string;
+            };
+          }
+        | undefined
+    )?.message?.content;
+    expect(content).toContain("项目约定:流水线命令用 pnpm 执行。");
+    expect(content).toContain("✦ 已注入 1 条记忆");
   });
   it("rejects project memory in an uninitialized non-Git directory with guidance and no global write", async () => {
     const dataDir = createTemporaryDirectory();

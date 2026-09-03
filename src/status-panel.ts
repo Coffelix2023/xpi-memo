@@ -58,6 +58,12 @@ export interface StatusSummary {
   project: number | null;
   projectLabel: string | null;
   /** Empty-memory doctor state (NEVER_CALLED etc.) when reported. */
+  recallZeroStreak?: {
+    alert: boolean;
+    count: number;
+  };
+  /** Pre-candidate routing rejection count (plan-note-03, visible in doctor). */
+  routingRejections?: number;
   state?: string;
   today: number;
 }
@@ -82,6 +88,13 @@ export function summarize(json: string): StatusSummary {
         label?: string;
       } | null;
       doctor?: {
+        evidence?: {
+          routingRejections?: number;
+        };
+        recallZeroStreak?: {
+          alert?: boolean;
+          count?: number;
+        };
         state?: string;
       };
       diskBytes?: number | null;
@@ -92,6 +105,7 @@ export function summarize(json: string): StatusSummary {
       };
       todayStored?: number;
     };
+    const doctor = parsed.doctor;
     return {
       backend: parsed.search?.active ?? "auto",
       disk: humanBytes(parsed.diskBytes),
@@ -100,7 +114,14 @@ export function summarize(json: string): StatusSummary {
       pending: parsed.pendingCandidates ?? 0,
       project: parsed.counts?.project ?? null,
       projectLabel: parsed.currentProject?.label ?? null,
-      state: parsed.doctor?.state,
+      recallZeroStreak: doctor?.recallZeroStreak
+        ? {
+            alert: doctor.recallZeroStreak.alert === true,
+            count: doctor.recallZeroStreak.count ?? 0,
+          }
+        : undefined,
+      routingRejections: doctor?.evidence?.routingRejections,
+      state: doctor?.state,
       today: parsed.todayStored ?? 0,
     };
   } catch {
@@ -161,8 +182,13 @@ export function renderStatusPanelLines(
 
   const stateLabel = summary.state ?? "unknown";
   const stateColor = summary.state === undefined ? "muted" : "accent";
+  const streak = summary.recallZeroStreak;
+  const streakLabel = streak
+    ? `Streak: ${streak.count}${streak.alert ? " ⚠" : ""}`
+    : "Streak: —";
+  const streakColor = streak?.alert ? "warning" : "muted";
   const row3 = `  ${`State: ${stateLabel}`.padEnd(colWidth)}  ${`Pending: ${summary.pending}`.slice(0, colWidth)}`;
-
+  const row4 = `  ${`RoutingRejected: ${summary.routingRejections ?? 0}`.padEnd(colWidth)}  ${streakLabel}`;
   const divider = theme.fg("dim", `├${"─".repeat(inner)}┤`);
   const headerTitle = theme.fg("accent", theme.bold("XpiMemo Status"));
   const headerContent = ` ${headerTitle}   ${dot} `;
@@ -174,7 +200,7 @@ export function renderStatusPanelLines(
   rows.push(frame(theme.fg("muted", row1)));
   rows.push(frame(theme.fg("muted", row2)));
   rows.push(frame(theme.fg(stateColor as never, row3)));
-  rows.push(frame(""));
+  rows.push(frame(theme.fg(streakColor as never, row4)));
   rows.push(divider);
 
   const start = Math.max(0, scroll);

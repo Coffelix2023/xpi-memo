@@ -105,7 +105,7 @@ import {
   visibleBankDiskBytes,
 } from "./status.ts";
 import { openStatusPanel } from "./status-panel.ts";
-import { createMemorySurface } from "./surface.ts";
+import { createMemorySurface, successText } from "./surface.ts";
 import { renderCallLine, renderToolLine } from "./tool-rendering.ts";
 
 const SLEEP_COMMAND_PATTERN = /^\s*sleep\s+/m;
@@ -1470,6 +1470,10 @@ async function statusForContext(
   const doctor: MemoryDoctorReport = buildMemoryDoctorReport(
     {
       auditActions: auditEntries.map((entry) => entry.action),
+      auditEntries: auditEntries.map((entry) => ({
+        action: entry.action,
+        resultCount: entry.metadata.resultCount,
+      })),
       auditStatuses: auditEntries.map((entry) => entry.metadata.status),
       bankRows,
       l0T1WriteEvents,
@@ -1579,6 +1583,62 @@ function renderMemoryContext(items: readonly RecallItem[]): string | null {
 /** Maximum characters of automatic-injection memory content (task 5.4). */
 const AUTO_INJECT_CHAR_BUDGET = 1500;
 
+/**
+ * Dual-query auto-injection (plan-note-03): a fixed English template alone
+ * structurally misses Chinese memories, so automatic injection also queries a
+ * Chinese intent template and fuses the results. Prompt-driven recall keeps
+ * the user's own query.
+ */
+const AUTO_INJECT_QUERY_ZH = "项目 决策 约束 偏好 未完成工作";
+const AUTO_INJECT_QUERY_EN =
+  "restore project context decisions constraints preferences unfinished work";
+
+/**
+ * Merge per-query SearchOutcomes: highest per-backend score wins on the same
+ * memory (id, else content signature); a failed query never blocks the other —
+ * only total failure yields an outcome with no backend.
+ */
+export function mergeSearchOutcomes(outcomes: SearchOutcome[]): SearchOutcome {
+  const succeeded = outcomes.filter((outcome) => outcome.backendName !== null);
+  if (succeeded.length === 0) return outcomes[0] as SearchOutcome;
+  const warning = succeeded
+    .map((outcome) => outcome.warning)
+    .filter((value): value is string => Boolean(value))
+    .at(0);
+  const best = new Map<string, SearchOutcome["results"][number]>();
+  for (const outcome of succeeded) {
+    for (const result of outcome.results) {
+      const key = result.id ? `id:${result.id}` : `content:${result.content.trim()}`;
+      const existing = best.get(key);
+      if (!existing || result.score > existing.score) best.set(key, result);
+    }
+  }
+  const first = succeeded[0] as SearchOutcome;
+  return {
+    attempts: succeeded.flatMap((outcome) => outcome.attempts),
+    backendName: first.backendName,
+    results: [
+      ...best.values(),
+    ].sort((left, right) => right.score - left.score),
+    queriedBanks: [
+      ...new Set(succeeded.flatMap((outcome) => outcome.queriedBanks)),
+    ],
+    ...(warning
+      ? {
+          warning,
+        }
+      : {}),
+  };
+}
+
+/** Injection result shared by the TUI widget and the RPC message path (plan-note-03). */
+interface RecallOutcome {
+  /** Memory block for the model; null when nothing was injected. */
+  context: string | null;
+  /** User-visible status line; shared verbatim with the TUI successText. */
+  statusLine: string;
+}
+
 async function recallForContext(
   ctx: ExtensionContext,
   dependencies: XpiMemoDependencies,
@@ -1586,21 +1646,50 @@ async function recallForContext(
   policy: RecallPolicy,
   surface: ReturnType<typeof createMemorySurface>,
   l0?: L0Coordinator,
-): Promise<string | null> {
+): Promise<RecallOutcome> {
+  const notRecalled: RecallOutcome = {
+    context: null,
+    statusLine: "",
+  };
   const runtime = createRuntime(ctx.cwd, dependencies);
   surface.begin(policy === "active" ? "inject" : "recall");
   try {
     const decision = decideRecall(policy, query, runtime.config.paused);
     if (!decision.shouldRecall) {
       surface.clear();
-      return null;
+      return notRecalled;
     }
-    const outcome = await runtime.search.runSearch({
-      limit: runtime.config.limit,
-      query,
-      scope: runtime.context.projectBank ? "project" : "global",
-      sessionId: l0?.sessionId() ?? undefined,
-    });
+    // Dual-query fusion: fixed auto-injection templates recall in both
+    // languages; prompt-driven recall adds the user's own query.
+    const queries =
+      query === AUTO_INJECT_QUERY_EN
+        ? [
+            AUTO_INJECT_QUERY_EN,
+            AUTO_INJECT_QUERY_ZH,
+          ]
+        : [
+            query,
+          ];
+    const outcomes = await Promise.all(
+      queries.map((single) =>
+        runtime.search
+          .runSearch({
+            limit: runtime.config.limit,
+            query: single,
+            scope: runtime.context.projectBank ? "project" : "global",
+            sessionId: l0?.sessionId() ?? undefined,
+          })
+          .catch(() => null),
+      ),
+    );
+    const usable = outcomes.filter(
+      (outcome): outcome is SearchOutcome => outcome !== null,
+    );
+    if (usable.length === 0) {
+      surface.fail();
+      return notRecalled;
+    }
+    const outcome = mergeSearchOutcomes(usable);
     const response = toRecallResponse(outcome);
     const ranked = rankRecallResults(response.results, query, {
       charBudget: AUTO_INJECT_CHAR_BUDGET,
@@ -1612,27 +1701,35 @@ async function recallForContext(
           ...ranked.contextual,
         ]
       : [];
-    // Task 5.6: distinguish "backend queried with no hits" from "no backend
-    // executed" and record result counts for observability.
-    runtime.audit.record("recall", {
-      backend: outcome.backendName ?? "none",
-      reason: query,
-      resultCount: outcome.results.length,
-      status: outcome.backendName === null ? "no-backend" : "recalled",
-      ...(injected.length > 0
-        ? {
-            injectedCount: injected.length,
-          }
-        : {}),
-    });
+    // Task 5.6 + plan-note-03: one audit entry per executed query distinguishes
+    // "backend queried with no hits" from "no backend executed" and feeds the
+    // doctor's recall zero-hit streak.
+    for (let index = 0; index < queries.length; index += 1) {
+      const single = outcomes[index];
+      if (!single) continue;
+      runtime.audit.record("recall", {
+        backend: single.backendName ?? "none",
+        reason: queries[index] as string,
+        resultCount: single.results.length,
+        status: single.backendName === null ? "no-backend" : "recalled",
+        ...(index === queries.length - 1 && injected.length > 0
+          ? {
+              injectedCount: injected.length,
+            }
+          : {}),
+      });
+    }
     const context = renderMemoryContext(injected);
-    if (context)
-      surface.complete(policy === "active" ? "inject" : "recall", injected.length);
-    else surface.clear();
-    return context;
+    // plan-note-03 visibility: one status line shared by the TUI widget and the
+    const action = policy === "active" ? "inject" : "recall";
+    surface.complete(action, injected.length);
+    return {
+      context,
+      statusLine: successText(action, injected.length),
+    };
   } catch {
     surface.fail();
-    return null;
+    return notRecalled;
   }
 }
 
@@ -1980,7 +2077,7 @@ export default function xpiMemo(
     object,
     ReturnType<typeof createMemorySurface>
   >();
-  const pendingStartupContext = new WeakMap<object, Promise<string | null>>();
+  const pendingStartupContext = new WeakMap<object, Promise<RecallOutcome>>();
   const lastInputByContext = new WeakMap<object, InputProvenance>();
   const toolCallProvenance = new Map<string, MemoryActivationProvenance>();
   // 4.2 session-start reminder cooldown (per extension process).
@@ -2123,7 +2220,7 @@ export default function xpiMemo(
       recallForContext(
         ctx,
         dependencies,
-        "restore project context decisions constraints preferences unfinished work",
+        AUTO_INJECT_QUERY_EN,
         "active",
         getSurface(ctx),
         l0ForHooks(),
@@ -2133,7 +2230,7 @@ export default function xpiMemo(
   pi.on("before_agent_start", async (event, ctx) => {
     const startup = pendingStartupContext.get(ctx);
     pendingStartupContext.delete(ctx);
-    const startupContext = startup ? await startup : null;
+    const startupOutcome = startup ? await startup : null;
     const runtime = createRuntime(
       ctx.cwd,
       dependencies,
@@ -2163,7 +2260,7 @@ export default function xpiMemo(
       event.prompt,
       runtime.config.paused,
     );
-    const promptContext = decision.shouldRecall
+    const promptOutcome = decision.shouldRecall
       ? await recallForContext(
           ctx,
           dependencies,
@@ -2173,17 +2270,31 @@ export default function xpiMemo(
           l0ForHooks(),
         )
       : null;
+    // plan-note-03: one status line per recall source, shared with the TUI.
+    const statusLines = [
+      startupOutcome,
+      promptOutcome,
+    ]
+      .map((outcome) => outcome?.statusLine)
+      .filter((line): line is string => typeof line === "string" && line.length > 0);
     const contexts = [
-      startupContext,
-      promptContext,
+      startupOutcome?.context,
+      promptOutcome?.context,
     ].filter((value): value is string => Boolean(value));
-    if (contexts.length === 0) return;
-    const uniqueLines = [
-      ...new Set(contexts.join("\n").split("\n")),
-    ];
+    if (statusLines.length === 0) return;
+    const contextLines =
+      contexts.length === 0
+        ? []
+        : [
+            ...new Set(contexts.join("\n").split("\n")),
+          ];
+    const content = [
+      ...statusLines,
+      ...contextLines,
+    ].join("\n");
     return {
       message: {
-        content: uniqueLines.join("\n"),
+        content,
         customType: "xpi-memo-memory",
         display: false,
       },
@@ -2195,7 +2306,7 @@ export default function xpiMemo(
       recallForContext(
         ctx,
         dependencies,
-        "restore project context decisions constraints preferences unfinished work",
+        AUTO_INJECT_QUERY_EN,
         "active",
         getSurface(ctx),
         l0ForHooks(),

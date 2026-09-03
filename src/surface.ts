@@ -75,7 +75,12 @@ function createWidget(
   };
 }
 
-const successText = (action: SurfaceAction, count?: number): string => {
+/** Shared injection/recall status line: same text for TUI widget and injected block. */
+export const NO_RELEVANT_MEMORY = "无相关记忆";
+
+export const successText = (action: SurfaceAction, count?: number): string => {
+  if (action !== "compact" && action !== "store" && (count ?? 0) === 0)
+    return `✦ ${NO_RELEVANT_MEMORY}`;
   if (action === "recall") return `✦ 已检索 ${count ?? 0} 条记忆`;
   if (action === "inject") return `✦ 已注入 ${count ?? 0} 条记忆`;
   if (action === "compact") return "✦ 已保留记忆上下文";
