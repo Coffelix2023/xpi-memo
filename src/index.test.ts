@@ -172,6 +172,122 @@ afterEach(() => {
   }
 });
 
+describe("xpi_memo_forget bank resolution", () => {
+  async function forget(options: {
+    project?: boolean;
+    responses: Record<string, string | Error>;
+  }) {
+    const dataDir = createTemporaryDirectory();
+    const calls: Array<{
+      bank: string | undefined;
+      args: string[];
+    }> = [];
+    const run = async (args: string[], cliOptions?: CliOptions): Promise<string> => {
+      calls.push({
+        args,
+        bank: cliOptions?.bank,
+      });
+      const response = options.responses[cliOptions?.bank ?? "default"];
+      if (response instanceof Error) throw response;
+      return response ?? "";
+    };
+    const { tools } = loadExtension({
+      resolveProjectIdentity: options.project
+        ? () => ({
+            id: "forget-project",
+            label: "forget-project",
+          })
+        : () => null,
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      run,
+    });
+    const result = await toolByName(tools, "xpi_memo_forget").execute(
+      "forget",
+      {
+        memoryId: "memory-1",
+      },
+      undefined,
+      undefined,
+      createToolContext(),
+    );
+    return {
+      calls,
+      dataDir,
+      details: result.details as Record<string, unknown>,
+    };
+  }
+
+  it("tries the current project bank first and stops on success", async () => {
+    const result = await forget({
+      project: true,
+      responses: {
+        "forget-project": "ok",
+      },
+    });
+    expect(result.calls.map(({ bank }) => bank)).toEqual([
+      "project-forget-project",
+    ]);
+    expect(result.details).toMatchObject({
+      bank: "project-forget-project",
+      status: "deleted",
+    });
+  });
+
+  it("falls back from project bank to default", async () => {
+    const result = await forget({
+      project: true,
+      responses: {
+        default: "ok",
+        "project-forget-project": new Error("missing"),
+      },
+    });
+    expect(result.calls.map(({ bank }) => bank)).toEqual([
+      "project-forget-project",
+      undefined,
+    ]);
+    expect(result.details).toMatchObject({
+      bank: "default",
+      status: "deleted",
+    });
+  });
+
+  it("uses default only without a project", async () => {
+    const result = await forget({
+      project: false,
+      responses: {
+        default: "ok",
+      },
+    });
+    expect(result.calls.map(({ bank }) => bank)).toEqual([
+      undefined,
+    ]);
+    expect(result.details).toMatchObject({
+      bank: "default",
+      status: "deleted",
+    });
+  });
+
+  it("reports failure without recording a deletion", async () => {
+    const result = await forget({
+      project: true,
+      responses: {
+        default: new Error("missing default"),
+        "project-forget-project": new Error("missing project"),
+      },
+    });
+    expect(result.details).toMatchObject({
+      status: "error",
+    });
+    expect(
+      existsSync(join(result.dataDir, "audit.json"))
+        ? readFileSync(join(result.dataDir, "audit.json"), "utf8")
+        : "",
+    ).not.toContain("memory-deleted-by-user");
+  });
+});
 describe("xpi-memo bootstrap entrypoint", () => {
   it("registers the status command and all four T1 tools exactly once", () => {
     const { commands, events, tools } = loadExtension();
@@ -902,6 +1018,48 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(readFileSync(join(dataDir, "audit.json"), "utf8")).toContain(
       '"action": "recall"',
     );
+    const response = text && "text" in text ? JSON.parse(text.text) : null;
+    expect(response?.results[0]).toMatchObject({
+      bank: "default",
+      id: "memory-123",
+    });
+  });
+
+  it("keeps null for fallback results without a backend ID", async () => {
+    const dataDir = createTemporaryDirectory();
+    const run = async (): Promise<string> =>
+      JSON.stringify({
+        results: [
+          {
+            content: "fallback memory",
+            score: 0.5,
+          },
+        ],
+      });
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => null,
+      run,
+    });
+    const result = await toolByName(tools, "xpi_memo_recall").execute(
+      "recall",
+      {
+        limit: 1,
+        query: "fallback memory",
+      },
+      undefined,
+      undefined,
+      createToolContext(),
+    );
+    const fallbackText = result.content[0];
+    const fallbackResponse =
+      fallbackText && "text" in fallbackText ? JSON.parse(fallbackText.text) : null;
+    expect(fallbackResponse?.results[0]).toMatchObject({
+      id: null,
+    });
   });
 
   it("reports queried banks on empty recall results", async () => {

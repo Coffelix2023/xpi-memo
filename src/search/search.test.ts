@@ -264,6 +264,25 @@ describe("Task 12.1 — MnemosyneBackend", () => {
         bank: "default",
       },
     });
+    expect(results[0]?.id).toBe("m1");
+  });
+  it("omits a missing Mnemosyne row ID", async () => {
+    const backend = new MnemosyneBackend(
+      {
+        dataDir: "/tmp/x",
+        projectBank: null,
+      },
+      async () =>
+        JSON.stringify({
+          results: [
+            {
+              content: "no id",
+            },
+          ],
+        }),
+    );
+    const results = await backend.search(query());
+    expect(results[0]?.id).toBeUndefined();
   });
 
   it("maps project scope to the project bank", async () => {

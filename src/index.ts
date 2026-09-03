@@ -1012,7 +1012,7 @@ function toRecallResponse(outcome: SearchOutcome): RecallResponse {
         result.content.length > 500
           ? `${result.content.slice(0, 500)}…`
           : result.content,
-      id: null,
+      id: result.id ?? null,
       kind: result.kind ?? null,
       // Canonical scope from the backend result (task 2.4): session rows are
       // labeled session, project rows project — never a physical bank name.
@@ -2280,26 +2280,56 @@ export default function xpiMemo(
       async (params, ctx) => {
         try {
           const runtime = createRuntime(ctx.cwd, dependencies);
-          await runtime.run(
-            [
-              "delete",
-              params.memoryId,
-            ],
-            {
-              dataDir: runtime.config.dataDir,
-            },
-          );
-          runtime.audit.record("rejection", {
-            reason: "memory-deleted-by-user",
-            status: "deleted",
-          });
+          const banks = [
+            ...new Set([
+              ...(runtime.context.projectBank
+                ? [
+                    runtime.context.projectBank,
+                  ]
+                : []),
+              GLOBAL_BANK,
+            ]),
+          ];
+          let lastError: unknown;
+          for (const bank of banks) {
+            try {
+              // biome-ignore lint/performance/noAwaitInLoops: bank probing must remain ordered and stop after first success.
+              await runtime.run(
+                [
+                  "delete",
+                  params.memoryId,
+                ],
+                {
+                  bank: bank === GLOBAL_BANK ? undefined : bank,
+                  dataDir: runtime.config.dataDir,
+                },
+              );
+              runtime.audit.record("rejection", {
+                bank,
+                reason: "memory-deleted-by-user",
+                status: "deleted",
+              });
+              return toolResult(
+                {
+                  bank,
+                  id: params.memoryId,
+                  reason: "memory-deleted-by-user",
+                  status: "deleted",
+                },
+                `Memory ${params.memoryId} deleted.`,
+              );
+            } catch (error) {
+              lastError = error;
+            }
+          }
+          const reason = boundedFailureReason(lastError ?? "memory-delete-failed");
           return toolResult(
             {
               id: params.memoryId,
-              reason: "memory-deleted-by-user",
-              status: "deleted",
+              reason,
+              status: "error",
             },
-            `Memory ${params.memoryId} deleted.`,
+            "Memory deletion failed.",
           );
         } catch (error) {
           return toolResult(

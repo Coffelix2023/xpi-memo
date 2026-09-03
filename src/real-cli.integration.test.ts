@@ -253,6 +253,7 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
       env: {
         XDG_CONFIG_HOME: dataDir,
         XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_SLEEP_MODE: "dedicated",
         XPI_MEMO_SLEEP_MODEL: "unused-dedicated-model",
       },
       resolveProjectIdentity: () => ({
@@ -298,9 +299,6 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
     );
     expect(remembered.status).toBe("stored");
     expect(remembered.bank).toBe("default");
-    const storedId = remembered.id;
-    expect(typeof storedId).toBe("string");
-
     // remember: bounded session context lands in the current project bank
     const session = detailsOf(
       await tool("xpi_memo_remember").execute(
@@ -333,6 +331,62 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
     );
     expect(decision.status).toBe("stored");
     expect(decision.candidateId).toBeTruthy();
+
+    // Project recall → forget closure must use the real backend ID.
+    const projectRecall = await tool("xpi_memo_recall").execute(
+      "recall-project",
+      {
+        limit: 10,
+        query: "Mnemosyne T1 store",
+      },
+      undefined,
+      undefined,
+      ctx,
+    );
+    const projectPayload = JSON.parse(textOf(projectRecall)) as {
+      results: Array<{
+        bank?: string;
+        id?: string | null;
+      }>;
+    };
+    const projectMemory = projectPayload.results.find(
+      (item) => item.bank === projectBank && typeof item.id === "string",
+    );
+    expect(projectMemory?.id).toEqual(expect.any(String));
+    const forgottenProject = detailsOf(
+      await tool("xpi_memo_forget").execute(
+        "forget-project",
+        {
+          memoryId: projectMemory?.id as string,
+        },
+        undefined,
+        undefined,
+        ctx,
+      ),
+    );
+    expect(forgottenProject).toMatchObject({
+      bank: projectBank,
+      id: projectMemory?.id,
+      status: "deleted",
+    });
+    const afterForget = await tool("xpi_memo_recall").execute(
+      "recall-project-after-forget",
+      {
+        limit: 10,
+        query: "Mnemosyne T1 store",
+      },
+      undefined,
+      undefined,
+      ctx,
+    );
+    const afterForgetPayload = JSON.parse(textOf(afterForget)) as {
+      results: Array<{
+        id?: string | null;
+      }>;
+    };
+    expect(
+      afterForgetPayload.results.some((item) => item.id === projectMemory?.id),
+    ).toBe(false);
 
     // recall: returns kind and provenance metadata from the project bank
     const recalled = await tool("xpi_memo_recall").execute(
@@ -387,20 +441,28 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
       ]),
     );
 
-    // forget: governed deletion through the real CLI
+    // forget: governed deletion through the real CLI, using the recalled global ID
+    const globalMemory = globalPayload.results.find(
+      (item: { bank?: string; id?: string | null }) =>
+        item.bank === "default" && typeof item.id === "string",
+    );
+    expect(globalMemory?.id).toEqual(expect.any(String));
     const forgotten = detailsOf(
       await tool("xpi_memo_forget").execute(
-        "forget",
+        "forget-global",
         {
-          memoryId: storedId as string,
+          memoryId: globalMemory?.id as string,
         },
         undefined,
         undefined,
         ctx,
       ),
     );
-    expect(forgotten.status).toBe("deleted");
-
+    expect(forgotten).toMatchObject({
+      bank: "default",
+      id: globalMemory?.id,
+      status: "deleted",
+    });
     // sleep: unauthorized stays rejected; authorized with a dedicated model is
     // capability-blocked instead of silently falling back to the primary model
     const unauthorized = detailsOf(

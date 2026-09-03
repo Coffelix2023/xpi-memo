@@ -27,8 +27,6 @@ export type MemoryIntentResult =
     };
 
 const MAX_SESSION_CONTEXT_LENGTH = 500;
-const EXPLICIT_MARKER_PATTERN =
-  /\b(?:remember|please remember|default|always|never|for this session|workflow|gotcha|must|decided|decision|adopt|adopted)\b|记住|默认|始终|一直|以后|每次|本次|当前任务|注意|踩坑|更正|纠正|必须|不能|不得|决定|采用|改为/i;
 const CORRECTION_PATTERN = /^(?:actually\s*[:,：]?|更正\s*[:：]?|纠正\s*[:：]?)/i;
 const PROJECT_PATTERN = /(?:this project|this repository|repo|本项目|这个仓库|仓库)/i;
 const SESSION_PATTERN = /(?:this session|for this session|本次|当前任务)/i;
@@ -84,9 +82,7 @@ export function extractExplicitMemoryIntent(
   context: MemoryIntentContext,
 ): MemoryIntentResult {
   const trimmed = text.trim();
-  if (!trimmed || !EXPLICIT_MARKER_PATTERN.test(trimmed)) {
-    return skip("no-explicit-intent");
-  }
+  if (!trimmed) return skip("no-explicit-intent");
 
   const correction = CORRECTION_PATTERN.test(trimmed);
   const kinds = matchingKinds(trimmed);

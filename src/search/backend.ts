@@ -29,6 +29,8 @@ export interface SearchResult {
   /** Confidence (0-1) when the backend reports one, e.g. mnemosyne `importance` (task 5.3). */
   confidence?: number;
   content: string;
+  /** Real backend memory ID when the result is deletable (Mnemosyne only). */
+  id?: string;
   kind?: MemoryKind | null;
   /** Canonical semantic scope derived from kind metadata (task 2.4). */
   scope?: "global" | "project" | "session";

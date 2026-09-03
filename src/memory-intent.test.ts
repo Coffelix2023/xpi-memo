@@ -8,6 +8,26 @@ const project = {
 describe("explicit memory intent extraction", () => {
   it.each([
     [
+      "我偏好使用中文回复",
+      "global_preference",
+    ],
+    [
+      "本项目禁止引入 ink 库",
+      "project_constraint",
+    ],
+    [
+      "每次提交前都要运行 pnpm typecheck",
+      "global_workflow",
+    ],
+  ] as const)("recognizes natural expression %s as %s", (text, kind) => {
+    expect(extractExplicitMemoryIntent(text, project)).toMatchObject({
+      kind,
+      type: "memory",
+    });
+  });
+
+  it.each([
+    [
       "请记住，我默认使用中文回复。",
       "global_preference",
     ],
@@ -127,6 +147,14 @@ describe("explicit memory intent extraction", () => {
       type: "memory",
     });
   });
+  it("rejects verified project facts without creating project_gene", () => {
+    const result = extractExplicitMemoryIntent("本仓库使用 FastAPI 技术栈", project);
+    expect(result).toMatchObject({
+      reason: "project-fact-requires-verification",
+      type: "skip",
+    });
+  });
+
   it("does not auto-create repository facts", () => {
     const result = extractExplicitMemoryIntent("记住仓库使用 TypeScript。", project);
     expect(result.type).toBe("skip");

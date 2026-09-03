@@ -86,6 +86,11 @@ function toResults(bank: string, output: string, query: SearchQuery): SearchResu
     if (!sessionOk) continue;
     const confidence = typeof row.importance === "number" ? row.importance : undefined;
     results.push({
+      ...(typeof row.id === "string"
+        ? {
+            id: row.id,
+          }
+        : {}),
       content: row.content,
       kind,
       // Canonical scope from kind metadata (task 2.4): the physical bank
