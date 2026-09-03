@@ -16,6 +16,8 @@ export const L0_EVENT_TYPES = [
   "candidate_created",
   "candidate_confirmed",
   "candidate_rejected",
+  "routing_rejected",
+  "memory_failed",
   "routing_decision",
 ] as const;
 

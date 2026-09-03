@@ -1,6 +1,6 @@
 # Markdown Export Format
 
-xpi-memo derives human-readable Markdown files from the L0 event log. The L0 JSONL log is the source of truth; Markdown is a derived view and can be regenerated at any time with `xpi-memo export`.
+xpi-memo derives human-readable Markdown files from the L0 event log. The L0 JSONL log is the source of truth; Markdown is a derived view and can be regenerated at any time with `/xpi-memo-export`.
 
 ## Directory layout
 
@@ -96,6 +96,14 @@ Every entry carries `<sub>session ... @ position N</sub>`. The pair (session id,
 - `/xpi-memo-export --force` — full regeneration, ignoring incremental state
 - `/xpi-memo-export --validate` — verify every L0 event position is covered by the export state; reports missing counts
 
+### Project repository export (`.pi/memory/`)
+
+A separate, explicit export layer writes governed project memory as deterministic Markdown under the project root:
+
+- `/xpi-memo-export --repo` — regenerate `.pi/memory/<kind>.md` (one file per project kind) from the live global project bank; stable memory-ID anchors, canonical kind/scope metadata, stable ordering — repeated export produces no unrelated diff.
+- `/xpi-memo-export --repo --reimport` — read the files back as `repo-export` evidence and route entries through the normal candidate lifecycle (content policy, scope routing, user confirmation) with stable-ID deduplication.
+
+The repo-export layer is a portable human view only: the global SQLite bank remains the sole machine-state write and recall engine, and no SQLite/WAL/SHM ever lands in the project repository.
 ## Error handling
 
 - Writes are atomic (temp file + rename): a crash never leaves a partial Markdown file behind.

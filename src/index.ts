@@ -1,4 +1,5 @@
 import { existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type {
@@ -39,6 +40,11 @@ import { sessionsDirFor } from "./l0/l0-runtime.js";
 import { createL0Coordinator, type L0Coordinator } from "./l0/l0-runtime.ts";
 import { sessionDirFor } from "./l0/session-manager.js";
 import type { L0Event } from "./l0/types.js";
+import {
+  initializeLocalProject,
+  LOCAL_PROJECT_METADATA_DIR,
+  resolveLocalProjectIdentity,
+} from "./local-identity.ts";
 import { exportMarkdown, validateExport } from "./markdown-export/exporter.js";
 import {
   activateExplicitMemoryIntent,
@@ -74,7 +80,15 @@ import {
 import type { RecallItem, RecallResponse } from "./recall.ts";
 import { decideRecall, type RecallPolicy } from "./recall-policy.ts";
 import { rankRecallResults } from "./recall-ranking.ts";
-import { routeMemoryKind } from "./routing.ts";
+import { loadRegistry, registryPath } from "./registry.ts";
+import {
+  detectOrphanBanks,
+  discoverRepoExport,
+  exportProjectMemory,
+  reimportRepoExport,
+  repoMemoryDir,
+} from "./repo-export.ts";
+import { RoutingRejectionError, routeMemoryKind } from "./routing.ts";
 import { createSearchRuntime } from "./search/runtime.ts";
 import type { SearchOutcome } from "./search/selector.ts";
 import {
@@ -102,18 +116,27 @@ type ToolStatus =
   | "executed"
   | "recalled"
   | "rejected"
+  | "routing_rejected"
   | "skipped"
   | "stored";
 
 interface ToolDetails {
+  /** Backend execution state for recall (task 3.3):
+   * backend-not-run vs backend-queried-no-hits vs backend-queried-with-hits. */
+  backendState?:
+    | "backend-not-run"
+    | "backend-queried-no-hits"
+    | "backend-queried-with-hits";
   bank?: string;
   candidateId?: string;
   id?: string | null;
   kind?: MemoryKind;
+  /** Actual sleep execution mode (task 3.4). */
+  mode?: string;
   queriedBanks?: string[];
   reason?: string;
   resultCount?: number;
-  scope?: "global" | "session";
+  scope?: "global" | "project" | "session";
   status: ToolStatus;
 }
 
@@ -155,6 +178,114 @@ function toolResult(details: ToolDetails, text: string) {
     ],
     details,
   };
+}
+
+/**
+ * Bounded failure reason: one line, control chars stripped, capped length.
+ * Never includes memory bodies, tokens, or credentials (task 3.1/3.2).
+ */
+function boundedFailureReason(error: unknown): string {
+  const raw =
+    error instanceof Error ? error.message : String(error ?? "memory-write-failed");
+  const singleLine = raw.replace(/[\r\n\t]+/g, " ").trim();
+  return singleLine.slice(0, 120) || "memory-write-failed";
+}
+
+/**
+ * Record a pre-candidate routing rejection in audit + L0 (task 3.1).
+ * Body-free: kind, scope, reason code, identity state, outcome only.
+ */
+function recordRoutingRejection(
+  runtime: Runtime,
+  kind: MemoryKind | undefined,
+  scope: "global" | "project" | "session" | undefined,
+  reason: string,
+): void {
+  runtime.audit.record("rejection", {
+    ...(kind
+      ? {
+          kind,
+        }
+      : {}),
+    ...(scope
+      ? {
+          scope,
+        }
+      : {}),
+    reason,
+    identity: runtime.context.identity,
+    status: "routing_rejected",
+  });
+  runtime.l0.recordSafe("routing_rejected", {
+    ...(kind
+      ? {
+          kind,
+        }
+      : {}),
+    ...(scope
+      ? {
+          scope,
+        }
+      : {}),
+    reason,
+    identity: runtime.context.identity,
+    outcome: "routing_rejected",
+  });
+}
+
+/**
+ * Record a governed failure (policy rejection / degraded / storage failure).
+ * Body-free; outcome picks the audit action (rejection / fallback).
+ */
+function recordMemoryFailure(
+  runtime: Runtime,
+  fields: {
+    bank?: string;
+    kind?: MemoryKind;
+    outcome: "rejected" | "degraded";
+    phase: "policy" | "candidate" | "backend" | "storage";
+    reason: string;
+    scope?: "global" | "project" | "session";
+  },
+): void {
+  const action = fields.outcome === "degraded" ? "fallback" : "rejection";
+  runtime.audit.record(action, {
+    ...(fields.kind
+      ? {
+          kind: fields.kind,
+        }
+      : {}),
+    ...(fields.scope
+      ? {
+          scope: fields.scope,
+        }
+      : {}),
+    ...(fields.bank
+      ? {
+          bank: fields.bank,
+        }
+      : {}),
+    identity: runtime.context.identity,
+    outcome: fields.outcome,
+    reason: fields.reason,
+    status: fields.outcome,
+  });
+  runtime.l0.recordSafe("memory_failed", {
+    ...(fields.kind
+      ? {
+          kind: fields.kind,
+        }
+      : {}),
+    ...(fields.scope
+      ? {
+          scope: fields.scope,
+        }
+      : {}),
+    identity: runtime.context.identity,
+    outcome: fields.outcome,
+    phase: fields.phase,
+    reason: fields.reason,
+  });
 }
 
 function realTool<TParams extends TSchema>(
@@ -216,9 +347,18 @@ function createRuntime(
   const configResult = loadConfig({
     env: dependencies.env,
   });
-  const project = (dependencies.resolveProjectIdentity ?? resolveProjectIdentity)(cwd);
+  const gitProject = (dependencies.resolveProjectIdentity ?? resolveProjectIdentity)(
+    cwd,
+  );
+  const localProject = gitProject ? null : resolveLocalProjectIdentity(cwd);
+  const project = gitProject ?? localProject;
+  let identity: "git" | "local" | "none";
+  if (gitProject) identity = "git";
+  else if (localProject) identity = "local";
+  else identity = "none";
   const context: RoutingContext = {
     dataDir: configResult.config.dataDir,
+    identity,
     projectBank: project ? `project-${project.id}` : null,
   };
   const run =
@@ -362,7 +502,11 @@ async function chooseCandidateAction(
   return "later";
 }
 
-function operationFor(params: RememberParams, runtime: Runtime): T1MemoryOperation {
+function operationFor(
+  params: RememberParams,
+  runtime: Runtime,
+  provenance?: MemoryActivationProvenance,
+): T1MemoryOperation {
   const kindValue = params.kind;
   if (!isMemoryKind(kindValue)) {
     throw new Error(`Unsupported memory kind: ${kindValue}`);
@@ -386,6 +530,13 @@ function operationFor(params: RememberParams, runtime: Runtime): T1MemoryOperati
     targetBank: route.bank,
     source: {
       evidenceType: evidence.type,
+      // Session-scoped rows carry the L0 session discriminator so recall can
+      // isolate current-session context from unrelated sessions (task 2.3).
+      ...(kindValue === "session_context" && provenance?.sessionId
+        ? {
+            sessionId: provenance.sessionId,
+          }
+        : {}),
       source: evidence.source,
       timestamp: evidence.timestamp,
     },
@@ -418,14 +569,10 @@ async function executeRemember(
   idempotencyOverride?: MemoryIdempotencyStore,
   provenance?: MemoryActivationProvenance,
 ) {
+  let runtime: Runtime | null = null;
   try {
-    const runtime = createRuntime(
-      ctx.cwd,
-      dependencies,
-      l0Override,
-      idempotencyOverride,
-    );
-    const operation = operationFor(params, runtime);
+    runtime = createRuntime(ctx.cwd, dependencies, l0Override, idempotencyOverride);
+    const operation = operationFor(params, runtime, provenance);
     const evidenceType = operation.source.evidenceType;
     const evidence = {
       confidence: operation.confidence,
@@ -443,8 +590,17 @@ async function executeRemember(
         evidenceType,
         kind: operation.kind,
         reason,
+        identity: runtime.context.identity,
         scope: operation.scope,
         status: "rejected",
+      });
+      runtime.l0.recordSafe("memory_failed", {
+        kind: operation.kind,
+        reason,
+        identity: runtime.context.identity,
+        outcome: "rejected",
+        phase: "policy",
+        scope: operation.scope,
       });
       return toolResult(
         {
@@ -462,8 +618,17 @@ async function executeRemember(
         evidenceType,
         kind: operation.kind,
         reason,
+        identity: runtime.context.identity,
         scope: operation.scope,
         status: "rejected",
+      });
+      runtime.l0.recordSafe("memory_failed", {
+        kind: operation.kind,
+        reason,
+        identity: runtime.context.identity,
+        outcome: "rejected",
+        phase: "policy",
+        scope: operation.scope,
       });
       return toolResult(
         {
@@ -494,8 +659,17 @@ async function executeRemember(
         evidenceType,
         kind: operation.kind,
         reason,
+        identity: runtime.context.identity,
         scope: operation.scope,
         status: "rejected",
+      });
+      runtime.l0.recordSafe("memory_failed", {
+        kind: operation.kind,
+        reason,
+        identity: runtime.context.identity,
+        outcome: "rejected",
+        phase: "policy",
+        scope: operation.scope,
       });
       return toolResult(
         {
@@ -633,6 +807,14 @@ async function executeRemember(
         operation.targetBank !== GLOBAL_BANK &&
         !(await ensureProjectBank(runtime.context, runtime.run))
       ) {
+        recordMemoryFailure(runtime, {
+          bank: candidate.targetBank,
+          kind: candidate.kind,
+          outcome: "degraded",
+          phase: "storage",
+          reason: "project-bank-unavailable",
+          scope: candidate.targetScope,
+        });
         return toolResult(
           {
             bank: candidate.targetBank,
@@ -642,7 +824,7 @@ async function executeRemember(
             scope: candidate.targetScope,
             status: "error",
           },
-          "Project bank is unavailable; memory was not stored.",
+          "Project bank is unavailable; memory was not stored. Run /xpi-memo-init in a Git project or initialize this directory.",
         );
       }
       const stored = await runtime.candidates.confirm(candidate.id);
@@ -685,10 +867,20 @@ async function executeRemember(
       runtime.audit.record("fallback", {
         bank: operation.targetBank,
         evidenceType,
+        identity: runtime.context.identity,
         kind: operation.kind,
         reason: "project-bank-unavailable",
         scope: operation.scope,
-        status: "rejected",
+        status: "degraded",
+      });
+      runtime.l0.recordSafe("memory_failed", {
+        bank: operation.targetBank,
+        identity: runtime.context.identity,
+        kind: operation.kind,
+        outcome: "degraded",
+        phase: "storage",
+        reason: "project-bank-unavailable",
+        scope: operation.scope,
       });
       return toolResult(
         {
@@ -760,12 +952,36 @@ async function executeRemember(
       }),
     );
   } catch (error) {
+    if (error instanceof RoutingRejectionError) {
+      if (runtime)
+        recordRoutingRejection(runtime, params.kind, error.scope, error.reason);
+      return toolResult(
+        {
+          kind: params.kind,
+          reason: error.reason,
+          scope: error.scope,
+          status: "routing_rejected",
+        },
+        `Memory could not be routed: ${error.message}`,
+      );
+    }
+    const failureReason = boundedFailureReason(error);
+    if (
+      runtime &&
+      !(error instanceof Error && error.message.startsWith("Unsupported memory kind"))
+    )
+      recordMemoryFailure(runtime, {
+        kind: params.kind,
+        outcome: "degraded",
+        phase: "backend",
+        reason: failureReason,
+      });
     return toolResult(
       {
-        reason: error instanceof Error ? error.message : "memory-write-failed",
+        reason: failureReason,
         status: "error",
       },
-      "Memory write failed.",
+      `Memory write failed: ${failureReason}. Check the T1 backend (mnemosyne) or xpi_memo configuration.`,
     );
   }
 }
@@ -798,7 +1014,11 @@ function toRecallResponse(outcome: SearchOutcome): RecallResponse {
           : result.content,
       id: null,
       kind: result.kind ?? null,
-      scope: result.source.bank ?? "default",
+      // Canonical scope from the backend result (task 2.4): session rows are
+      // labeled session, project rows project — never a physical bank name.
+      scope:
+        result.scope ??
+        (result.sessionId ? "session" : (result.source.bank ?? "default")),
       score: result.score,
       ...(result.confidence !== undefined
         ? {
@@ -833,6 +1053,7 @@ async function executeRecall(
   params: RecallParams,
   ctx: ExtensionContext,
   dependencies: XpiMemoDependencies,
+  l0?: L0Coordinator,
 ) {
   try {
     const runtime = createRuntime(ctx.cwd, dependencies);
@@ -842,12 +1063,16 @@ async function executeRecall(
       limit,
       query: params.query,
       scope: runtime.context.projectBank ? "project" : "global",
+      sessionId: l0?.sessionId() ?? undefined,
     });
     if (outcome.backendName === null) {
       // Spec: no backend available → empty results + warning, session continues.
-      runtime.audit.record("fallback", {
+      // Distinguish backend-not-run from backend-queried-no-hits (task 3.3).
+      runtime.audit.record("recall", {
+        backend: "none",
         reason: "no-search-backend",
-        status: "recalled",
+        resultCount: 0,
+        status: "no-backend",
       });
       const empty: RecallResponse = {
         queriedBanks: [],
@@ -860,6 +1085,7 @@ async function executeRecall(
       };
       return toolResult(
         {
+          backendState: "backend-not-run",
           reason: "no-search-backend",
           resultCount: 0,
           status: "recalled",
@@ -872,12 +1098,18 @@ async function executeRecall(
     }
     const response: RecallResponse = toRecallResponse(outcome);
     runtime.audit.record("recall", {
+      backend: outcome.backendName,
       fallback: outcome.backendName !== "mnemosyne",
       reason: params.query,
-      status: "recalled",
+      resultCount: response.results.length,
+      status: response.results.length > 0 ? "recalled" : "no-hits",
     });
     return toolResult(
       {
+        backendState:
+          response.results.length > 0
+            ? "backend-queried-with-hits"
+            : "backend-queried-no-hits",
         queriedBanks: response.queriedBanks,
         reason:
           outcome.warning ??
@@ -891,12 +1123,13 @@ async function executeRecall(
       }),
     );
   } catch (error) {
+    const failureReason = boundedFailureReason(error);
     return toolResult(
       {
-        reason: error instanceof Error ? error.message : "memory-recall-failed",
+        reason: failureReason,
         status: "error",
       },
-      "Memory recall failed.",
+      `Memory recall failed: ${failureReason}. Check xpi_memo.searchBackend or installed backends.`,
     );
   }
 }
@@ -947,7 +1180,17 @@ async function executeSleepTool(
 ) {
   try {
     const runtime = createRuntime(ctx.cwd, dependencies);
-    const capability = await capabilityForSleep(runtime, params.authorized);
+    const sleepMode = runtime.config.sleepMode;
+    // Fail closed (task 5.1): no configured mode means the CLI is never probed
+    // or invoked — the diagnostic names the missing configuration.
+    const capability: SleepCapabilityResult =
+      sleepMode === undefined || sleepMode === "disabled"
+        ? {
+            dedicatedModelSupported: false,
+            reason: "upstream-sleep-command-unavailable",
+            sleepCommandSupported: false,
+          }
+        : await capabilityForSleep(runtime, params.authorized);
     const env = dependencies.env ?? process.env;
     const dedicatedModel = env.XPI_MEMO_SLEEP_MODEL?.trim() || undefined;
     const result = await executeSleep(
@@ -958,6 +1201,7 @@ async function executeSleepTool(
         },
         capability,
         dedicatedModel,
+        sleepMode: runtime.config.sleepMode,
       },
       (args) =>
         runtime.run(args, {
@@ -965,24 +1209,37 @@ async function executeSleepTool(
         }),
     );
     runtime.audit.record("sleep-authorization", {
+      mode: result.mode,
       reason: result.reason,
       status: result.executed ? "executed" : "rejected",
       trigger: "explicit-user",
     });
+    let text: string;
+    if (result.executed) {
+      text = `Sleep completed (mode: ${result.mode}).`;
+    } else if (result.mode === "disabled") {
+      text = `Sleep not executed: ${result.reason}.`;
+    } else {
+      text =
+        `Sleep not executed: ${result.reason} (mode: ${result.mode}). ` +
+        "SLEEP_DISABLED: no dedicated sleep model or fallback is configured.";
+    }
     return toolResult(
       {
+        mode: result.mode,
         reason: result.reason,
         status: result.executed ? "executed" : "rejected",
       },
-      result.executed ? "Sleep completed." : `Sleep not executed: ${result.reason}.`,
+      text,
     );
   } catch (error) {
+    const failureReason = boundedFailureReason(error);
     return toolResult(
       {
-        reason: error instanceof Error ? error.message : "sleep-failed",
+        reason: failureReason,
         status: "error",
       },
-      "Sleep failed.",
+      `Sleep failed: ${failureReason}. Check the mnemosyne CLI and xpi_memo sleep configuration.`,
     );
   }
 }
@@ -1082,7 +1339,11 @@ async function statusForContext(
   const config = loadConfig({
     env: dependencies.env,
   }).config;
-  const project = (dependencies.resolveProjectIdentity ?? resolveProjectIdentity)(cwd);
+  const gitProject = (dependencies.resolveProjectIdentity ?? resolveProjectIdentity)(
+    cwd,
+  );
+  const localProject = gitProject ? null : resolveLocalProjectIdentity(cwd);
+  const project = gitProject ?? localProject;
   const run =
     dependencies.run ??
     (async (args, options) => {
@@ -1112,19 +1373,24 @@ async function statusForContext(
     projectBank && bankExists(config.dataDir, projectBank)
       ? await stats(projectBank)
       : null;
+  // Task 5.1: capability probing happens only when a sleep mode is configured;
+  // an unconfigured/disabled mode reports SLEEP_DISABLED without touching the CLI.
+  const sleepMode = config.sleepMode;
   let sleepCommandSupported = false;
-  try {
-    const help = await run(
-      [
-        "--help",
-      ],
-      {
-        dataDir: config.dataDir,
-      },
-    );
-    sleepCommandSupported = SLEEP_COMMAND_PATTERN.test(help);
-  } catch {
-    // Status reports unavailable CLI capability conservatively.
+  if (sleepMode !== "disabled") {
+    try {
+      const help = await run(
+        [
+          "--help",
+        ],
+        {
+          dataDir: config.dataDir,
+        },
+      );
+      sleepCommandSupported = SLEEP_COMMAND_PATTERN.test(help);
+    } catch {
+      // Status reports unavailable CLI capability conservatively.
+    }
   }
   const audit = createAuditLog({
     statePath: join(config.dataDir, "audit.json"),
@@ -1138,6 +1404,27 @@ async function statusForContext(
     status: entry.metadata.status,
     timestamp: entry.timestamp,
   }));
+  // Backend execution state from the most recent recall audit entry (task 3.3).
+  const lastRecall = [
+    ...auditEntries.filter((entry) => entry.action === "recall"),
+  ].at(-1);
+  let backendState:
+    | "backend-not-run"
+    | "backend-queried-no-hits"
+    | "backend-queried-with-hits"
+    | undefined;
+  if (!lastRecall) {
+    backendState = undefined;
+  } else if (lastRecall.metadata.status === "no-backend") {
+    backendState = "backend-not-run";
+  } else if (
+    lastRecall.metadata.status === "no-hits" ||
+    (lastRecall.metadata.resultCount ?? 0) === 0
+  ) {
+    backendState = "backend-queried-no-hits";
+  } else {
+    backendState = "backend-queried-with-hits";
+  }
   const pendingCandidates = createCandidateStore({
     adapter: createMnemosyneAdapter(run),
     statePath: join(config.dataDir, "candidates.json"),
@@ -1153,6 +1440,26 @@ async function statusForContext(
       projectDb: projectDbPath ? existsSync(projectDbPath) : false,
     },
   };
+  // Task 6.4: read-only orphan bank report. Known banks come from the
+  // local project registry (when present) plus the current project.
+  const configHome =
+    (dependencies.env ?? process.env).XDG_CONFIG_HOME?.trim() ||
+    join(homedir(), ".config");
+  const knownBanks = [
+    ...(projectBank
+      ? [
+          projectBank,
+        ]
+      : []),
+    ...Object.values(loadRegistry(registryPath(configHome)).projects).map(
+      (entry) => entry.bank,
+    ),
+  ];
+  const orphans = detectOrphanBanks({
+    currentBank: projectBank,
+    dataDir: config.dataDir,
+    knownBanks,
+  });
   // Doctor (task 4.3): read-only evidence bundle + empty-memory classification.
   const bankRows: Record<string, number | null> = {
     default: globalStats?.total ?? null,
@@ -1180,8 +1487,15 @@ async function statusForContext(
       : null,
     doctor,
     diskBytes: visibleBankDiskBytes(config.dataDir, projectBank),
-    fallback: null,
+    fallback: auditEntries.some(
+      (entry) => entry.action === "fallback" && entry.metadata.status === "degraded",
+    ),
     observability: buildObservabilitySnapshot(auditEntries),
+    ...(orphans.length > 0
+      ? {
+          orphans,
+        }
+      : {}),
     paused: config.paused,
     todayStored: todayStored(auditEntries),
     counts: {
@@ -1192,6 +1506,11 @@ async function statusForContext(
     pendingCandidates,
     provenance: "evidence-linked",
     recall: {
+      ...(backendState
+        ? {
+            backendState,
+          }
+        : {}),
       queriedBanks: projectBank
         ? [
             projectBank,
@@ -1204,14 +1523,39 @@ async function statusForContext(
     },
     recentEntries,
     search: await searchStatusFor(config),
+    sleep: (() => {
+      // Task 5.1: the status names the actual configured mode and capability.
+      if (sleepMode === "disabled" || sleepMode === undefined) {
+        return {
+          dedicatedModelSupported: false,
+          enabled: false,
+          mode: "disabled",
+          reason: "sleep-mode-not-configured",
+          sleepCommandSupported: false,
+          state: "SLEEP_DISABLED",
+        };
+      }
+      if (!sleepCommandSupported) {
+        return {
+          dedicatedModelSupported: false,
+          enabled: true,
+          mode: "none",
+          reason: "sleep-command-unavailable",
+          sleepCommandSupported: false,
+          state: "UNAVAILABLE",
+        };
+      }
+      return {
+        dedicatedModelSupported: false,
+        enabled: true,
+        mode: sleepMode,
+        sleepCommandSupported: true,
+        state: "READY",
+      };
+    })(),
     retrieval: {
       embeddingAvailable: null,
       mode: "hybrid",
-    },
-    sleep: {
-      dedicatedModelSupported: false,
-      enabled: false,
-      sleepCommandSupported,
     },
     storage,
     tiers: {
@@ -1241,6 +1585,7 @@ async function recallForContext(
   query: string,
   policy: RecallPolicy,
   surface: ReturnType<typeof createMemorySurface>,
+  l0?: L0Coordinator,
 ): Promise<string | null> {
   const runtime = createRuntime(ctx.cwd, dependencies);
   surface.begin(policy === "active" ? "inject" : "recall");
@@ -1254,6 +1599,7 @@ async function recallForContext(
       limit: runtime.config.limit,
       query,
       scope: runtime.context.projectBank ? "project" : "global",
+      sessionId: l0?.sessionId() ?? undefined,
     });
     const response = toRecallResponse(outcome);
     const ranked = rankRecallResults(response.results, query, {
@@ -1499,6 +1845,64 @@ export default function xpiMemo(
     handler: async (args, ctx) => {
       const env = dependencies.env ?? process.env;
       const flags = args.split(WS_SPLIT).filter(Boolean);
+      const config = loadConfig({
+        env,
+      }).config;
+      // Task 6.1/6.3: project Markdown export / governed re-import.
+      if (flags.includes("--repo")) {
+        const runtime = createRuntime(ctx.cwd, dependencies);
+        const bank = runtime.context.projectBank;
+        // Task 6.4: resolve the export target to the current worktree/project
+        // root, never to a subdirectory of the session cwd.
+        const gitIdentity = resolveProjectIdentity(ctx.cwd);
+        const localIdentity = gitIdentity ? null : resolveLocalProjectIdentity(ctx.cwd);
+        const projectRoot = gitIdentity?.root ?? localIdentity?.root ?? ctx.cwd;
+        if (!bank) {
+          ctx.ui.notify(
+            "No project identity in this directory. Run /xpi-memo-init or switch to a Git repository.",
+            "warning",
+          );
+          return;
+        }
+        if (flags.includes("--reimport")) {
+          const entries = discoverRepoExport(projectRoot);
+          if (entries.length === 0) {
+            ctx.ui.notify(
+              `No repo-export entries found in ${repoMemoryDir(projectRoot)}.`,
+              "info",
+            );
+            return;
+          }
+          const result = await reimportRepoExport(entries, {
+            audit: runtime.audit,
+            candidates: runtime.candidates,
+            context: runtime.context,
+            dataDir: runtime.config.dataDir,
+            l0: runtime.l0,
+          });
+          ctx.ui.notify(
+            `Re-imported ${result.imported} candidate(s), ${result.duplicates} duplicate(s), ${result.rejected} rejected from ${repoMemoryDir(projectRoot)}.` +
+              " Candidates require review before any T1 write.",
+            result.rejected > 0 ? "warning" : "info",
+          );
+          return;
+        }
+        const result = await exportProjectMemory({
+          dataDir: runtime.config.dataDir,
+          privacy: config.privacy,
+          projectBank: bank,
+          projectRoot,
+          run: runtime.run,
+        });
+        ctx.ui.notify(
+          `Exported ${result.files.length} file(s) to ${repoMemoryDir(projectRoot)}` +
+            (result.rejected > 0
+              ? ` (${result.rejected} row(s) blocked by content policy).`
+              : "."),
+          result.rejected > 0 ? "warning" : "info",
+        );
+        return;
+      }
       if (flags.includes("--validate")) {
         const validation = await validateExport(
           loadConfig({
@@ -1513,9 +1917,6 @@ export default function xpiMemo(
         );
         return;
       }
-      const config = loadConfig({
-        env,
-      }).config;
       const sessionFlag = flags.indexOf("--session");
       const result = await exportMarkdown({
         env,
@@ -1541,6 +1942,38 @@ export default function xpiMemo(
         ),
       ];
       ctx.ui.notify(lines.join("\n"), errors.length > 0 ? "warning" : "info");
+    },
+  });
+
+  pi.registerCommand("xpi-memo-init", {
+    description:
+      "Initialize a non-Git project identity (writes .pi/xpi-memo/project.json; no SQLite in the repo). Usage: /xpi-memo-init",
+    handler: async (_args, ctx) => {
+      const gitIdentity = (
+        dependencies.resolveProjectIdentity ?? resolveProjectIdentity
+      )(ctx.cwd);
+      if (gitIdentity) {
+        ctx.ui.notify(
+          `Already inside Git project "${gitIdentity.label}" (${gitIdentity.id}); local initialization not needed.`,
+          "info",
+        );
+        return;
+      }
+      const existing = resolveLocalProjectIdentity(ctx.cwd);
+      if (existing) {
+        ctx.ui.notify(
+          `Already initialized as "${existing.label}" (${existing.id}) at ${existing.root}; nothing changed.`,
+          "info",
+        );
+        return;
+      }
+      const identity = initializeLocalProject(ctx.cwd);
+      ctx.ui.notify(
+        `Initialized non-Git project identity "${identity.label}" (${identity.id}) at ${identity.root}.` +
+          `\nMetadata: ${join(identity.root, LOCAL_PROJECT_METADATA_DIR, "project.json")}` +
+          `\nProject memory is now routed to this project; no SQLite was created in the repository.`,
+        "info",
+      );
     },
   });
   const surfaceByContext = new WeakMap<
@@ -1693,6 +2126,7 @@ export default function xpiMemo(
         "restore project context decisions constraints preferences unfinished work",
         "active",
         getSurface(ctx),
+        l0ForHooks(),
       ),
     );
   });
@@ -1736,6 +2170,7 @@ export default function xpiMemo(
           event.prompt,
           runtime.config.recallPolicy,
           getSurface(ctx),
+          l0ForHooks(),
         )
       : null;
     const contexts = [
@@ -1763,6 +2198,7 @@ export default function xpiMemo(
         "restore project context decisions constraints preferences unfinished work",
         "active",
         getSurface(ctx),
+        l0ForHooks(),
       ),
     );
   });
@@ -1827,7 +2263,7 @@ export default function xpiMemo(
       "XpiMemo Recall",
       "Recall bounded T1 memory for the current project and global scope.",
       recallParameters,
-      (params, ctx) => executeRecall(params, ctx, dependencies),
+      (params, ctx) => executeRecall(params, ctx, dependencies, l0ForHooks()),
     ),
   );
 

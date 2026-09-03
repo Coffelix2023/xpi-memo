@@ -22,10 +22,21 @@ export interface MemoryStatus {
   doctor?: MemoryDoctorReport;
   fallback: boolean | null;
   observability?: ObservabilitySnapshot;
+  /** Read-only orphan project banks (task 6.4); never deleted automatically. */
+  orphans?: Array<{
+    bank: string;
+    reason: string;
+  }>;
   paused: boolean;
   pendingCandidates: number;
   provenance: string;
   recall: {
+    /** Backend execution state (task 3.3): distinguishes backend-not-run
+     * from backend-queried-no-hits / backend-queried-with-hits. */
+    backendState?:
+      | "backend-not-run"
+      | "backend-queried-no-hits"
+      | "backend-queried-with-hits";
     queriedBanks: string[];
     scope: "current-project-plus-global" | "global-only";
   };
@@ -61,6 +72,12 @@ export interface MemoryStatus {
   sleep: {
     dedicatedModelSupported: boolean;
     enabled: boolean;
+    /** Actual execution mode (task 3.4): dedicated / session-model /
+     * mechanical / none / disabled. */
+    mode: "dedicated" | "session-model" | "mechanical" | "none" | "disabled";
+    /** Diagnostic state (task 3.4): SLEEP_DISABLED when no mode is usable. */
+    state: "SLEEP_DISABLED" | "UNAVAILABLE" | "READY";
+    reason?: string;
     sleepCommandSupported: boolean;
   };
   storage?: {
@@ -161,6 +178,14 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
     doctor: status.doctor,
     fallback: status.fallback,
     observability: status.observability,
+    ...(status.orphans
+      ? {
+          orphans: status.orphans.map((orphan) => ({
+            bank: orphan.bank,
+            reason: orphan.reason,
+          })),
+        }
+      : {}),
     paused: status.paused,
     pendingCandidates: status.pendingCandidates,
     provenance: status.provenance,
@@ -198,6 +223,11 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
       session: status.counts.session,
     },
     recall: {
+      ...(status.recall.backendState
+        ? {
+            backendState: status.recall.backendState,
+          }
+        : {}),
       queriedBanks: status.recall.queriedBanks.slice(0, 2),
       scope: status.recall.scope,
     },
@@ -224,6 +254,13 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
     sleep: {
       dedicatedModelSupported: status.sleep.dedicatedModelSupported,
       enabled: status.sleep.enabled,
+      mode: status.sleep.mode,
+      state: status.sleep.state,
+      ...(status.sleep.reason
+        ? {
+            reason: status.sleep.reason,
+          }
+        : {}),
       sleepCommandSupported: status.sleep.sleepCommandSupported,
     },
     tiers: {

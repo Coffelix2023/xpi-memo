@@ -47,17 +47,15 @@ Updating: `pi update --extension git:github.com/Coffelix2023/xpi-memo`
 - `xpi_memo_recall` — search memories through the backend chain
 - `xpi_memo_forget` — delete a memory
 - `xpi_memo_sleep` — consolidation; requires explicit authorization
-- `xpi_memo_recall` (previously named `memoharness_recall` — see migration docs if upgrading)
-
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
 | `/xpi-memo` | Open the interactive TUI console |
 | `/xpi-memo-status` | JSON status: banks, backend availability, active backend, config, observability snapshot (capture/candidate/storage/recall/rejection counts), and the doctor report (`doctor.state` + evidence) |
-| `/xpi-memo-l0` | L0 session-trace stats (sessions, events, disk usage); `--reconcile` checks L0 vs audit divergence |
+| `/xpi-memo-init` | Initialize a non-Git project identity (writes `.pi/xpi-memo/project.json`; no SQLite in the repo) |
 | `/xpi-memo-export` | Export L0 → Markdown; `--session <id>` limits scope, `--force` re-exports all, `--validate` reports coverage |
-
+| `/xpi-memo-export --repo` | Export governed project memory → `.pi/memory/<kind>.md` in the project root; `--repo --reimport` re-imports discovered entries as governed candidates |
 
 ## Activation loop
 
@@ -68,7 +66,7 @@ Explicit memory intent in a prompt is routed deterministically. The system recog
 1. **Global preference / workflow** — stored directly (low-risk, user-confirmed).
 2. **Project decision / constraint / gotcha** — becomes a review candidate pending your Store / Later / Reject decision; `project_gene` (repository facts) is never auto-extracted, it requires verified evidence.
 3. **Prohibited content** (secrets, credentials, tokens) — rejected; only bounded rejection metadata is recorded.
-4. **Missing project context** (non-Git directory or no project bank) — skipped; content never falls back to the global bank.
+4. **Missing project identity** (non-Git directory without `xpi-memo-init`) — `routing_rejected` with guidance (`/xpi-memo-init` or switch to a Git repository); content never falls back to the global bank.
 
 Capture is idempotent by L0 event position, session, content fingerprint, and kind. Replaying an input, or a simultaneous explicit `xpi_memo_remember`, produces no duplicate row or candidate.
 
@@ -83,6 +81,72 @@ Capture is idempotent by L0 event position, session, content fingerprint, and ki
 | `active` | Automatic recall on ordinary prompts (1 recall per prompt) |
 | `assist` | Explicit-only; no automatic injection |
 | `high-value-auto` (default) | Automatic recall only on continuity/history triggers (e.g. "继续上次", "resume where we left off") |
+
+## Project identity and non-Git directories
+
+**Git projects are the default project identity.** Inside a Git worktree, project memory routes to a per-project bank derived from the repository's common directory (shared across worktrees) — no setup needed.
+
+**Non-Git directories need explicit initialization.** Without a Git identity, project memory is rejected — never silently routed to the global bank. To opt in, run:
+
+```
+/xpi-memo-init
+```
+
+This writes `.pi/xpi-memo/project.json` in the current directory (metadata only — no SQLite/WAL/SHM in the repo) and gives the directory a stable identity (`p-` + sha256(root)[:12]) shared by all descendants. Unrelated directories stay isolated. Roll back by deleting that one file.
+
+**Session context works everywhere.** `session_context` is session-scoped and independent of project identity: it can be captured and recalled in an uninitialized non-Git directory, is excluded from unrelated sessions, and never becomes global standing memory.
+
+**Effective recall ranges.** `/xpi-memo-status` reports `recall.scope`: `current-project-plus-global` when a project identity exists, `global-only` outside one (with the reason project memory was not queried). Recall results never mix scopes.
+
+## Outcomes and failure reasons
+
+Every memory operation ends in exactly one outcome, and failure outcomes carry a bounded machine-readable reason (bodies, tokens, and credentials never appear in diagnostics):
+
+| Outcome | Meaning |
+| --- | --- |
+| `stored` | Written to the T1 bank |
+| `candidate` | Queued for review (Store / Later / Reject) |
+| `rejected` | Rejected by policy, candidate review, or content policy |
+| `skipped` | No explicit intent, ambiguous, or missing provenance |
+| `degraded` | Captured with a degraded backend/bank |
+| `unavailable` | Capability missing (no search backend, no sleep command) |
+| `routing_rejected` | Could not be routed (e.g. project memory without a project identity) |
+| `SLEEP_DISABLED` | Sleep requested but disabled or unconfigured |
+
+Routing rejections (`routing_rejected`) and post-routing failures (`memory_failed`) are recorded as bounded L0/audit events with kind, scope, reason, and identity state — countable in status/doctor, never body-bearing.
+
+## Sleep modes
+
+`xpi_memo_sleep` requires explicit authorization and an explicit mode; it never substitutes the primary model silently:
+
+| Mode | Meaning |
+| --- | --- |
+| `dedicated` | A dedicated sleep model runs consolidation |
+| `session-model` | Explicitly configured fallback using the session model |
+| `mechanical` | Explicitly configured non-model consolidation |
+| `disabled` (default) | Sleep rejected: `SLEEP_DISABLED` state, no memory change |
+
+Configure with `sleepMode` (or `XPI_MEMO_SLEEP_MODE`). The tool result and status/doctor always name the actual executed mode; no fallback is labeled `dedicated`.
+
+## Project Markdown export (`.pi/memory/`)
+
+Governed project memory can be exported as human-readable, deterministic, diffable Markdown under the project root — the global SQLite bank stays the only machine-state write/recall engine:
+
+```
+/xpi-memo-export --repo
+```
+
+- Writes `.pi/memory/<kind>.md` (one file per project kind) at the project root — never SQLite/WAL/SHM in the repo.
+- Deterministic ordering by stable memory anchor: repeated export produces no unrelated diff; superseded/removed memories drop out.
+- Privacy: content policy blocks prohibited content; `privacy: true` redacts paths/key-like strings; session traces are never auto-exported.
+
+A new machine (e.g. a fresh clone) can re-import the exported files as governed candidates:
+
+```
+/xpi-memo-export --repo --reimport
+```
+
+Discovered entries become candidates with `repo-export` provenance — they pass content policy, scope routing, and your review before any T1 write; repeated discovery is deduplicated by stable ID/fingerprint. Orphan project banks (identity no longer resolvable) are reported read-only by status/doctor — never deleted automatically.
 
 ## Configuration
 
@@ -103,6 +167,7 @@ User config lives at `~/.config/xpi-memo/config.json` (or set keys via the conso
 | `recallPolicy` | `XPI_MEMO_RECALL_POLICY` | `high-value-auto` | `active` (auto-recall every prompt) / `assist` (explicit-only) / `high-value-auto` (continuity triggers only) |
 | `offlineExtractionEnabled` | `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED` | `false` | Gated offline extraction at session shutdown; disabled by default |
 | `retrievalMode` | `XPI_MEMO_RETRIEVAL_MODE` | `hybrid` | `fts5` / `hybrid` |
+| `sleepMode` | `XPI_MEMO_SLEEP_MODE` | `disabled` | Sleep execution mode: `dedicated` / `session-model` / `mechanical` / `disabled`. Fail-closed: no explicit mode means `SLEEP_DISABLED`; a fallback is never labeled `dedicated` |
 
 ## Data roots and CLI cross-checks
 
@@ -129,8 +194,9 @@ Check the system is healthy:
 
 ```
 /xpi-memo-status
-/xpi-memo-l0
 ```
+
+`/xpi-memo-status` includes the L0 session-trace summary (`l0.enabled`, `l0.sessionCount`, `l0.totalEvents`, `l0.totalBytes`) and the doctor report — one command covers health.
 
 Export everything to Markdown (one-time, safe to repeat — incremental):
 
@@ -143,10 +209,11 @@ Pause writes during a sensitive session:
 ```bash
 XPI_MEMO_PAUSED=true pi
 ```
-
 ## Upgrading from memoharness
 
-See [docs/MIGRATION.md](./docs/MIGRATION.md) — one command copies banks, audit log, candidates, and translates config keys.
+The dedicated migration command and `docs/MIGRATION.md` were removed. Tool names changed once: `memoharness_remember` → `xpi_memo_remember` (and similarly for `recall`/`forget`/`sleep`). Historical `pi:memoharness_*` provenance values in existing L0/audit data are never rewritten — only new writes use the `xpi_memo_*` names.
+
+Existing banks under `~/.pi/agent/memoharness/` are not auto-migrated; copy what you want to keep by hand into `~/.pi/agent/xpi-memo/banks/` (or `XPI_MEMO_DATA_DIR`), or start fresh and let L0 re-derive memory.
 
 ## Troubleshooting
 

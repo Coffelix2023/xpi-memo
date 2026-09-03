@@ -25,12 +25,20 @@ export interface ObservabilitySnapshot {
     storage: number;
   };
   counts: {
+    /** Backend executed with zero results (task 3.3). */
+    backendNoHits: number;
+    /** No backend executed (task 3.3). */
+    backendNotRun: number;
     capture: number;
     candidate: number;
-    storage: number;
-    recall: number;
+    /** Controlled degradation / storage failure (task 3.3). */
+    degraded: number;
     injection: number;
+    recall: number;
     rejection: number;
+    /** Pre-candidate routing rejection (task 3.3). */
+    routingRejected: number;
+    storage: number;
   };
   recent: ObservabilityMetadata[];
   /** Body-free per-kind stored counts derived from the canonical taxonomy. */
@@ -106,11 +114,15 @@ export function buildObservabilitySnapshot(
   overrides: ObservabilitySnapshotOverrides = {},
 ): ObservabilitySnapshot {
   const counts = {
+    backendNoHits: 0,
+    backendNotRun: 0,
     candidate: 0,
     capture: 0,
+    degraded: 0,
     injection: Math.max(0, Math.trunc(overrides.injection ?? 0)),
     recall: 0,
     rejection: 0,
+    routingRejected: 0,
     storage: 0,
   };
   const activation = {
@@ -143,12 +155,19 @@ export function buildObservabilitySnapshot(
       const hits = entry.metadata.resultCount;
       if (typeof hits === "number" && Number.isFinite(hits) && hits > 0)
         activation.recalledHits += Math.trunc(hits);
+      if (entry.metadata.status === "no-backend") counts.backendNotRun += 1;
+      else if (entry.metadata.status === "no-hits" || hits === 0)
+        counts.backendNoHits += 1;
     }
     if (entry.action === "rejection") {
       counts.rejection += 1;
       activation.rejection += 1;
+      if (entry.metadata.status === "routing_rejected") counts.routingRejected += 1;
     }
-    if (entry.action === "fallback") activation.fallback += 1;
+    if (entry.action === "fallback") {
+      activation.fallback += 1;
+      if (entry.metadata.status === "degraded") counts.degraded += 1;
+    }
     if (entry.action === "extraction") activation.extraction += 1;
   }
 

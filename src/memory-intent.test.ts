@@ -103,7 +103,6 @@ describe("explicit memory intent extraction", () => {
     "本项目必须使用 pnpm。",
     "We decided to keep the existing adapter.",
     "Gotcha: this backend needs an explicit data directory.",
-    "For this session, remember the migration is pending.",
   ])("skips project-scoped intent without project context: %s", (text) => {
     expect(
       extractExplicitMemoryIntent(text, {
@@ -115,6 +114,19 @@ describe("explicit memory intent extraction", () => {
     });
   });
 
+  it("extracts session context without project context (task 2.3)", () => {
+    expect(
+      extractExplicitMemoryIntent(
+        "For this session, remember the migration is pending.",
+        {
+          projectBank: null,
+        },
+      ),
+    ).toMatchObject({
+      kind: "session_context",
+      type: "memory",
+    });
+  });
   it("does not auto-create repository facts", () => {
     const result = extractExplicitMemoryIntent("记住仓库使用 TypeScript。", project);
     expect(result.type).toBe("skip");

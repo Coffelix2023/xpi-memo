@@ -17,6 +17,8 @@ export interface SearchQuery {
   limit: number;
   query: string;
   scope: SearchScope;
+  /** Current L0 session id; used to isolate session-scoped rows (task 2.3). */
+  sessionId?: string;
 }
 
 /**
@@ -28,9 +30,13 @@ export interface SearchResult {
   confidence?: number;
   content: string;
   kind?: MemoryKind | null;
+  /** Canonical semantic scope derived from kind metadata (task 2.4). */
+  scope?: "global" | "project" | "session";
   /** Relevance score in the backend's own scale; callers interpret quality per result. */
   score: number;
   /** Where the match came from. */
+  /** L0 session discriminator when the row is session-scoped (task 2.3). */
+  sessionId?: string;
   source: {
     /** mnemosyne bank name, when applicable */
     bank?: string;

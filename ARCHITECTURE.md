@@ -32,7 +32,7 @@ Ownership is fixed: L0 owns the raw event history; T1 owns governed long-term me
 - **`l0-runtime.ts`** — one `L0Coordinator` per extension process = one session. `record()` throws on failure (governed T1 writes MUST abort when L0 is unavailable — dual-write, L0 first); `recordSafe()` is best-effort for hooks.
 - **`context-derivation.ts`** — deterministic, LLM-free derivation of a model-visible context view (type filtering, budget, folding markers). Same log + policy + budget ⇒ same view.
 
-Dual-write: a T1 write appends to L0 first, then writes to mnemosyne + `audit.json`. If L0 fails, the whole operation aborts. If a later write fails, L0 still holds the record and `xpi-memo doctor --reconcile` can replay it.
+Dual-write: a T1 write appends to L0 first, then writes to mnemosyne + `audit.json`. If L0 fails, the whole operation aborts. If a later write fails, L0 still holds the record — `/xpi-memo-trace` gives a bounded path back to the originating L0 session/event for diagnosis; there is no automated replay.
 
 ## Markdown export (`src/markdown-export/`)
 
@@ -44,7 +44,7 @@ Dual-write: a T1 write appends to L0 first, then writes to mnemosyne + `audit.js
 
 ## T1 governance (top level `src/`)
 
-- **routing** (`routing.ts`, `banks.ts`) — global / project / session scope; project identity from git (`identity.ts`: canonical common dir hash + normalized remote aliases, cached per cwd) selects a per-project bank.
+- **routing** (`routing.ts`, `banks.ts`, `local-identity.ts`) — global / project / session scope; project identity from git (`identity.ts`: canonical common dir hash + normalized remote aliases, cached per cwd) selects a per-project bank. Non-Git directories get a stable identity only via explicit initialization (`/xpi-memo-init` writes `.pi/xpi-memo/project.json`); without it, project kinds are rejected with `routing_rejected`/`project-identity-required` and never fall back to the global bank.
 - **candidate lifecycle** (`candidate-lifecycle.ts`, `pending-candidate.ts`) — writes that need review become candidates and are confirmed/rejected explicitly (Store / Later / Reject).
 - **policies** (`recall-policy.ts`, `auto-store-policy.ts`, `content-policy.ts`, `promotion-policy.ts`, `sleep-*.ts`) — recall decisions, auto-store gating, prohibited content, promotion, and consolidation.
 - **audit + registry** (`audit.ts`, `registry.ts`) — append-only audit trail (historical provenance values are never rewritten) and project registry with remote-based move repair.
@@ -65,7 +65,7 @@ Pure backend-agnostic post-processing for automatic injection: standing vs conte
 
 ### Observability (`observability.ts`, `candidate-digest.ts`, `status.ts`, `doctor.ts`)
 
-`src/kinds.ts` owns the single canonical taxonomy (7 kinds: label, role, scope, trust state, section title); status, console, and export consume it and never redefine labels. `src/observability.ts` derives the body-free `ObservabilitySnapshot` (capture/candidate/storage/recall/injection/rejection counts, per-kind taxonomy counts, bounded recent metadata — never memory bodies or rejection reasons) from the audit trail. `src/candidate-digest.ts` builds the body-free backlog digest (pending count, per-kind counts, oldest age, review surface) for TUI and startup notifications; session-start reminder is non-blocking and throttled to once per 6 hours when the backlog reaches 3+. `src/doctor.ts` classifies an empty T1 into `NEVER_CALLED` / `PENDING` / `WRITE_FAILED` / `RECALL_EMPTY`. `src/source-trace.ts` gives a bounded path back to the originating L0 session/event without dumping a transcript.
+`src/kinds.ts` owns the single canonical taxonomy (7 kinds: label, role, scope, trust state, section title); status, console, and export consume it and never redefine labels. `src/observability.ts` derives the body-free `ObservabilitySnapshot` (capture/candidate/storage/recall/injection/rejection counts, per-kind taxonomy counts, bounded recent metadata — never memory bodies or rejection reasons) from the audit trail; routing rejections and post-routing failures (`routing_rejected`/`memory_failed` L0 events) are counted separately. `src/candidate-digest.ts` builds the body-free backlog digest (pending count, per-kind counts, oldest age, review surface) for TUI and startup notifications; session-start reminder is non-blocking and throttled to once per 6 hours when the backlog reaches 3+. `src/doctor.ts` classifies an empty T1 into `NEVER_CALLED` / `PENDING` / `WRITE_FAILED` / `RECALL_EMPTY`. Status surfaces the effective recall scope (`current-project-plus-global` / `global-only`), backend execution state (`backend-not-run` vs `backend-queried-no-hits` vs `backend-queried-with-hits`), sleep capability/state (`SLEEP_DISABLED` when no mode is usable), and read-only orphan project banks. `src/source-trace.ts` gives a bounded path back to the originating L0 session/event without dumping a transcript.
 
 ## Data layout
 
@@ -83,6 +83,15 @@ Pure backend-agnostic post-processing for automatic injection: standing vs conte
     ├── daily/YYYY-MM-DD.md
     └── export-state.json
 ```
+
+The global data root above is the only machine-state write/recall engine. In addition, an **explicit project layer** may exist under a project root:
+
+```
+<projectRoot>/.pi/memory/<kind>.md     # repo-export: deterministic, privacy-filtered Markdown per project kind
+<projectRoot>/.pi/xpi-memo/project.json  # local (non-Git) project identity metadata only
+```
+
+The project layer never contains SQLite, WAL, SHM, or search indexes — those stay in the global root. Worktrees share one bank via the Git common directory; the export target resolves to each worktree's own project root.
 
 ## Testing
 

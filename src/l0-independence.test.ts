@@ -115,7 +115,9 @@ describe("T1 independence from a concrete L0 runtime", () => {
       sleep: {
         dedicatedModelSupported: false,
         enabled: false,
+        mode: "none",
         sleepCommandSupported: true,
+        state: "SLEEP_DISABLED",
       },
       tiers: {
         L0: "external-session-trace",

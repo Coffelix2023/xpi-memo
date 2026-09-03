@@ -168,6 +168,80 @@ describe("XpiMemo configuration", () => {
     expect(result.ignoredKeys).toEqual([]);
   });
 
+  it("parses sleepMode from the environment with fail-closed fallback (task 5.1)", () => {
+    const configHome = createTemporaryDirectory();
+    const enabled = loadConfig({
+      configHome,
+      env: {
+        XPI_MEMO_SLEEP_MODE: "session-model",
+      },
+    }).config.sleepMode;
+    expect(enabled).toBe("session-model");
+
+    const mechanical = loadConfig({
+      configHome,
+      env: {
+        XPI_MEMO_SLEEP_MODE: "mechanical",
+      },
+    }).config.sleepMode;
+    expect(mechanical).toBe("mechanical");
+
+    const invalid = loadConfig({
+      configHome,
+      env: {
+        XPI_MEMO_SLEEP_MODE: "not-a-mode",
+      },
+    }).config.sleepMode;
+    expect(invalid).toBe("disabled");
+  });
+
+  it("loads sleepMode from user config with fail-closed fallback (task 5.1)", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        sleepMode: "dedicated",
+      }),
+    );
+    expect(
+      loadConfig({
+        configHome,
+        env: {},
+      }).config.sleepMode,
+    ).toBe("dedicated");
+
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        sleepMode: "bogus",
+      }),
+    );
+    expect(
+      loadConfig({
+        configHome,
+        env: {},
+      }).config.sleepMode,
+    ).toBe("disabled");
+  });
+  it("saves sleepMode as a writable setting", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(configPath(configHome), JSON.stringify({}));
+    saveUserConfig({
+      configHome,
+      env: {},
+      values: {
+        sleepMode: "mechanical",
+      },
+    });
+    const saved = JSON.parse(readFileSync(configPath(configHome), "utf8"));
+    expect(saved.sleepMode).toBe("mechanical");
+  });
   it("loads offlineExtractionEnabled from the environment with safe fallback", () => {
     const configHome = createTemporaryDirectory();
     const enabled = loadConfig({

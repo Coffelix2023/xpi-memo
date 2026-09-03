@@ -126,7 +126,7 @@ describe("explicit memory activation", () => {
     expect(result).toMatchObject({
       bank: "project-demo",
       kind: "project_decision",
-      scope: "global",
+      scope: "project",
       status: "candidate",
     });
     expect(stored).toHaveLength(0);
@@ -156,7 +156,7 @@ describe("explicit memory activation", () => {
     expect(audit.list()[0]?.action).toBe("rejection");
   });
 
-  it("does not fall back to the global bank without project context", async () => {
+  it("does not fall back to the global bank without project context and leaves routing-rejection evidence (task 4.3)", async () => {
     const dataDir = temporaryDirectory();
     const stored: T1MemoryOperation[] = [];
     const runtime = activationRuntime(dataDir, stored);
@@ -173,7 +173,19 @@ describe("explicit memory activation", () => {
     });
     expect(stored).toHaveLength(0);
     expect(candidates.list()).toHaveLength(0);
-    expect(audit.list()).toHaveLength(0);
+    // Task 4.3: the rejection is observable — bounded audit evidence without
+    // a body, instead of a silent skip.
+    expect(audit.list()).toEqual([
+      expect.objectContaining({
+        action: "rejection",
+        metadata: expect.objectContaining({
+          kind: "project_decision",
+          reason: "missing-project-context",
+          scope: "project",
+          status: "routing_rejected",
+        }),
+      }),
+    ]);
   });
   it("skips repeated input within one session (idempotent capture)", async () => {
     const dataDir = temporaryDirectory();

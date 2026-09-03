@@ -7,9 +7,9 @@
  * section is stable (by L0 position) so Git diffs stay minimal.
  */
 
+import type { MemoryScope } from "../kinds.js";
 import { describeMemoryKind, MEMORY_KINDS, type MemoryKind } from "../kinds.js";
 import type { L0Event } from "../l0/types.js";
-
 export interface MemoryEntry {
   /** ISO 8601 timestamp of the latest confirming event */
   confirmedAt: string;
@@ -17,6 +17,8 @@ export interface MemoryEntry {
   kind: MemoryKind;
   /** L0 position of the latest confirming event */
   position: number;
+  /** Canonical semantic scope derived from kind metadata (task 2.4). */
+  scope: MemoryScope;
   sessionId: string;
 }
 
@@ -77,6 +79,8 @@ export function collectMemoryEntries(sources: MemorySource[]): MemoryEntry[] {
         content,
         kind,
         position: event.position,
+        // Canonical scope from kind metadata; never the physical bank name.
+        scope: describeMemoryKind(kind).scope,
         sessionId: source.sessionId,
       };
       const key = normalize(content);
@@ -127,7 +131,7 @@ export function generateMemoryMarkdown(sources: MemorySource[]): MemoryDoc {
       const date = entry.confirmedAt.slice(0, 10);
       lines.push(
         `- ${entry.content}`,
-        `  <sub>confirmed ${date} · \`${entry.kind}\` · session \`${entry.sessionId}\` @ position ${entry.position}</sub>`,
+        `  <sub>confirmed ${date} · \`${entry.kind}\` · scope \`${entry.scope}\` · session \`${entry.sessionId}\` @ position ${entry.position}</sub>`,
       );
     }
     lines.push("");

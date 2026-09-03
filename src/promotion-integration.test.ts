@@ -19,7 +19,7 @@ describe("T1 promotion integration", () => {
       reviewedConclusion: true,
       sourceLayer: "L0",
       targetLayer: "T1",
-      targetScope: "global",
+      targetScope: "project",
       userConfirmed: true,
       context: {
         dataDir: "/tmp/xpi-memo-promotion-integration",
@@ -38,7 +38,7 @@ describe("T1 promotion integration", () => {
         dataDir: options?.dataDir ?? "",
         kind: "project_decision",
         provenance: "l0:event-42",
-        scope: "global",
+        scope: "project",
         targetBank: options?.bank ?? "default",
         source: {
           evidenceType: "l0-conclusion",
@@ -77,7 +77,7 @@ describe("T1 promotion integration", () => {
         content: "The project uses pnpm for package scripts.",
         kind: "project_decision",
         provenance: "l0:event-42",
-        scope: "global",
+        scope: "project",
         targetBank: "project-p-0123456789ab",
         source: {
           evidenceType: "l0-conclusion",

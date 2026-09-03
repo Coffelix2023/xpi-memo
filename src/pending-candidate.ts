@@ -40,7 +40,7 @@ export interface PendingCandidate {
   reason: PendingCandidateReason;
   status: "pending";
   targetBank: string;
-  targetScope: "global" | "session";
+  targetScope: "global" | "project" | "session";
 }
 
 function evidenceSummary(evidence: EvidenceRecord): string {

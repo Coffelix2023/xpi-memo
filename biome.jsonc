@@ -214,6 +214,33 @@
         "**/components.json",
         "**/package.json"
       ]
+    },
+    {
+      // 测试文件的中文话术被误判为高熵字符串,非真实密钥
+      "includes": [
+        "**/*.test.ts",
+        "**/*.test.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "security": {
+            "noSecrets": "off"
+          }
+        }
+      }
+    },
+    {
+      // 逐条串行处理 proposal,ensureProjectBank 有副作用且需按序,bank 初始化失败要立即 reject 该条
+      "includes": [
+        "src/offline-extraction.ts"
+      ],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noAwaitInLoops": "off"
+          }
+        }
+      }
     }
   ],
 

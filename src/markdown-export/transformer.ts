@@ -33,7 +33,7 @@ const REDACTIONS: Array<{
   },
 ];
 
-function redact(text: string): string {
+export function redactSensitive(text: string): string {
   let out = text;
   for (const { pattern, replacement } of REDACTIONS)
     out = out.replace(pattern, replacement);
@@ -75,6 +75,7 @@ interface ProsePayload {
   kind?: unknown;
   output?: unknown;
   path?: unknown;
+  phase?: unknown;
   reason?: unknown;
   summary?: unknown;
   text?: unknown;
@@ -86,7 +87,7 @@ function prose(event: L0Event, filters: ExportFilters): string {
   const payload = event.payload as ProsePayload;
   const text = (value: unknown): string => {
     const raw = summarize(value);
-    return filters.privacy ? redact(raw) : raw;
+    return filters.privacy ? redactSensitive(raw) : raw;
   };
   switch (event.type) {
     case "user_message":
@@ -115,6 +116,10 @@ function prose(event: L0Event, filters: ExportFilters): string {
       return `Memory candidate rejected [${text(payload.kind)}]: ${text(payload.reason)}`;
     case "routing_decision":
       return `Routing decision [${text(payload.kind)}] -> ${text(payload.bank)}`;
+    case "routing_rejected":
+      return `Memory routing rejected [${text(payload.kind)}]: ${text(payload.reason)}`;
+    case "memory_failed":
+      return `Memory failed [${text(payload.kind)}] (${text(payload.phase)}): ${text(payload.reason)}`;
     default:
       return `${event.type}: ${flatten(JSON.stringify(event.payload))}`;
   }

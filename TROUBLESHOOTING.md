@@ -50,7 +50,7 @@ If that shows rows while a bare `mnemosyne stats` does not, you are looking at t
 
 1. **Statement type** — only explicit durable statements are captured: preferences, workflow rules, project decisions, constraints, gotchas, bounded session context. Ordinary conversation and ambiguous statements are deliberately skipped (never guessed).
 2. **Repository facts** (`project_gene`) are never auto-extracted — they require verified evidence. Use `xpi_memo_remember` instead.
-3. **Project statements in a non-Git directory** are skipped (`missing-project-context`) — content never silently falls back to the global bank. Run inside the Git project or store it explicitly.
+3. **Project statements in a non-Git directory** — rejected with `routing_rejected` (`project-identity-required`) and actionable guidance: run `/xpi-memo-init` in that directory or switch to a Git repository. Content never silently falls back to the global bank.
 4. **Candidate backlog** — project decisions/constraints/gotchas become candidates; confirm them in the Pending tab or they stay pending.
 5. **Idempotency** — replaying the same input or a simultaneous remember call is deduplicated by design; no duplicate row is created. This is not data loss.
 
@@ -74,11 +74,16 @@ If that shows rows while a bare `mnemosyne stats` does not, you are looking at t
 - **Memory block missing entirely** — when no result survives the budgets, the block is omitted by design rather than injecting an empty trace.
 ## L0 looks wrong
 
-- Stats: `/xpi-memo-l0` (sessions, events, disk usage).
-- Divergence between L0 and audit log: `/xpi-memo-l0 --reconcile` reports missing writes and can replay them.
+- L0 session-trace summary (sessions, events, disk usage) is part of `/xpi-memo-status` under `l0.*`.
 - Corrupt lines are skipped and surfaced in export warnings — they are never rewritten in place.
 - Large sessions rotate at 10 MB into `events.001.jsonl`…; rotation is normal, not data loss.
 
+
+## Project memory rejected outside Git
+
+- Check identity: `/xpi-memo-status` shows `currentProject` (bank/id/label) and `recall.scope` (`current-project-plus-global` vs `global-only`).
+- No identity? Run `/xpi-memo-init` in the directory you want as the project root — it writes `.pi/xpi-memo/project.json` (metadata only, no SQLite in the repo) and descendants inherit the identity.
+- Inside Git but still rejected? Make sure the current directory is inside a worktree, not a bare or unrelated directory; project identity comes from the Git common directory.
 ## Export issues
 
 - Nothing exported? Events are only picked up when their L0 position is above the last export mark. Use `--force` for a full re-export.
@@ -86,15 +91,11 @@ If that shows rows while a bare `mnemosyne stats` does not, you are looking at t
 - `MEMORY.md` write failure → warning is reported, export continues; check disk space.
 - Exported content shows `[REDACTED]` → privacy mode is on (`XPI_MEMO_PRIVACY=true`).
 - Tool outputs missing → `XPI_MEMO_EXCLUDE_TOOL_RESULTS=true` is set.
+- Project Markdown (`.pi/memory/`): use `/xpi-memo-export --repo`; without a project identity it tells you to run `/xpi-memo-init` or switch to a Git repository. `--repo --reimport` re-imports discovered files as governed candidates.
 
 ## Migration problems (memoharness → xpi-memo)
 
-See [docs/MIGRATION.md](./docs/MIGRATION.md). Quick checks (run inside Pi):
-
-- Dry-run first: `/xpi-memo-migrate --from ~/.pi/agent/memoharness --dry-run`.
-- Report location: `<dataDir>/migration-report-<timestamp>.md`.
-- Banks missing after migration: `ls ~/.pi/agent/xpi-memo/banks/`.
-- The original memoharness directory is never modified; restore from your backup if needed.
+The dedicated migration command was removed. Tool names changed once: `memoharness_*` → `xpi_memo_*`; historical `pi:memoharness_*` provenance in L0/audit data is never rewritten. Existing memoharness banks are not auto-migrated — copy them by hand into `~/.pi/agent/xpi-memo/banks/` (or `XPI_MEMO_DATA_DIR`) if you want to keep them, or start fresh and let L0 re-derive memory.
 
 ## Everything is broken — start fresh
 

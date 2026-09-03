@@ -122,8 +122,10 @@ describe("buildMemoryDoctorReport", () => {
     );
     expect(report.state).toBe("PENDING");
     expect(report.evidence).toMatchObject({
+      degraded: 0,
       l0T1WriteEvents: 2,
       pendingCandidates: 1,
+      routingRejections: 0,
       audit: {
         recall: 1,
         rejection: 1,
@@ -134,6 +136,33 @@ describe("buildMemoryDoctorReport", () => {
         "project-acme": 0,
       },
     });
+  });
+
+  it("counts routing rejections and degraded storage failures from audit statuses (task 3.3)", () => {
+    const report = buildMemoryDoctorReport(
+      {
+        l0T1WriteEvents: 0,
+        pendingCandidates: 0,
+        auditActions: [
+          "rejection",
+          "rejection",
+          "fallback",
+          "write",
+        ],
+        auditStatuses: [
+          "routing_rejected",
+          "routing_rejected",
+          "degraded",
+          "stored",
+        ],
+        bankRows: {
+          default: 1,
+        },
+      },
+      [],
+    );
+    expect(report.evidence.routingRejections).toBe(2);
+    expect(report.evidence.degraded).toBe(1);
   });
 
   it("treats null stats for every bank as no visible rows", () => {

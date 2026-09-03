@@ -6,7 +6,7 @@
  */
 
 import type { RoutingContext } from "../banks.js";
-import type { MemoryKind } from "../kinds.js";
+import { describeMemoryKind, type MemoryKind } from "../kinds.js";
 import { decodeSourceMetadata } from "../operations.js";
 import type {
   BackendCapabilities,
@@ -45,7 +45,11 @@ function decodeKind(source: unknown): MemoryKind | null {
   return decodeSourceMetadata(source).kind;
 }
 
-function toResults(bank: string, output: string): SearchResult[] {
+function decodeSessionId(source: unknown): string | null {
+  if (typeof source !== "string") return null;
+  return decodeSourceMetadata(source).sessionId;
+}
+function toResults(bank: string, output: string, query: SearchQuery): SearchResult[] {
   let rows: RawRow[] = [];
   try {
     const parsed = JSON.parse(output) as RawPayload;
@@ -60,19 +64,38 @@ function toResults(bank: string, output: string): SearchResult[] {
   for (const row of rows) {
     if (typeof row.content !== "string") continue;
     const kind = decodeKind(row.source);
+    const rowSessionId = decodeSessionId(row.source);
     // Task 5.1: the default (global) bank may only surface global memories.
     // Project-kind rows leaking into global recall would cross scope boundaries.
     if (
       bank === "default" &&
       kind &&
       kind !== "global_preference" &&
-      kind !== "global_workflow"
+      kind !== "global_workflow" &&
+      kind !== "session_context"
     )
       continue;
+    // Session isolation (task 2.3): session-scoped rows surface only for the
+    // session that wrote them. A sid-less session_context row (legacy or
+    // untraceable) never surfaces — it cannot be tied to a legitimate session.
+    const sid = rowSessionId;
+    const sessionOk =
+      kind === "session_context"
+        ? sid !== null && sid === query.sessionId
+        : sid === null || sid === query.sessionId;
+    if (!sessionOk) continue;
     const confidence = typeof row.importance === "number" ? row.importance : undefined;
     results.push({
       content: row.content,
       kind,
+      // Canonical scope from kind metadata (task 2.4): the physical bank
+      // name is an implementation detail, never a scope label.
+      scope: kind ? describeMemoryKind(kind).scope : undefined,
+      ...(rowSessionId
+        ? {
+            sessionId: rowSessionId,
+          }
+        : {}),
       ...(typeof row.timestamp === "string"
         ? {
             timestamp: row.timestamp,
@@ -153,7 +176,7 @@ export class MnemosyneBackend implements SearchBackend {
             dataDir: this.context.dataDir,
           },
         );
-        return toResults(bank, output);
+        return toResults(bank, output, query);
       }),
     );
     // Limit enforcement (Task 12.5): the CLI caps internally, truncate anyway.

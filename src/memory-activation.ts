@@ -62,6 +62,7 @@ export interface MemoryActivationRuntime {
 }
 
 function skipResult(
+  runtime: MemoryActivationRuntime,
   result: Extract<
     MemoryIntentResult,
     {
@@ -69,6 +70,24 @@ function skipResult(
     }
   >,
 ): MemoryActivationResult {
+  // Task 4.3: a project-kind intent in a directory without project identity
+  // must leave bounded routing-rejection evidence instead of a silent skip.
+  if (result.reason === "missing-project-context" && result.kind) {
+    runtime.audit.record("rejection", {
+      identity: runtime.context.identity,
+      kind: result.kind,
+      reason: result.reason,
+      scope: "project",
+      status: "routing_rejected",
+    });
+    runtime.l0.recordSafe("routing_rejected", {
+      identity: runtime.context.identity,
+      kind: result.kind,
+      outcome: "routing_rejected",
+      reason: result.reason,
+      scope: "project",
+    });
+  }
   return {
     reason: result.reason,
     status: "skipped",
@@ -113,6 +132,13 @@ function operationFor(
     targetBank: route.bank,
     source: {
       evidenceType: evidence.type,
+      // Session-scoped rows carry the L0 session discriminator so recall can
+      // isolate current-session context from unrelated sessions (task 2.3).
+      ...(kind === "session_context" && provenance?.sessionId
+        ? {
+            sessionId: provenance.sessionId,
+          }
+        : {}),
       source: evidence.source,
       timestamp: evidence.timestamp,
     },
@@ -143,7 +169,24 @@ function rejected(
           scope,
         }
       : {}),
+    identity: runtime.context.identity,
     status: "rejected",
+  });
+  runtime.l0.recordSafe("memory_failed", {
+    ...(kind
+      ? {
+          kind,
+        }
+      : {}),
+    reason,
+    ...(scope
+      ? {
+          scope,
+        }
+      : {}),
+    identity: runtime.context.identity,
+    outcome: "rejected",
+    phase: "policy",
   });
   return {
     ...(kind
@@ -184,8 +227,7 @@ export async function activateExplicitMemoryIntent(
   provenance: MemoryActivationProvenance | undefined = runtime.provenance,
 ): Promise<MemoryActivationResult> {
   const intent = extractExplicitMemoryIntent(text, runtime.context);
-  if (intent.type === "skip") return skipResult(intent);
-
+  if (intent.type === "skip") return skipResult(runtime, intent);
   const operation = operationFor(intent.content, intent.kind, runtime, provenance);
   const classification = classifyProhibitedContent({
     content: operation.content,

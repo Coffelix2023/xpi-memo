@@ -24,6 +24,7 @@ export const DEFAULT_XPI_MEMO_CONFIG = {
   recallPolicy: "high-value-auto",
   retrievalMode: "hybrid",
   searchBackend: "auto",
+  sleepMode: "disabled",
 } as const;
 
 export type RetrievalMode = "fts5" | "hybrid";
@@ -33,6 +34,12 @@ export type RetrievalMode = "fts5" | "hybrid";
  * (mnemosyne → ripgrep → qmd); a pinned name uses that backend first.
  */
 export type SearchBackendSetting = "auto" | "mnemosyne" | "ripgrep" | "qmd";
+/** Sleep execution mode (task 5.1): explicit user choice, fail-closed on invalid input. */
+export type SleepModeSetting =
+  | "dedicated"
+  | "session-model"
+  | "mechanical"
+  | "disabled";
 
 export interface XpiMemoConfig {
   autoExport: boolean;
@@ -49,6 +56,8 @@ export interface XpiMemoConfig {
   retrievalMode: RetrievalMode;
   /** "auto" walks the fallback chain; a backend name pins it. */
   searchBackend: SearchBackendSetting;
+  /** Sleep execution mode (task 5.1): dedicated / session-model / mechanical / disabled. */
+  sleepMode: SleepModeSetting;
 }
 
 export interface UserConfig {
@@ -65,6 +74,7 @@ export interface UserConfig {
   recallPolicy?: unknown;
   retrievalMode?: unknown;
   searchBackend?: unknown;
+  sleepMode?: unknown;
   [key: string]: unknown;
 }
 
@@ -139,6 +149,7 @@ export interface SaveUserConfigOptions {
       | "recallPolicy"
       | "retrievalMode"
       | "searchBackend"
+      | "sleepMode"
     >
   >;
 }
@@ -156,6 +167,7 @@ const WRITABLE_KEYS = new Set([
   "recallPolicy",
   "retrievalMode",
   "searchBackend",
+  "sleepMode",
 ]);
 const ENV_KEYS: Record<string, string> = {
   autoExport: "XPI_MEMO_AUTO_EXPORT",
@@ -170,6 +182,7 @@ const ENV_KEYS: Record<string, string> = {
   recallPolicy: "XPI_MEMO_RECALL_POLICY",
   retrievalMode: "XPI_MEMO_RETRIEVAL_MODE",
   searchBackend: "XPI_MEMO_SEARCH_BACKEND",
+  sleepMode: "XPI_MEMO_SLEEP_MODE",
 };
 
 export function saveUserConfig({
@@ -230,6 +243,15 @@ function searchBackend(value: unknown): value is SearchBackendSetting {
   );
 }
 
+function sleepMode(value: unknown): value is SleepModeSetting {
+  return (
+    value === "dedicated" ||
+    value === "session-model" ||
+    value === "mechanical" ||
+    value === "disabled"
+  );
+}
+
 function envString(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const value = env[name];
   return nonEmptyString(value) ? value.trim() : undefined;
@@ -271,6 +293,16 @@ function resolveSearchBackend(
   return DEFAULT_XPI_MEMO_CONFIG.searchBackend;
 }
 
+function resolveSleepMode(
+  environmentValue: string | undefined,
+  userValue: unknown,
+): SleepModeSetting {
+  if (sleepMode(environmentValue)) return environmentValue;
+  if (sleepMode(userValue)) return userValue;
+  // Fail closed: invalid or missing configuration never enables a mode.
+  return DEFAULT_XPI_MEMO_CONFIG.sleepMode;
+}
+
 export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
   const env = options.env ?? process.env;
   const configHome =
@@ -281,6 +313,7 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
   const environmentRecallPolicy = envString(env, "XPI_MEMO_RECALL_POLICY");
   const environmentRetrievalMode = envString(env, "XPI_MEMO_RETRIEVAL_MODE");
   const environmentSearchBackend = envString(env, "XPI_MEMO_SEARCH_BACKEND");
+  const environmentSleepMode = envString(env, "XPI_MEMO_SLEEP_MODE");
   const environmentPaused = envString(env, "XPI_MEMO_PAUSED");
   const envBool = (name: string, fallback: boolean): boolean => {
     const value = envString(env, name);
@@ -360,6 +393,7 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
       environmentSearchBackend,
       user.config.searchBackend,
     ),
+    sleepMode: resolveSleepMode(environmentSleepMode, user.config.sleepMode),
   };
 
   return {

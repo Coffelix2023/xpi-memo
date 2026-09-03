@@ -45,11 +45,15 @@ describe("provenance-safe observability snapshot", () => {
         storage: 2,
       },
       counts: {
+        backendNoHits: 0,
+        backendNotRun: 0,
         candidate: 1,
         capture: 3,
+        degraded: 0,
         injection: 3,
         recall: 1,
         rejection: 1,
+        routingRejected: 0,
         storage: 2,
       },
       recent: [
@@ -173,6 +177,48 @@ describe("provenance-safe observability snapshot", () => {
     // Body-free: no kind name leaks into a body-like field, no content anywhere.
     expect(JSON.stringify(snapshot)).not.toContain("content");
     expect(JSON.stringify(snapshot)).not.toContain("reason");
+  });
+
+  it("counts routing rejections, degraded failures, and backend states (task 3.3)", () => {
+    const snapshot = buildObservabilitySnapshot([
+      entry("rejection", {
+        kind: "project_decision",
+        reason: "project-identity-required",
+        scope: "project",
+        status: "routing_rejected",
+      }),
+      entry("rejection", {
+        status: "rejected",
+      }),
+      entry("fallback", {
+        reason: "project-bank-unavailable",
+        status: "degraded",
+      }),
+      entry("recall", {
+        backend: "none",
+        reason: "no-search-backend",
+        resultCount: 0,
+        status: "no-backend",
+      }),
+      entry("recall", {
+        backend: "mnemosyne",
+        resultCount: 0,
+        status: "no-hits",
+      }),
+      entry("recall", {
+        backend: "mnemosyne",
+        resultCount: 3,
+        status: "recalled",
+      }),
+    ]);
+    expect(snapshot.counts).toMatchObject({
+      backendNoHits: 1,
+      backendNotRun: 1,
+      degraded: 1,
+      routingRejected: 1,
+    });
+    // Body-free: no reason text leaks into the snapshot.
+    expect(JSON.stringify(snapshot)).not.toContain("project-identity-required");
   });
 
   it("reflects Store / Later / Reject outcomes in the counts without a second queue", () => {

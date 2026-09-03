@@ -18,7 +18,7 @@ describe("T1 cross-layer promotion policy", () => {
       reviewedConclusion: true,
       sourceLayer: "L0",
       targetLayer: "T1",
-      targetScope: "global",
+      targetScope: "project",
       userConfirmed: true,
       context: {
         dataDir: "/tmp/xpi-memo-promotion",
@@ -33,7 +33,7 @@ describe("T1 cross-layer promotion policy", () => {
       accepted: true,
       targetBank: "project-p-0123456789ab",
       targetKind: "project_decision",
-      targetScope: "global",
+      targetScope: "project",
     });
   });
 

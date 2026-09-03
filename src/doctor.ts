@@ -78,9 +78,13 @@ export interface MemoryDoctorReport {
   evidence: {
     audit: Record<string, number>;
     bankRows: Record<string, number | null>;
+    /** Pre-candidate routing rejection count (task 3.3). */
+    degraded: number;
     l0T1WriteEvents: number;
     pendingCandidates: number;
     roots: MemoryRootSurface[];
+    /** Pre-candidate routing rejection count (task 3.3). */
+    routingRejections: number;
   };
   state: EmptyMemoryState;
 }
@@ -151,6 +155,13 @@ export function buildMemoryDoctorReport(
   surfaces: MemoryRootSurface[],
 ): MemoryDoctorReport {
   const audit = countAudit(input.auditActions, input.auditStatuses);
+  let routingRejections = 0;
+  let degraded = 0;
+  for (let index = 0; index < input.auditActions.length; index += 1) {
+    const status = input.auditStatuses[index];
+    if (status === "routing_rejected") routingRejections += 1;
+    if (status === "degraded") degraded += 1;
+  }
   return {
     state: classifyInput({
       bankRows: input.bankRows,
@@ -163,9 +174,11 @@ export function buildMemoryDoctorReport(
     evidence: {
       audit: audit.counts,
       bankRows: input.bankRows,
+      degraded,
       l0T1WriteEvents: input.l0T1WriteEvents,
       pendingCandidates: input.pendingCandidates,
       roots: surfaces,
+      routingRejections,
     },
   };
 }

@@ -168,6 +168,7 @@ async function readAfter(
   const toRead: string[] = [];
   // All but the last file are rotated files; the last is always the active one.
   for (const file of files.slice(0, -1)) {
+    // biome-ignore lint/performance/noAwaitInLoops: 只过滤需要的文件,实际读取已用 Promise.all 并行
     const max = await maxPositionTail(file, corruptLines);
     if (max > fromPosition || max === -1) toRead.push(file);
   }

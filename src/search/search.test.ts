@@ -385,6 +385,8 @@ describe("Task 12.1 — MnemosyneBackend", () => {
     expect(results.map(({ content }) => content)).toEqual([
       "project decision",
     ]);
+    // Task 2.4: canonical scope from kind metadata, never the bank name.
+    expect(results[0]?.scope).toBe("project");
   });
 
   it("plannedBanks lists project and default banks for project scope", async () => {

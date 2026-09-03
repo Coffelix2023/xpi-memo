@@ -397,6 +397,13 @@ function operationFor(
     targetBank: route.bank,
     source: {
       evidenceType: evidence.type,
+      // Session-scoped rows carry the L0 session discriminator so recall can
+      // isolate current-session context from unrelated sessions (task 2.3).
+      ...(proposal.kind === "session_context"
+        ? {
+            sessionId: runtime.l0.sessionId() ?? undefined,
+          }
+        : {}),
       source: evidence.source,
       timestamp: evidence.timestamp,
     },
@@ -425,7 +432,7 @@ function reject(
   runtime: OfflineExtractionGovernanceRuntime,
   kind: MemoryKind | undefined,
   reason: string,
-  scope: "global" | "session" | undefined,
+  scope: "global" | "project" | "session" | undefined,
 ): OfflineExtractionGovernanceResult {
   runtime.audit.record("rejection", {
     ...(kind
@@ -439,7 +446,24 @@ function reject(
           scope,
         }
       : {}),
+    identity: runtime.context.identity,
     status: "rejected",
+  });
+  runtime.l0.recordSafe("memory_failed", {
+    ...(kind
+      ? {
+          kind,
+        }
+      : {}),
+    reason,
+    ...(scope
+      ? {
+          scope,
+        }
+      : {}),
+    identity: runtime.context.identity,
+    outcome: "rejected",
+    phase: "policy",
   });
   return {
     ...(kind
@@ -582,10 +606,10 @@ export async function governOfflineExtractionOutput(
       runtime.ledger?.recordProposals(1, proposal.content.length);
       continue;
     }
-    if (
-      operation.targetBank !== GLOBAL_BANK &&
-      !(await ensureProjectBank(runtime.context, runtime.run))
-    ) {
+    const bankReady =
+      operation.targetBank === GLOBAL_BANK ||
+      (await ensureProjectBank(runtime.context, runtime.run));
+    if (!bankReady) {
       results.push(
         reject(runtime, proposal.kind, "project-bank-unavailable", operation.scope),
       );

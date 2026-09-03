@@ -389,6 +389,7 @@ export async function resolveGlimpsePrompt(): Promise<GlimpsePromptFn | null> {
       if (!existsSync(p)) {
         continue;
       }
+      // biome-ignore lint/performance/noAwaitInLoops: 候选路径按优先级逐个动态 import,找到即返回
       const mod = (await import(p)) as {
         prompt?: GlimpsePromptFn;
       };

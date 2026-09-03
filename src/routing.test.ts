@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { GLOBAL_BANK } from "./banks.js";
-import { type RoutingDecision, routeMemoryKind } from "./routing.js";
+import {
+  type RoutingDecision,
+  RoutingRejectionError,
+  routeMemoryKind,
+} from "./routing.js";
 
 const projectContext = {
   dataDir: "/tmp/xpi-memo-data",
@@ -29,7 +33,7 @@ describe("T1 memory routing", () => {
     });
   });
 
-  it("routes durable project kinds to the current project bank", () => {
+  it("routes project kinds to the current project bank with project scope", () => {
     for (const kind of [
       "project_gene",
       "project_constraint",
@@ -39,7 +43,7 @@ describe("T1 memory routing", () => {
       expectRoute(kind, {
         bank: projectContext.projectBank,
         kind,
-        scope: "global",
+        scope: "project",
       });
     }
   });
@@ -53,18 +57,45 @@ describe("T1 memory routing", () => {
   });
 
   it("rejects project-scoped kinds without a recognized project", () => {
-    expect(() =>
-      routeMemoryKind("project_gene", {
-        ...projectContext,
-        projectBank: null,
-      }),
-    ).toThrow("Project memory requires a recognized Git project");
-    expect(() =>
+    const rejectFor = (kind: Parameters<typeof routeMemoryKind>[0]) => {
+      try {
+        routeMemoryKind(kind, {
+          ...projectContext,
+          projectBank: null,
+        });
+        throw new Error("expected RoutingRejectionError");
+      } catch (error) {
+        expect(error).toBeInstanceOf(RoutingRejectionError);
+        const rejection = error as RoutingRejectionError;
+        expect(rejection.reason).toBe("project-identity-required");
+        expect(rejection.message).toContain("/xpi-memo-init");
+        expect(rejection.message).toContain("Git");
+        return rejection;
+      }
+    };
+
+    for (const kind of [
+      "project_gene",
+      "project_constraint",
+      "project_decision",
+      "project_gotcha",
+    ] as const) {
+      const rejection = rejectFor(kind);
+      expect(rejection.scope).toBe("project");
+    }
+  });
+
+  it("routes session context without project identity (task 2.3)", () => {
+    expect(
       routeMemoryKind("session_context", {
-        ...projectContext,
+        dataDir: projectContext.dataDir,
         projectBank: null,
       }),
-    ).toThrow("Project memory requires a recognized Git project");
+    ).toEqual({
+      bank: GLOBAL_BANK,
+      kind: "session_context",
+      scope: "session",
+    });
   });
 
   it("never routes a project kind to the global bank", () => {

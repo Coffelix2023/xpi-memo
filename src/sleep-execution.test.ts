@@ -15,7 +15,7 @@ describe("T1 dedicated sleep model capability", () => {
     },
   };
 
-  it("returns a capability error when a dedicated model is configured", async () => {
+  it("fails closed when no sleep mode is configured (task 5.1)", async () => {
     const calls: string[][] = [];
     const result = await executeSleep(
       {
@@ -30,32 +30,62 @@ describe("T1 dedicated sleep model capability", () => {
 
     expect(result).toEqual({
       executed: false,
-      reason: "dedicated-sleep-model-unsupported",
+      mode: "disabled",
+      reason: "sleep-mode-not-configured",
     });
     expect(calls).toEqual([]);
   });
 
-  it("rejects authorized sleep when the upstream capability is unavailable", async () => {
+  it("fails closed when the sleep mode is explicitly disabled (task 5.1)", async () => {
     const calls: string[][] = [];
-    const result = await executeSleep(authorizedRequest, async (args: string[]) => {
-      calls.push(args);
-      return "should not run";
-    });
+    const result = await executeSleep(
+      {
+        ...authorizedRequest,
+        sleepMode: "disabled",
+      },
+      async (args: string[]) => {
+        calls.push(args);
+        return "should not run";
+      },
+    );
 
     expect(result).toEqual({
       executed: false,
+      mode: "disabled",
+      reason: "sleep-mode-not-configured",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects a dedicated mode when the upstream capability is unavailable", async () => {
+    const calls: string[][] = [];
+    const result = await executeSleep(
+      {
+        ...authorizedRequest,
+        sleepMode: "dedicated",
+      },
+      async (args: string[]) => {
+        calls.push(args);
+        return "should not run";
+      },
+    );
+
+    expect(result).toEqual({
+      executed: false,
+      mode: "none",
       reason: "dedicated-sleep-model-unsupported",
     });
     expect(calls).toEqual([]);
   });
 
-  it("does not silently fall back to the primary model", async () => {
+  it("does not silently fall back to the primary model for a dedicated request", async () => {
     const calls: string[][] = [];
     const result = await executeSleep(
       {
         ...authorizedRequest,
         dedicatedModel: "unsupported-model",
         primaryModel: "primary-model",
+        sleepMode: "dedicated",
       },
       async (args: string[]) => {
         calls.push(args);
@@ -74,6 +104,7 @@ describe("T1 dedicated sleep model capability", () => {
       {
         ...authorizedRequest,
         dedicatedModel: "unsupported-model",
+        sleepMode: "dedicated",
         authorization: {
           authorized: false,
           trigger: "explicit-user",
@@ -87,6 +118,7 @@ describe("T1 dedicated sleep model capability", () => {
 
     expect(result).toEqual({
       executed: false,
+      mode: "disabled",
       reason: "sleep-disabled-by-default",
     });
     expect(calls).toEqual([]);
@@ -98,6 +130,7 @@ describe("T1 dedicated sleep model capability", () => {
       {
         ...authorizedRequest,
         dedicatedModel: undefined,
+        sleepMode: "session-model",
         authorization: {
           authorized: true,
           trigger: "session-end",
@@ -111,7 +144,84 @@ describe("T1 dedicated sleep model capability", () => {
 
     expect(result).toEqual({
       executed: false,
+      mode: "disabled",
       reason: "implicit-trigger-not-allowed",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("executes an explicit session-model fallback and names the actual mode (task 5.2)", async () => {
+    const calls: string[][] = [];
+    const result = await executeSleep(
+      {
+        ...authorizedRequest,
+        sleepMode: "session-model",
+      },
+      async (args: string[]) => {
+        calls.push(args);
+        return "consolidated";
+      },
+    );
+
+    expect(result).toEqual({
+      executed: true,
+      mode: "session-model",
+      reason: "sleep-executed",
+    });
+    expect(calls).toEqual([
+      [
+        "sleep",
+      ],
+    ]);
+  });
+
+  it("executes an explicit mechanical fallback and names the actual mode (task 5.2)", async () => {
+    const calls: string[][] = [];
+    const result = await executeSleep(
+      {
+        ...authorizedRequest,
+        sleepMode: "mechanical",
+      },
+      async (args: string[]) => {
+        calls.push(args);
+        return "consolidated";
+      },
+    );
+
+    expect(result).toEqual({
+      executed: true,
+      mode: "mechanical",
+      reason: "sleep-executed",
+    });
+    expect(calls).toEqual([
+      [
+        "sleep",
+      ],
+    ]);
+  });
+
+  it("rejects execution when the upstream sleep command is unavailable", async () => {
+    const calls: string[][] = [];
+    const result = await executeSleep(
+      {
+        ...authorizedRequest,
+        sleepMode: "mechanical",
+        capability: {
+          dedicatedModelSupported: false,
+          reason: "upstream-sleep-command-unavailable",
+          sleepCommandSupported: false,
+        },
+      },
+      async (args: string[]) => {
+        calls.push(args);
+        return "should not run";
+      },
+    );
+
+    expect(result).toEqual({
+      executed: false,
+      mode: "none",
+      reason: "sleep-command-unavailable",
     });
     expect(calls).toEqual([]);
   });

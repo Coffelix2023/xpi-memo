@@ -13,7 +13,8 @@ export interface PromotionRequest {
   reviewedConclusion: boolean;
   sourceLayer: "L0" | "T2";
   targetLayer: string;
-  targetScope: "global" | "session";
+  /** Canonical semantic scope (task 1.2): global / project / session. */
+  targetScope: "global" | "project" | "session";
   userConfirmed: boolean;
 }
 
@@ -28,7 +29,7 @@ export interface PromotionResult {
     | "provenance-required";
   targetBank?: string;
   targetKind?: MemoryKind;
-  targetScope?: "global" | "session";
+  targetScope?: "global" | "project" | "session";
 }
 
 function expectedEvidenceType(

@@ -16,6 +16,9 @@ export const GLOBAL_BANK = "default" as const;
 
 export interface RoutingContext {
   dataDir: string;
+  /** Environment identity state at the routing boundary (task 3.1):
+   * git / local (explicitly initialized) / none (uninitialized). */
+  identity?: "git" | "local" | "none";
   /** current project bank name, or null for non-Git / unrecognized dirs */
   projectBank: string | null;
 }

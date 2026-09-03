@@ -43,9 +43,18 @@ describe("transformer", () => {
         action: "edited",
         path: "/a/b.ts",
       },
+      memory_failed: {
+        kind: "project_decision",
+        phase: "backend",
+        reason: "backend-degraded",
+      },
       routing_decision: {
         bank: "default",
         kind: "session_context",
+      },
+      routing_rejected: {
+        kind: "project_decision",
+        reason: "project-identity-required",
       },
       t1_memory_write: {
         content: "use pnpm",
@@ -158,6 +167,31 @@ describe("memory generator", () => {
     expect(doc.sections.map((section) => section.title)).toEqual(sectionTitles);
     expect(doc.markdown.split("\n## ").length - 1).toBe(MEMORY_KINDS.length);
     expect(doc.markdown).not.toContain("## Other");
+  });
+
+  it("annotates every entry with its canonical scope (task 2.4)", () => {
+    const doc = generateMemoryMarkdown([
+      {
+        sessionId: SESSION,
+        events: [
+          event("t1_memory_write", 1, {
+            content: "pick X",
+            kind: "project_decision",
+          }),
+          event("t1_memory_write", 2, {
+            content: "prefer Y",
+            kind: "global_preference",
+          }),
+          event("t1_memory_write", 3, {
+            content: "session note",
+            kind: "session_context",
+          }),
+        ],
+      },
+    ]);
+    expect(doc.markdown).toContain("scope `project`");
+    expect(doc.markdown).toContain("scope `global`");
+    expect(doc.markdown).toContain("scope `session`");
   });
   it("keeps only the latest version of duplicate content (latest-wins)", () => {
     const entries = collectMemoryEntries([

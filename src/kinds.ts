@@ -14,7 +14,9 @@ export type MemoryRole = "standing" | "contextual";
 export type MemoryScope = "global" | "project" | "session";
 
 export interface MemoryKindRoute {
-  scope: "global" | "session";
+  /** Canonical semantic scope: global / project / session (task 1.2). */
+  scope: MemoryScope;
+  /** Physical bank target: the default global bank or the project bank. */
   target: "global" | "project";
 }
 
@@ -59,7 +61,7 @@ export const MEMORY_KIND_TAXONOMY: Readonly<Record<MemoryKind, MemoryKindDescrip
       sectionTitle: "Constraints",
       trustState: "Review required",
       route: {
-        scope: "global",
+        scope: "project",
         target: "project",
       },
     },
@@ -70,7 +72,7 @@ export const MEMORY_KIND_TAXONOMY: Readonly<Record<MemoryKind, MemoryKindDescrip
       sectionTitle: "Decisions",
       trustState: "Review required",
       route: {
-        scope: "global",
+        scope: "project",
         target: "project",
       },
     },
@@ -81,7 +83,7 @@ export const MEMORY_KIND_TAXONOMY: Readonly<Record<MemoryKind, MemoryKindDescrip
       sectionTitle: "Repository Facts",
       trustState: "Verified evidence",
       route: {
-        scope: "global",
+        scope: "project",
         target: "project",
       },
     },
@@ -92,7 +94,7 @@ export const MEMORY_KIND_TAXONOMY: Readonly<Record<MemoryKind, MemoryKindDescrip
       sectionTitle: "Gotchas",
       trustState: "Review required",
       route: {
-        scope: "global",
+        scope: "project",
         target: "project",
       },
     },
@@ -104,7 +106,10 @@ export const MEMORY_KIND_TAXONOMY: Readonly<Record<MemoryKind, MemoryKindDescrip
       trustState: "Session-only",
       route: {
         scope: "session",
-        target: "project",
+        // Session context is decoupled from project identity (task 2.3):
+        // the physical global bank holds it with session scope; routing no
+        // longer requires a project bank.
+        target: "global",
       },
     },
   };

@@ -30,6 +30,7 @@ function operation(
   kind: T1MemoryOperation["kind"],
   targetBank: string,
   scope: T1MemoryOperation["scope"],
+  sessionId?: string,
 ): T1MemoryOperation {
   return {
     confidence: 0.9,
@@ -40,6 +41,11 @@ function operation(
     scope,
     source: {
       evidenceType: "verified-tool-result",
+      ...(sessionId
+        ? {
+            sessionId,
+          }
+        : {}),
       source: kind,
       timestamp: new Date().toISOString(),
     },
@@ -127,6 +133,7 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
         "session_context",
         projectA,
         "session",
+        "session-a-7-2",
       ),
     );
     await adapter.store(
@@ -142,6 +149,7 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
     const result = await recall({
       limit: 10,
       query: "task 7.2 marker",
+      sessionId: "session-a-7-2",
       context: {
         dataDir,
         projectBank: projectA,
@@ -165,7 +173,7 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
       expect.arrayContaining([
         expect.objectContaining({
           bank: projectA,
-          scope: "global",
+          scope: "project",
         }),
         expect.objectContaining({
           bank: projectA,

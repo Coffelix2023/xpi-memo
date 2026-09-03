@@ -46,24 +46,26 @@ describe("T1 memory-kind table", () => {
         target: "global",
       },
       project_constraint: {
-        scope: "global",
+        scope: "project",
         target: "project",
       },
       project_decision: {
-        scope: "global",
+        scope: "project",
         target: "project",
       },
       project_gene: {
-        scope: "global",
+        scope: "project",
         target: "project",
       },
       project_gotcha: {
-        scope: "global",
+        scope: "project",
         target: "project",
       },
       session_context: {
         scope: "session",
-        target: "project",
+        // Task 2.3: decoupled from project identity; runtime routing prefers
+        // the project bank when one exists, else the global bank.
+        target: "global",
       },
     });
   });

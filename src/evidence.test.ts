@@ -19,6 +19,7 @@ describe("T1 evidence records", () => {
       "user-confirmed-candidate",
       "l0-conclusion",
       "t2-handoff",
+      "repo-export",
     ]);
   });
 

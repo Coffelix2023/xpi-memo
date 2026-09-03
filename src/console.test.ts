@@ -74,7 +74,9 @@ function status(overrides: Partial<MemoryStatus> = {}): MemoryStatus {
     sleep: {
       dedicatedModelSupported: false,
       enabled: false,
+      mode: "none",
       sleepCommandSupported: false,
+      state: "SLEEP_DISABLED",
     },
     tiers: {
       L0: "external-session-trace",

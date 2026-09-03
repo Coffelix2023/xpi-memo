@@ -5,6 +5,7 @@ export const EVIDENCE_TYPES = [
   "user-confirmed-candidate",
   "l0-conclusion",
   "t2-handoff",
+  "repo-export",
 ] as const;
 
 export type EvidenceType = (typeof EVIDENCE_TYPES)[number];

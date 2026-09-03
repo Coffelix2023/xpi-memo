@@ -69,7 +69,9 @@ describe("XpiMemo status", () => {
     sleep: {
       dedicatedModelSupported: false,
       enabled: false,
+      mode: "none",
       sleepCommandSupported: true,
+      state: "SLEEP_DISABLED",
     },
     storage: {
       dataDir: "/tmp/xpi-memo",
@@ -201,5 +203,56 @@ describe("XpiMemo status", () => {
     expect(rendered.recall.queriedBanks).toEqual([
       "default",
     ]);
+  });
+  it("renders recall backendState and sleep state/mode diagnostics (task 3.3/3.4)", () => {
+    const rendered = renderStatus({
+      ...status,
+      fallback: true,
+      recall: {
+        backendState: "backend-queried-no-hits",
+        scope: "global-only",
+        queriedBanks: [
+          "default",
+        ],
+      },
+      sleep: {
+        dedicatedModelSupported: false,
+        enabled: false,
+        mode: "none",
+        reason: "upstream-sleep-command-unavailable",
+        sleepCommandSupported: false,
+        state: "SLEEP_DISABLED",
+      },
+    });
+    expect(rendered.recall.backendState).toBe("backend-queried-no-hits");
+    expect(rendered.sleep).toEqual({
+      dedicatedModelSupported: false,
+      enabled: false,
+      mode: "none",
+      reason: "upstream-sleep-command-unavailable",
+      sleepCommandSupported: false,
+      state: "SLEEP_DISABLED",
+    });
+    expect(rendered.fallback).toBe(true);
+  });
+  it("renders a configured ready sleep mode without relabeling it as dedicated (task 5.2/5.3)", () => {
+    const rendered = renderStatus({
+      ...status,
+      sleep: {
+        dedicatedModelSupported: false,
+        enabled: true,
+        mode: "session-model",
+        sleepCommandSupported: true,
+        state: "READY",
+      },
+    });
+    expect(rendered.sleep).toEqual({
+      dedicatedModelSupported: false,
+      enabled: true,
+      mode: "session-model",
+      sleepCommandSupported: true,
+      state: "READY",
+    });
+    expect(rendered.sleep.mode).not.toBe("dedicated");
   });
 });

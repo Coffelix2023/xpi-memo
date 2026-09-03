@@ -58,7 +58,7 @@ describe("T1 pending candidate generation", () => {
       reason,
       status: "pending",
       targetBank: "project-p-0123456789ab",
-      targetScope: "global",
+      targetScope: "project",
     });
     expect(candidate.id).toMatch(UUID_PATTERN);
   });

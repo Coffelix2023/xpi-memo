@@ -102,10 +102,12 @@ describe("routing-aware Mnemosyne operations", () => {
   it("decodes encoded source and leaves legacy source untouched", () => {
     expect(decodeSourceMetadata(encodeSourceMetadata(operation))).toEqual({
       kind: "project_gene",
+      sessionId: null,
       source: "package.json",
     });
     expect(decodeSourceMetadata("package.json")).toEqual({
       kind: null,
+      sessionId: null,
       source: "package.json",
     });
   });

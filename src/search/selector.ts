@@ -82,6 +82,7 @@ export async function selectBackend(
   for (const backend of ordered) {
     let available = false;
     try {
+      // biome-ignore lint/performance/noAwaitInLoops: 按注册顺序逐个探测,failover 依赖顺序语义
       available = await backend.isAvailable();
     } catch (error) {
       attempts.push({
@@ -155,6 +156,7 @@ export function createSearchRunner(registry: BackendRegistry, metrics: BackendMe
         if (next.name === backend.name) continue;
         let nextAvailable = false;
         try {
+          // biome-ignore lint/performance/noAwaitInLoops: failover 链按注册顺序探测,不能用 Promise.all
           nextAvailable = await next.isAvailable();
         } catch {
           nextAvailable = false;

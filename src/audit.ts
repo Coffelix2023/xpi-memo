@@ -30,13 +30,22 @@ export interface AuditMetadata {
   confidence?: number;
   evidenceType?: EvidenceType;
   fallback?: boolean;
+  /** Environment identity state at the failure boundary (task 3.1):
+   * git / initialized-local / uninitialized / unknown. */
+  identity?: string;
   /** Number of results actually injected after ranking and budgets (task 5.6). */
   injectedCount?: number;
   kind?: string;
+  /** Actual sleep execution mode (task 3.4): dedicated / session-model /
+   * mechanical / none / disabled. */
+  mode?: string;
+  /** Bounded outcome of a failed operation (task 3.1): rejected / degraded. */
+  outcome?: string;
   reason?: string;
   /** Number of results the backend returned (task 5.6). */
   resultCount?: number;
-  scope?: "global" | "session";
+  /** Canonical semantic scope (task 1.2): global / project / session. */
+  scope?: "global" | "project" | "session";
   status?: string;
   trigger?: string;
 }
@@ -71,6 +80,9 @@ const ALLOWED_METADATA_KEYS = new Set([
   "fallback",
   "injectedCount",
   "kind",
+  "identity",
+  "mode",
+  "outcome",
   "reason",
   "resultCount",
   "scope",

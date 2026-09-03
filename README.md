@@ -40,10 +40,11 @@ brew install ripgrep               # full-text search (macOS); dnf install ripgr
 
 ### Commands
 
-- `/xpi-memo` — Open TUI console
 - `/xpi-memo` — Open TUI console (Pending / Recent / Settings / Status tabs; Status shows indented JSON incl. L0 summary)
 - `/xpi-memo-status` — Scrollable status panel in the TUI; single-line JSON elsewhere
+- `/xpi-memo-init` — Initialize a non-Git project identity (writes `.pi/xpi-memo/project.json`; no SQLite in the repo)
 - `/xpi-memo-export [--session <id>] [--force] [--validate]` — Export L0 events to Markdown
+- `/xpi-memo-export --repo [--reimport]` — Export governed project memory to `.pi/memory/<kind>.md` / re-import discovered entries as governed candidates
 
 ### Tools
 
@@ -72,6 +73,7 @@ Environment variables:
 - `XPI_MEMO_RECALL_POLICY` = `active|assist|high-value-auto`
 - `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED` = `true|false` (default `false`)
 - `XPI_MEMO_RETRIEVAL_MODE`
+- `XPI_MEMO_SLEEP_MODE` = `dedicated|session-model|mechanical|disabled` (default `disabled`; fail-closed)
 
 See [GUIDE.md](./GUIDE.md) for the full config table with defaults and effects.
 

@@ -306,6 +306,43 @@ describe("createEventLogReader", () => {
     const events = await reader.readAll();
     expect(events).toHaveLength(2);
   });
+  it("keeps historical logs readable when new event types appear (task 7.2)", async () => {
+    const dataDir = makeTempDir("xpi-l0-historical-");
+    const session = createSession(dataDir);
+    mkdirSync(session.dir, {
+      recursive: true,
+    });
+    // A log written by an older/future version: a known event plus an
+    // unrecognized type. The reader must keep the known event and skip the
+    // unknown one without failing or corrupting the file.
+    const known = JSON.stringify({
+      position: 1,
+      timestamp: "2024-01-01T00:00:00Z",
+      type: "user_message",
+      version: 1,
+      payload: {
+        content: "still readable",
+      },
+    });
+    const future = JSON.stringify({
+      payload: {},
+      position: 2,
+      timestamp: "2024-01-01T00:00:01Z",
+      type: "some_future_event_type",
+      version: 1,
+    });
+    writeFileSync(join(session.dir, "events.jsonl"), `${known}\n${future}\n`);
+
+    const reader = createEventLogReader({
+      sessionDir: session.dir,
+    });
+    const events = await reader.readAll();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.type).toBe("user_message");
+    // read-only: the log file is untouched.
+    const before = readFileSync(join(session.dir, "events.jsonl"), "utf8");
+    expect(before.split("\n").filter(Boolean)).toHaveLength(2);
+  });
 });
 
 describe("createSession", () => {

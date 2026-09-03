@@ -1,6 +1,6 @@
 import { bankExists, GLOBAL_BANK, type RoutingContext } from "./banks.ts";
 import { type CliOptions, runMnemosyne } from "./cli.ts";
-import type { MemoryKind } from "./kinds.js";
+import { describeMemoryKindOrNull, type MemoryKind } from "./kinds.js";
 import { decodeSourceMetadata } from "./operations.js";
 
 import {
@@ -41,6 +41,8 @@ export interface RecallRequest {
   limit?: number;
   projectLimit?: number;
   query: string;
+  /** Current L0 session id; isolates session-scoped rows (task 2.3). */
+  sessionId?: string;
 }
 
 export interface RecallProvenance {
@@ -59,13 +61,14 @@ export interface RecallItem {
   provenance: RecallProvenance;
   scope: string;
   score: number;
+  /** L0 session discriminator when the row is session-scoped (task 2.3). */
+  sessionId?: string;
   source?: string;
   /** Non-null when the backend reports this memory as superseded. */
   supersededBy?: string | null;
   /** ISO timestamp when the backend reports one; used by recency ranking. */
   timestamp?: string;
 }
-
 export interface RecallResponse {
   queriedBanks: string[];
   results: RecallItem[];
@@ -118,6 +121,7 @@ function toRecallItems(bank: string, rows: RawRecallRow[]): RecallItem[] {
         ? decodeSourceMetadata(row.source)
         : {
             kind: null,
+            sessionId: null,
             source: undefined,
           };
     const confidence = typeof row.importance === "number" ? row.importance : undefined;
@@ -127,8 +131,17 @@ function toRecallItems(bank: string, rows: RawRecallRow[]): RecallItem[] {
         content: row.content,
         id: typeof row.id === "string" ? row.id : null,
         kind: decoded.kind,
-        scope: typeof row.scope === "string" ? row.scope : "global",
+        // Canonical scope from kind metadata (task 2.4): the physical bank
+        // name is an implementation detail, never a scope label.
+        scope:
+          describeMemoryKindOrNull(decoded.kind ?? undefined)?.scope ??
+          (typeof row.scope === "string" ? row.scope : "global"),
         score: typeof row.score === "number" ? row.score : 0,
+        ...(decoded.sessionId
+          ? {
+              sessionId: decoded.sessionId,
+            }
+          : {}),
         ...(typeof row.timestamp === "string"
           ? {
               timestamp: row.timestamp,
@@ -166,6 +179,7 @@ async function recallBank(
   limit: number,
   dataDir: string,
   run: RecallRunner,
+  sessionId?: string,
 ): Promise<{
   items: RecallItem[];
   embeddingAvailable: boolean;
@@ -190,13 +204,21 @@ async function recallBank(
   return {
     embeddingAvailable: parsed.embeddingAvailable,
     fallback: parsed.fallback,
-    items:
-      bank === GLOBAL_BANK
-        ? items.filter(
-            (item) =>
-              item.kind === "global_preference" || item.kind === "global_workflow",
-          )
-        : items,
+    items: items.filter((item) => {
+      // The default bank surfaces only global standing memories plus the
+      // current session's context (task 2.3); project-kind leaks stay out.
+      if (bank === GLOBAL_BANK) {
+        if (item.kind === "global_preference" || item.kind === "global_workflow")
+          return true;
+        if (item.kind === "session_context")
+          return item.sessionId !== undefined && item.sessionId === sessionId;
+        return false;
+      }
+      // Project bank: session-scoped rows surface only for the writing session.
+      if (item.kind === "session_context")
+        return item.sessionId !== undefined && item.sessionId === sessionId;
+      return true;
+    }),
   };
 }
 
@@ -236,13 +258,21 @@ export async function recall(
         projectLimit,
         request.context.dataDir,
         run,
+        request.sessionId,
       ),
     );
   }
 
   queriedBanks.push(GLOBAL_BANK);
   batches.push(
-    recallBank(request.query, GLOBAL_BANK, globalLimit, request.context.dataDir, run),
+    recallBank(
+      request.query,
+      GLOBAL_BANK,
+      globalLimit,
+      request.context.dataDir,
+      run,
+      request.sessionId,
+    ),
   );
 
   const batchesResult = await Promise.all(batches);

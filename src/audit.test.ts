@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -147,5 +147,51 @@ describe("bounded T1 audit metadata", () => {
     });
 
     expect(existsSync(statePath)).toBe(false);
+  });
+  it("loads a pre-existing audit file and continues appending (task 7.2)", () => {
+    const statePath = join(createTemporaryDirectory(), "audit.json");
+    // Simulate a historical v1 audit file written before this change: an old
+    // action and minimal metadata, no new fields.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            action: "write",
+            timestamp: "2024-01-01T00:00:00.000Z",
+            metadata: {
+              bank: "default",
+              kind: "global_preference",
+              status: "stored",
+            },
+          },
+        ],
+      }),
+    );
+
+    const audit = createAuditLog({
+      statePath,
+    });
+    expect(audit.list()).toHaveLength(1);
+    expect(audit.list()[0]).toEqual({
+      action: "write",
+      timestamp: "2024-01-01T00:00:00.000Z",
+      metadata: {
+        bank: "default",
+        kind: "global_preference",
+        status: "stored",
+      },
+    });
+
+    audit.record("rejection", {
+      identity: "uninitialized",
+      kind: "project_decision",
+      outcome: "rejected",
+      reason: "project-identity-required",
+      scope: "project",
+    });
+    expect(audit.list()).toHaveLength(2);
+    expect(audit.list()[1]?.metadata.reason).toBe("project-identity-required");
   });
 });

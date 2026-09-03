@@ -19,6 +19,9 @@ export type MemoryIntentResult =
       type: "memory";
     }
   | {
+      /** Present only for `missing-project-context` skips: names the rejected
+       * project kind so routing-rejection evidence can be recorded (task 4.3). */
+      kind?: MemoryKind;
       reason: MemoryIntentSkipReason;
       type: "skip";
     };
@@ -39,8 +42,13 @@ const DECISION_PATTERN =
 const GOTCHA_PATTERN = /(?:gotcha|be careful|watch out|pitfall|注意|踩坑|小心|不要忘)/i;
 const PROJECT_FACT_PATTERN = /(?:uses|使用|技术栈|目录约定|built with|基于)/i;
 
-function skip(reason: MemoryIntentSkipReason): MemoryIntentResult {
+function skip(reason: MemoryIntentSkipReason, kind?: MemoryKind): MemoryIntentResult {
   return {
+    ...(kind
+      ? {
+          kind,
+        }
+      : {}),
     reason,
     type: "skip",
   };
@@ -98,11 +106,10 @@ export function extractExplicitMemoryIntent(
   if (
     (kind === "project_constraint" ||
       kind === "project_decision" ||
-      kind === "project_gotcha" ||
-      kind === "session_context") &&
+      kind === "project_gotcha") &&
     context.projectBank === null
   ) {
-    return skip("missing-project-context");
+    return skip("missing-project-context", kind);
   }
   if (kind === "project_gene") return skip("project-fact-requires-verification");
 
