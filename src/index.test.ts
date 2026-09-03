@@ -2696,6 +2696,62 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(extractionEntries).toHaveLength(2);
     expect(extractionEntries[1]?.metadata?.status).toBe("budget-exhausted");
   });
+
+  it("does not retry a failed extraction runner during the same session", async () => {
+    const dataDir = createTemporaryDirectory();
+    let calls = 0;
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      offlineExtractionRunner: async () => {
+        calls += 1;
+        throw new Error("provider failed");
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext();
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    expect(calls).toBe(1);
+    const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"));
+    const statuses = audit.entries
+      .filter((entry: { action: string }) => entry.action === "extraction")
+      .map(
+        (entry: {
+          metadata: {
+            status: string;
+          };
+        }) => entry.metadata.status,
+      );
+    expect(statuses).toEqual([
+      "failed",
+      "budget-exhausted",
+    ]);
+  });
 });
 
 describe("memory-boundaries skill", () => {

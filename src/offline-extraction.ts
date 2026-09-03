@@ -99,9 +99,25 @@ export type OfflineExtractionResult =
 function boundedEvents(
   events: readonly L0Event[],
   maxEvents: number,
+  maxInputChars: number,
 ): readonly L0Event[] {
   const count = Number.isInteger(maxEvents) && maxEvents > 0 ? maxEvents : 0;
-  return events.slice(-count);
+  const limited = events.slice(-count);
+  const limit =
+    Number.isInteger(maxInputChars) && maxInputChars > 0 ? maxInputChars : 0;
+  let chars = 0;
+  const selected: L0Event[] = [];
+  for (let index = limited.length - 1; index >= 0; index -= 1) {
+    const event = limited[index] as L0Event;
+    const size = Object.values(event.payload).reduce<number>(
+      (total, value) => total + (typeof value === "string" ? value.length : 0),
+      0,
+    );
+    if (chars + size > limit) break;
+    selected.push(event);
+    chars += size;
+  }
+  return selected.reverse();
 }
 
 function boundedInputChars(events: readonly L0Event[]): number {
@@ -147,7 +163,7 @@ function diagnostics(
 /**
  * Run the offline extraction boundary. Never throws: disabled, unavailable,
  * timed-out, failed, and completed all return a bounded diagnostic result.
- * Only the last `maxEvents` events are passed, and the runner must be
+ * Only the last `maxEvents` events within `maxInputChars` are passed, and the runner must be
  * consumed through a timeout so a slow or hanging provider cannot block the
  * lifecycle point indefinitely.
  */
@@ -168,7 +184,11 @@ export async function runOfflineExtraction(
     };
   }
 
-  const events = boundedEvents(options.events, options.maxEvents);
+  const events = boundedEvents(
+    options.events,
+    options.maxEvents,
+    options.maxInputChars,
+  );
 
   if (options.ledger) {
     const limits = options.limits;
@@ -210,6 +230,8 @@ export async function runOfflineExtraction(
     };
   }
 
+  options.ledger?.recordExecution();
+
   const timeout = new Promise<never>((_resolve, reject) => {
     setTimeout(
       () => reject(new Error("offline-extraction-timeout")),
@@ -226,7 +248,6 @@ export async function runOfflineExtraction(
       }),
       timeout,
     ]);
-    options.ledger?.recordExecution();
     return {
       diagnostics: diagnostics(
         "completed",

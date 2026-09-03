@@ -108,20 +108,27 @@ describe("offline extraction boundary (task 3.1)", () => {
     expect(result.status).toBe("failed");
   });
 
-  it("returns timed-out when the runner exceeds the timeout", async () => {
-    const runner: OfflineExtractionRunner = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      return [];
-    };
+  it("consumes the execution budget when the runner times out", async () => {
+    const dataDir = temporaryDirectory();
+    const ledger = createExtractionBudgetLedger({
+      sessionId: "session-1",
+      statePath: join(dataDir, "extraction-budget.json"),
+    });
     const result = await runOfflineExtraction(
       options({
-        runner,
+        ledger,
         timeoutMs: 5,
+        limits: {
+          maxCharsPerSession: 5_000,
+          maxExecutionsPerSession: 1,
+          maxProposalsPerSession: 20,
+        },
+        runner: async () => new Promise(() => undefined),
       }),
     );
     expect(result.status).toBe("timed-out");
+    expect(ledger.consumption().executions).toBe(1);
   });
-
   it("passes only the bounded trailing events to a successful runner", async () => {
     let received: Parameters<OfflineExtractionRunner>[0] | undefined;
     const runner: OfflineExtractionRunner = async (input) => {
@@ -154,6 +161,31 @@ describe("offline extraction boundary (task 3.1)", () => {
     ]);
     expect(received?.maxInputChars).toBe(DEFAULT_OFFLINE_EXTRACTION_MAX_INPUT_CHARS);
     expect(received?.sessionId).toBe("session-1");
+  });
+  it("keeps the runner input within the character budget", async () => {
+    let received: Parameters<OfflineExtractionRunner>[0] | undefined;
+    const result = await runOfflineExtraction(
+      options({
+        maxInputChars: 6,
+        events: [
+          createL0Event("user_message", 1, {
+            text: "old",
+          }),
+          createL0Event("user_message", 2, {
+            text: "newest",
+          }),
+        ],
+        runner: async (input) => {
+          received = input;
+          return [];
+        },
+      }),
+    );
+    expect(result.status).toBe("completed");
+    expect(received?.events.map((event) => event.position)).toEqual([
+      2,
+    ]);
+    expect(result.diagnostics.inputChars).toBe(6);
   });
 
   it("records bounded diagnostics without memory body content", async () => {
