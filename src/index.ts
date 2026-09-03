@@ -1438,6 +1438,9 @@ async function statusForContext(
     timestamp: entry.timestamp,
   }));
   // Backend execution state from the most recent recall audit entry (task 3.3).
+  const lastExtraction = [
+    ...auditEntries.filter((entry) => entry.action === "extraction"),
+  ].at(-1);
   const lastRecall = [
     ...auditEntries.filter((entry) => entry.action === "recall"),
   ].at(-1);
@@ -1528,6 +1531,14 @@ async function statusForContext(
       (entry) => entry.action === "fallback" && entry.metadata.status === "degraded",
     ),
     observability: buildObservabilitySnapshot(auditEntries),
+    offlineExtraction: {
+      enabled: config.offlineExtractionEnabled,
+      ...(lastExtraction?.metadata.status
+        ? {
+            lastStatus: lastExtraction.metadata.status,
+          }
+        : {}),
+    },
     ...(orphans.length > 0
       ? {
           orphans,

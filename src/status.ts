@@ -22,6 +22,11 @@ export interface MemoryStatus {
   doctor?: MemoryDoctorReport;
   fallback: boolean | null;
   observability?: ObservabilitySnapshot;
+  /** Gated offline extraction state; disabled unless explicitly configured. */
+  offlineExtraction?: {
+    enabled: boolean;
+    lastStatus?: string;
+  };
   /** Read-only orphan project banks (task 6.4); never deleted automatically. */
   orphans?: Array<{
     bank: string;
@@ -235,6 +240,18 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
       embeddingAvailable: status.retrieval.embeddingAvailable,
       mode: status.retrieval.mode,
     },
+    ...(status.offlineExtraction
+      ? {
+          offlineExtraction: {
+            enabled: status.offlineExtraction.enabled,
+            ...(status.offlineExtraction.lastStatus
+              ? {
+                  lastStatus: status.offlineExtraction.lastStatus,
+                }
+              : {}),
+          },
+        }
+      : {}),
     ...(status.search
       ? {
           search: {
