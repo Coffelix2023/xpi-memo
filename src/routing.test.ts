@@ -70,6 +70,11 @@ describe("T1 memory routing", () => {
         expect(rejection.reason).toBe("project-identity-required");
         expect(rejection.message).toContain("/xpi-memo-init");
         expect(rejection.message).toContain("Git");
+        expect(rejection.recovery).toEqual({
+          agent: "Call xpi_memo_init, then retry xpi_memo_remember with the same kind.",
+          cli: "Run /xpi-memo-init in this directory, then retry the write.",
+          tui: "Run /xpi-memo-init, then retry.",
+        });
         return rejection;
       }
     };

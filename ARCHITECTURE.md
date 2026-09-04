@@ -2,6 +2,7 @@
 
 xpi-memo is a Pi Coding Agent extension (TypeScript, loaded directly from `src/index.ts`, no build step). It layers a lossless session trace (L0) under governed long-term memory (T1), derives human-readable Markdown from L0, and searches through pluggable backends.
 
+**Default-value philosophy:** local deterministic operations default on; operations that consume external resources or are irreversible default off.
 ## Layer model
 
 ```
@@ -36,17 +37,16 @@ Dual-write: a T1 write appends to L0 first, then writes to mnemosyne + `audit.js
 
 ## Markdown export (`src/markdown-export/`)
 
-`exportMarkdown()` reads every session through `readAfter(lastExportedPosition)` (state in `markdown/export-state.json`), folds events into `daily/YYYY-MM-DD.md` (append-only day files) and regenerates `MEMORY.md` (latest-wins dedupe across sessions). Writes are temp-file + rename. Markdown is always derivable — users may edit it, the next export regenerates it.
-
+`exportMarkdown()` reads every session through `readAfter(lastExportedPosition)` (state in `markdown/export-state.json`), folds events into `daily/YYYY-MM-DD.md` (append-only day files) and regenerates `MEMORY.md`. Exact duplicates in the same bank and kind stay in the export and are marked `supersededBy`; SQLite is never rewritten. Writes are temp-file + rename. Markdown is always derivable — users may edit it, the next export regenerates it. `AUTO_EXPORT` defaults to on (local deterministic); disable with `XPI_MEMO_AUTO_EXPORT=false`.
 ## Search backends (`src/search/`)
 
 `SearchBackend` interface with three implementations: **mnemosyne** (wraps the existing CLI recall; global→global bank, project→project bank), **ripgrep** (full-text over `markdown/` + `sessions/`), **qmd** (external semantic CLI). Selection walks configured → mnemosyne → ripgrep → qmd; unavailability (checked via a per-process `which` cache) and mid-search failures are recorded as `BackendAttempt`s and the chain degrades. Per-query metrics (latency, result count) are kept for status reporting.
 
 ## T1 governance (top level `src/`)
 
-- **routing** (`routing.ts`, `banks.ts`, `local-identity.ts`) — global / project / session scope; project identity from git (`identity.ts`: canonical common dir hash + normalized remote aliases, cached per cwd) selects a per-project bank. Non-Git directories get a stable identity only via explicit initialization (`/xpi-memo-init` writes `.pi/xpi-memo/project.json`); without it, project kinds are rejected with `routing_rejected`/`project-identity-required` and never fall back to the global bank.
+- **routing** (`routing.ts`, `banks.ts`, `local-identity.ts`) — global / project / session scope; project identity from git (`identity.ts`: canonical common dir hash + normalized remote aliases, cached per cwd) selects a per-project bank. Non-Git directories get a stable identity only via explicit initialization (`/xpi-memo-init` or the `xpi_memo_init` tool writes `.pi/xpi-memo/project.json` mode 0600); without it, project kinds are rejected with `routing_rejected`/`project-identity-required` plus a structured `recovery: { agent, tui, cli }` hint, and never fall back to the global bank.
 - **candidate lifecycle** (`candidate-lifecycle.ts`, `pending-candidate.ts`) — writes that need review become candidates and are confirmed/rejected explicitly (Store / Later / Reject).
-- **policies** (`recall-policy.ts`, `auto-store-policy.ts`, `content-policy.ts`, `promotion-policy.ts`, `sleep-*.ts`) — recall decisions, auto-store gating, prohibited content, promotion, and consolidation.
+- **policies** (`recall-policy.ts`, `auto-store-policy.ts`, `content-policy.ts`, `promotion-policy.ts`, `sleep-*.ts`) — recall decisions, auto-store gating, prohibited content, promotion, and consolidation. Local deterministic operations default on (`AUTO_EXPORT`); operations that consume external resources or are irreversible default off (Track B extraction, dedicated/session-model sleep). Mechanical sleep is local Markdown maintenance and does not call an external sleep CLI.
 - **audit + registry** (`audit.ts`, `registry.ts`) — append-only audit trail (historical provenance values are never rewritten) and project registry with remote-based move repair.
 
 ### Activation loop (`memory-intent.ts`, `memory-activation.ts`, `memory-idempotency.ts`)
@@ -56,9 +56,10 @@ Dual-write: a T1 write appends to L0 first, then writes to mnemosyne + `audit.js
 Activation is wired to L0 provenance: the input hook records a `user_message` event, and activation runs against that event position so evidence classification can distinguish `explicit-user-statement` (provenance source `input:…`) from `verified-tool-result` (tool input, model inference, derived content — `src/evidence.ts` `evidenceTypeForProvenance`). `src/memory-idempotency.ts` persists a sha256 content fingerprint plus session/event/kind key, so replaying an event or a simultaneous explicit `xpi_memo_remember` never creates a duplicate row or candidate.
 
 ### Gated offline extraction (`offline-extraction.ts`, `extraction-budget.ts`)
-Provider-neutral: the runner is injected by the host (`dependencies.offlineExtractionRunner`), so no model dependency lives in the module. Disabled by default (`offlineExtractionEnabled: false`); when enabled it runs only at `session_shutdown`, never at `session_before_compact`, and reads only the current session's trailing 200 L0 events within a 60,000-character input budget. A persisted ledger enforces one execution, 20 proposals, and 5,000 proposal characters per session; execution is consumed before runner invocation, so unavailable, failed, and timed-out runs cannot retry. Proposals are normalized to `{content, kind, confidence, evidence type, source reference}`, always carry `l0-conclusion` evidence, and route through the existing content policy, project routing, and candidate lifecycle. Only high-confidence (≥0.9), short (≤500 characters) `session_context` can store directly; project and higher-risk kinds remain candidates. Shutdown records bounded extraction counters and status (`disabled`, `unavailable`, `failed`, `timed-out`, `budget-exhausted`, or `completed`) in `audit.json` and status; audit/L0 diagnostics never include proposal bodies. Failures are best-effort and never block session shutdown. Disable with `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED=false`; retain audit, candidates, banks, and L0 evidence for rollback and review.
-### Recall ranking (`recall-ranking.ts`)
 
+Provider-neutral: the runner is injected by the host (`dependencies.offlineExtractionRunner`), so no model dependency lives in the module. Disabled by default (`offlineExtractionEnabled: false`). When enabled it runs at `session_shutdown` and `session_before_compact`, sharing one per-session ledger. The ledger records `consumedThrough` so the same L0 range is never consumed twice, and still enforces one execution, 20 proposals, and 5,000 proposal characters per session. Compact and shutdown failures are best-effort and never block the lifecycle. Disable with `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED=false`.
+
+### Recall ranking (`recall-ranking.ts`)
 Pure backend-agnostic post-processing for automatic injection: standing vs contextual roles from the canonical taxonomy, query-intent weighting (`detectQueryIntent`), recency decay (30-day half-life), scope priority, superseded filtering, content deduplication, and per-role item + character budgets. Returns `null` when nothing survives so the caller omits the memory block. Explicit `xpi_memo_recall` output is untouched.
 
 ### Observability (`observability.ts`, `candidate-digest.ts`, `status.ts`, `doctor.ts`)

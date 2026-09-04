@@ -38,9 +38,12 @@ export interface SleepExecutionResult {
 
 export type SleepRunner = (args: string[]) => Promise<string>;
 
+export type SleepMaintenance = () => Promise<void>;
+
 export async function executeSleep(
   request: SleepExecutionRequest,
   run: SleepRunner,
+  maintain?: SleepMaintenance,
 ): Promise<SleepExecutionResult> {
   const authorization = decideSleep(request.authorization);
   if (!authorization.allowed) {
@@ -62,6 +65,15 @@ export async function executeSleep(
       executed: false,
       mode: "disabled",
       reason: "sleep-mode-not-configured",
+    };
+  }
+
+  if (mode === "mechanical") {
+    await maintain?.();
+    return {
+      executed: true,
+      mode: "mechanical",
+      reason: "sleep-executed",
     };
   }
 
@@ -93,8 +105,6 @@ export async function executeSleep(
     };
   }
 
-  // Explicit session-model or mechanical fallback (task 5.2). The response
-  // names the actual mode; neither may be labeled dedicated.
   await run([
     "sleep",
   ]);

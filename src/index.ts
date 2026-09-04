@@ -136,11 +136,15 @@ interface ToolDetails {
   mode?: string;
   queriedBanks?: string[];
   reason?: string;
+  recovery?: {
+    agent: string;
+    cli: string;
+    tui: string;
+  };
   resultCount?: number;
   scope?: "global" | "project" | "session";
   status: ToolStatus;
 }
-
 export interface XpiMemoDependencies {
   env?: NodeJS.ProcessEnv;
   offlineExtractionRunner?: OfflineExtractionRunner;
@@ -163,6 +167,39 @@ interface Runtime {
   l0: L0Coordinator;
   run: MnemosyneRunner;
   search: ReturnType<typeof createSearchRuntime>;
+}
+
+const AUTO_EXPORT_DEBOUNCE_MS = 500;
+const autoExportTimers = new Map<string, NodeJS.Timeout>();
+
+function scheduleAutoExport(
+  config: ReturnType<typeof loadConfig>["config"],
+  env: NodeJS.ProcessEnv | undefined,
+): void {
+  if (!config.autoExport || !config.l0Enabled) return;
+  const existing = autoExportTimers.get(config.dataDir);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    autoExportTimers.delete(config.dataDir);
+    void exportMarkdown({
+      env,
+      filters: {
+        excludeToolResults: config.excludeToolResults,
+        privacy: config.privacy,
+      },
+    }).catch(() => {
+      // Auto-export is best effort and must not block memory writes.
+    });
+  }, AUTO_EXPORT_DEBOUNCE_MS);
+  timer.unref?.();
+  autoExportTimers.set(config.dataDir, timer);
+}
+
+function clearAutoExportTimer(dataDir: string): void {
+  const timer = autoExportTimers.get(dataDir);
+  if (!timer) return;
+  clearTimeout(timer);
+  autoExportTimers.delete(dataDir);
 }
 
 interface InputProvenance extends MemoryActivationProvenance {
@@ -372,16 +409,30 @@ function createRuntime(
   const audit = createAuditLog({
     statePath: join(configResult.config.dataDir, "audit.json"),
   });
-  const candidates = createCandidateStore({
-    adapter,
-    statePath: join(configResult.config.dataDir, "candidates.json"),
-  });
   const l0 =
     l0Override ??
     createL0Coordinator({
       dataDir: configResult.config.dataDir,
       enabled: configResult.config.l0Enabled,
     });
+  const candidates = createCandidateStore({
+    adapter,
+    statePath: join(configResult.config.dataDir, "candidates.json"),
+    afterStore() {
+      scheduleAutoExport(configResult.config, dependencies.env);
+    },
+    beforeStore(operation) {
+      l0.record("t1_memory_write", {
+        bank: operation.targetBank,
+        confidence: operation.confidence,
+        content: operation.content,
+        evidenceType: operation.source.evidenceType,
+        fingerprint: contentFingerprint(operation.content),
+        kind: operation.kind,
+        scope: operation.scope,
+      });
+    },
+  });
   const idempotency =
     idempotencyOverride ??
     createMemoryIdempotencyStore({
@@ -401,12 +452,13 @@ function createRuntime(
   };
 }
 
-async function runOfflineExtractionForShutdown(
+async function runOfflineExtractionForLifecycle(
   cwd: string,
   config: ReturnType<typeof loadConfig>["config"],
   dependencies: XpiMemoDependencies,
   l0: L0Coordinator,
   audit: AuditLog,
+  trigger: "session_shutdown" | "session_before_compact",
 ): Promise<void> {
   const sessionId = l0.sessionId();
   if (!sessionId) return;
@@ -419,8 +471,6 @@ async function runOfflineExtractionForShutdown(
     maxExecutionsPerSession: DEFAULT_OFFLINE_EXTRACTION_MAX_EXECUTIONS_PER_SESSION,
     maxProposalsPerSession: DEFAULT_OFFLINE_EXTRACTION_MAX_PROPOSALS_PER_SESSION,
   };
-  // Execution budget is checked before reading event history so an exhausted
-  // session never reads unbounded history (task 3.3).
   if (!ledger.executionAllowed(limits)) {
     audit.record("extraction", {
       budgetRejectedCount: 1,
@@ -431,18 +481,27 @@ async function runOfflineExtractionForShutdown(
       rejectedCount: 0,
       status: "budget-exhausted",
       storedCount: 0,
-      trigger: "session_shutdown",
+      trigger,
     });
     return;
   }
   const current = l0.currentPosition();
-  const from = Math.max(0, current - DEFAULT_OFFLINE_EXTRACTION_MAX_EVENTS);
+  const consumedThrough = ledger.consumedThrough();
+  if (current <= consumedThrough) return;
+  const from = Math.max(
+    consumedThrough,
+    current - DEFAULT_OFFLINE_EXTRACTION_MAX_EVENTS,
+  );
   const reader = createEventLogReader({
     sessionDir: sessionDirFor(config.dataDir, sessionId),
   });
   const events = (await reader.readAfter(from)).slice(
     -DEFAULT_OFFLINE_EXTRACTION_MAX_EVENTS,
   );
+  if (events.length === 0) {
+    ledger.recordConsumedThrough(current);
+    return;
+  }
   const result = await runOfflineExtraction({
     enabled: true,
     events,
@@ -491,6 +550,8 @@ async function runOfflineExtractionForShutdown(
       else extractionCounts.rejectedCount += 1;
     }
   }
+  const lastEvent = events.at(-1);
+  if (lastEvent) ledger.recordConsumedThrough(lastEvent.position);
   audit.record("extraction", {
     ...extractionCounts,
     ...(result.status === "budget-exhausted"
@@ -500,7 +561,7 @@ async function runOfflineExtractionForShutdown(
       : {}),
     reason: result.status,
     status: result.status,
-    trigger: "session_shutdown",
+    trigger,
   });
 }
 
@@ -980,6 +1041,7 @@ async function executeRemember(
       scope: operation.scope,
     });
     const stored = await runtime.adapter.store(operation);
+    scheduleAutoExport(runtime.config, dependencies.env);
     runtime.audit.record("write", {
       bank: operation.targetBank,
       confidence: operation.confidence,
@@ -1012,6 +1074,7 @@ async function executeRemember(
         {
           kind: params.kind,
           reason: error.reason,
+          recovery: error.recovery,
           scope: error.scope,
           status: "routing_rejected",
         },
@@ -1237,7 +1300,7 @@ async function executeSleepTool(
     // Fail closed (task 5.1): no configured mode means the CLI is never probed
     // or invoked — the diagnostic names the missing configuration.
     const capability: SleepCapabilityResult =
-      sleepMode === undefined || sleepMode === "disabled"
+      sleepMode === undefined || sleepMode === "disabled" || sleepMode === "mechanical"
         ? {
             dedicatedModelSupported: false,
             reason: "upstream-sleep-command-unavailable",
@@ -1260,6 +1323,22 @@ async function executeSleepTool(
         runtime.run(args, {
           dataDir: runtime.config.dataDir,
         }),
+      sleepMode === "mechanical"
+        ? async () => {
+            const exported = await exportMarkdown({
+              env,
+              memoryOnly: true,
+            });
+            const near = exported.duplicates.near;
+            if (near > 0)
+              runtime.audit.record("extraction", {
+                candidateCount: near,
+                mode: "mechanical",
+                reason: "near-duplicate",
+                status: "reported",
+              });
+          }
+        : undefined,
     );
     runtime.audit.record("sleep-authorization", {
       mode: result.mode,
@@ -1430,7 +1509,7 @@ async function statusForContext(
   // an unconfigured/disabled mode reports SLEEP_DISABLED without touching the CLI.
   const sleepMode = config.sleepMode;
   let sleepCommandSupported = false;
-  if (sleepMode !== "disabled") {
+  if (sleepMode !== "disabled" && sleepMode !== "mechanical") {
     try {
       const help = await run(
         [
@@ -1559,6 +1638,13 @@ async function statusForContext(
           }
         : {}),
     },
+    ...(lastExtraction?.metadata.reason === "near-duplicate"
+      ? {
+          nearDuplicates: {
+            count: lastExtraction.metadata.candidateCount ?? 0,
+          },
+        }
+      : {}),
     ...(orphans.length > 0
       ? {
           orphans,
@@ -1601,6 +1687,15 @@ async function statusForContext(
           reason: "sleep-mode-not-configured",
           sleepCommandSupported: false,
           state: "SLEEP_DISABLED",
+        };
+      }
+      if (sleepMode === "mechanical") {
+        return {
+          dedicatedModelSupported: false,
+          enabled: true,
+          mode: "mechanical",
+          sleepCommandSupported: false,
+          state: "READY",
         };
       }
       if (!sleepCommandSupported) {
@@ -2381,15 +2476,33 @@ export default function xpiMemo(
         l0ForHooks(),
       ),
     );
+    const config = loadConfig({
+      env: dependencies.env,
+    }).config;
+    if (config.offlineExtractionEnabled && config.l0Enabled) {
+      try {
+        await runOfflineExtractionForLifecycle(
+          ctx.cwd,
+          config,
+          dependencies,
+          l0ForHooks(),
+          auditForHooks(),
+          "session_before_compact",
+        );
+      } catch {
+        // Extraction failure must not block compact.
+      }
+    }
   });
   pi.on("session_shutdown", async (_event, ctx) => {
+    const config = loadConfig({
+      env: dependencies.env,
+    }).config;
+    clearAutoExportTimer(config.dataDir);
     pendingStartupContext.delete(ctx);
     getSurface(ctx).clear();
     clearFooterStatus(ctx);
     // Auto-export on session end (Task 9.3): best-effort, never blocks shutdown.
-    const config = loadConfig({
-      env: dependencies.env,
-    }).config;
     if (config.autoExport && config.l0Enabled) {
       try {
         await exportMarkdown({
@@ -2406,16 +2519,15 @@ export default function xpiMemo(
     // Gated offline extraction (task 3.1): best-effort, bounded, never blocks shutdown.
     if (config.offlineExtractionEnabled && config.l0Enabled) {
       try {
-        await runOfflineExtractionForShutdown(
+        await runOfflineExtractionForLifecycle(
           ctx.cwd,
           config,
           dependencies,
           l0ForHooks(),
           auditForHooks(),
+          "session_shutdown",
         );
-      } catch {
-        // Extraction failure must not block session shutdown.
-      }
+      } catch {}
     }
   });
 
@@ -2531,6 +2643,49 @@ export default function xpiMemo(
       "Run explicitly authorized T1 consolidation; disabled by default.",
       sleepParameters,
       (params, ctx) => executeSleepTool(params, ctx, dependencies),
+    ),
+  );
+  pi.registerTool(
+    realTool(
+      "xpi_memo_init",
+      "XpiMemo Init",
+      "Initialize a non-Git project identity by writing .pi/xpi-memo/project.json.",
+      Type.Object({}),
+      async (_params, ctx) => {
+        const gitIdentity = (
+          dependencies.resolveProjectIdentity ?? resolveProjectIdentity
+        )(ctx.cwd);
+        if (gitIdentity) {
+          return toolResult(
+            {
+              id: gitIdentity.id,
+              reason: "git-project-already-identified",
+              status: "skipped",
+            },
+            `Already inside Git project "${gitIdentity.label}" (${gitIdentity.id}); local initialization not needed.`,
+          );
+        }
+        const existing = resolveLocalProjectIdentity(ctx.cwd);
+        if (existing) {
+          return toolResult(
+            {
+              id: existing.id,
+              reason: "already-initialized",
+              status: "skipped",
+            },
+            `Already initialized as "${existing.label}" (${existing.id}) at ${existing.root}; nothing changed.`,
+          );
+        }
+        const identity = initializeLocalProject(ctx.cwd);
+        return toolResult(
+          {
+            id: identity.id,
+            reason: "initialized",
+            status: "stored",
+          },
+          `Initialized non-Git project identity "${identity.label}" (${identity.id}). Retry xpi_memo_remember after init.`,
+        );
+      },
     ),
   );
 }

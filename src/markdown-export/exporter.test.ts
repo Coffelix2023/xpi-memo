@@ -324,7 +324,7 @@ describe("markdown export", () => {
     expect(daily).not.toContain("sk-abcdef1234567890");
   });
 
-  it("dedupes duplicate memory content keeping only the latest version", async () => {
+  it("marks duplicate memory content with supersededBy instead of dropping it", async () => {
     const writer = createEventLogWriter({
       sessionDir: sessionDirFor(dataDir, SESSION_ID),
     });
@@ -347,8 +347,9 @@ describe("markdown export", () => {
     });
     const memory = readFileSync(join(markdownDirFor(dataDir), "MEMORY.md"), "utf8");
     expect(memory).toContain("Deploy at 10am");
-    expect(memory).not.toContain("Deploy at 9am");
-    expect((memory.match(/Deploy at/g) ?? []).length).toBe(2);
+    expect(memory).toContain("Deploy at 9am");
+    expect(memory).toContain("supersededBy `");
+    expect((memory.match(/Deploy at/g) ?? []).length).toBe(3);
   });
 
   it("exports a single session when sessionId is provided", async () => {

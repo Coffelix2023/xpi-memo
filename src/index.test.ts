@@ -305,6 +305,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       "xpi_memo_recall",
       "xpi_memo_forget",
       "xpi_memo_sleep",
+      "xpi_memo_init",
     ]);
     expect(events.map(({ name }) => name)).toEqual([
       "input",
@@ -404,6 +405,27 @@ describe("xpi-memo bootstrap entrypoint", () => {
 
     expect(existsSync(join(root, ".pi", "xpi-memo", "project.json"))).toBe(false);
     expect(notifications.join("\n")).toContain("Git project");
+  });
+
+  it("initializes a non-Git project via the xpi_memo_init tool", async () => {
+    const root = createTemporaryDirectory();
+    const { tools } = loadExtension();
+    const result = await toolByName(tools, "xpi_memo_init").execute(
+      "init-local",
+      {},
+      undefined,
+      undefined,
+      createToolContext({
+        cwd: root,
+      }),
+    );
+    const metadataPath = join(root, ".pi", "xpi-memo", "project.json");
+    expect(existsSync(metadataPath)).toBe(true);
+    expect(statSync(metadataPath).mode & 0o777).toBe(0o600);
+    expect(result.details).toMatchObject({
+      reason: "initialized",
+      status: "stored",
+    });
   });
   it("directs non-TUI users to JSON status", async () => {
     const { commands } = loadExtension();
@@ -1303,13 +1325,17 @@ describe("xpi-memo bootstrap entrypoint", () => {
         reason: "project-identity-required",
         scope: "project",
         status: "routing_rejected",
+        recovery: {
+          agent: "Call xpi_memo_init, then retry xpi_memo_remember with the same kind.",
+          cli: "Run /xpi-memo-init in this directory, then retry the write.",
+          tui: "Run /xpi-memo-init, then retry.",
+        },
       });
       const text = result.content[0];
       const message = text && "text" in text ? text.text : "";
       expect(message).toContain("/xpi-memo-init");
       expect(message).toContain("Git");
     }
-
     // no candidate and no T1 write for any of the four kinds
     expect(calls).toEqual([]);
     expect(existsSync(join(dataDir, "candidates.json"))).toBe(false);
@@ -2025,14 +2051,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       reason: "sleep-executed",
       status: "executed",
     });
-    expect(calls).toEqual([
-      [
-        "--help",
-      ],
-      [
-        "sleep",
-      ],
-    ]);
+    expect(calls).toEqual([]);
   });
 
   it("does not modify memory when sleep mode is disabled (task 5.3)", async () => {
@@ -2309,7 +2328,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       env: {
         XDG_CONFIG_HOME: dataDir,
         XPI_MEMO_DATA_DIR: dataDir,
-        XPI_MEMO_SLEEP_MODE: "mechanical",
+        XPI_MEMO_SLEEP_MODE: "session-model",
       },
       resolveProjectIdentity: () => null,
       run: async (args: string[]) => {
@@ -2734,6 +2753,55 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]?.events).toBe(1);
     expect(seen[0]?.sessionId).toBeTruthy();
+  });
+
+  it("runs bounded offline extraction before compact without repeating the same L0 range", async () => {
+    const dataDir = createTemporaryDirectory();
+    const seen: Array<{
+      events: number;
+      sessionId: string;
+    }> = [];
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      offlineExtractionRunner: async (input) => {
+        seen.push({
+          events: input.events.length,
+          sessionId: input.sessionId,
+        });
+        return [];
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const beforeCompact = events.find(({ name }) => name === "session_before_compact");
+    if (!input || !beforeCompact) throw new Error("hooks not registered");
+    const context = createToolContext();
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await beforeCompact.handler(
+      {
+        type: "session_before_compact",
+      },
+      context,
+    );
+    await beforeCompact.handler(
+      {
+        type: "session_before_compact",
+      },
+      context,
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.events).toBe(1);
   });
 
   it("does not run offline extraction when disabled", async () => {

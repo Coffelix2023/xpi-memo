@@ -21,6 +21,10 @@ export interface MemoryStatus {
   /** Empty-memory diagnosis + evidence bundle (task 4.2/4.3). */
   doctor?: MemoryDoctorReport;
   fallback: boolean | null;
+  /** Near-duplicate pairs reported by mechanical sleep; never mutates storage. */
+  nearDuplicates?: {
+    count: number;
+  };
   observability?: ObservabilitySnapshot;
   /** Gated offline extraction state; disabled unless explicitly configured. */
   offlineExtraction?: {
@@ -183,6 +187,13 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
     doctor: status.doctor,
     fallback: status.fallback,
     observability: status.observability,
+    ...(status.nearDuplicates
+      ? {
+          nearDuplicates: {
+            count: status.nearDuplicates.count,
+          },
+        }
+      : {}),
     ...(status.orphans
       ? {
           orphans: status.orphans.map((orphan) => ({

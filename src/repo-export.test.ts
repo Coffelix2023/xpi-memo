@@ -173,6 +173,40 @@ describe("repo-export render + parse (tasks 6.1-6.2)", () => {
     expect(renderRepoMemoryMarkdown(entries)).toEqual(files);
   });
 
+  it("marks exact duplicates with supersededBy in Markdown only", () => {
+    const dataDir = temporaryDirectory();
+    const projectBank = "project-demo";
+    const first = operation(
+      dataDir,
+      "keep the adapter",
+      "project_decision",
+      projectBank,
+      "project",
+    );
+    const files = renderRepoMemoryMarkdown([
+      {
+        content: first.content,
+        id: "memory-old",
+        kind: "project_decision",
+        scope: "project",
+        source: encodedSource(first),
+        timestamp: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        content: "keep the  adapter",
+        id: "memory-new",
+        kind: "project_decision",
+        scope: "project",
+        source: encodedSource(first),
+        timestamp: "2026-01-02T00:00:00.000Z",
+      },
+    ]);
+
+    expect(files["project_decision.md"]).toContain("supersededBy `memory-new`");
+    expect(files["project_decision.md"]).toContain("memory `memory-old`");
+    expect(files["project_decision.md"]).toContain("memory `memory-new`");
+  });
+
   it("round-trips rendered Markdown back into machine-readable entries", () => {
     const dataDir = temporaryDirectory();
     const projectBank = "project-demo";

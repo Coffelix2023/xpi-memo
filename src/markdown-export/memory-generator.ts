@@ -3,23 +3,29 @@
  *
  * Long-term memory view derived from confirmed T1 writes (t1_memory_write
  * events). Sections are derived from the canonical T1 taxonomy.
- * Duplicate content keeps only its latest version; entry order within a
- * section is stable (by L0 position) so Git diffs stay minimal.
+ * Exact duplicates stay in the export and are marked `supersededBy`;
+ * entry order within a section is stable (by L0 position).
  */
-
+import { markExactDuplicates, nearDuplicatePairs } from "../duplicate-report.js";
 import type { MemoryScope } from "../kinds.js";
 import { describeMemoryKind, MEMORY_KINDS, type MemoryKind } from "../kinds.js";
 import type { L0Event } from "../l0/types.js";
+
 export interface MemoryEntry {
+  /** Physical bank name from the confirming event, used only for duplicate grouping. */
+  bank: string;
   /** ISO 8601 timestamp of the latest confirming event */
   confirmedAt: string;
   content: string;
+  /** Stable export id: session@position. */
+  id: string;
   kind: MemoryKind;
   /** L0 position of the latest confirming event */
   position: number;
   /** Canonical semantic scope derived from kind metadata (task 2.4). */
   scope: MemoryScope;
   sessionId: string;
+  supersededBy?: string;
 }
 
 export interface MemoryDoc {
@@ -35,6 +41,11 @@ export interface MemorySource {
   sessionId: string;
 }
 
+export interface MemoryDuplicateCounts {
+  exact: number;
+  near: number;
+}
+
 export const MEMORY_SECTION_TITLES: ReadonlyArray<{
   kinds: readonly MemoryKind[];
   title: string;
@@ -45,26 +56,27 @@ export const MEMORY_SECTION_TITLES: ReadonlyArray<{
   ],
 }));
 
-const WHITESPACE = /\s+/g;
-
 function sectionTitleOf(kind: MemoryKind): string {
   return describeMemoryKind(kind).sectionTitle;
 }
 
-function normalize(content: string): string {
-  return content.trim().replace(WHITESPACE, " ");
+function bankOf(payload: { bank?: unknown }): string {
+  return typeof payload.bank === "string" && payload.bank.length > 0
+    ? payload.bank
+    : "default";
 }
 
 /**
- * Latest-wins dedupe on normalized content across all sessions: later L0
- * positions override earlier ones, matching supersession semantics.
+ * Collect confirmed T1 writes. Exact duplicates stay in the export and are
+ * marked `supersededBy` later; SQLite is never rewritten.
  */
 export function collectMemoryEntries(sources: MemorySource[]): MemoryEntry[] {
-  const byContent = new Map<string, MemoryEntry>();
+  const entries: MemoryEntry[] = [];
   for (const source of sources) {
     for (const event of source.events) {
       if (event.type !== "t1_memory_write") continue;
       const payload = event.payload as {
+        bank?: unknown;
         content?: unknown;
         kind?: unknown;
       };
@@ -74,28 +86,48 @@ export function collectMemoryEntries(sources: MemorySource[]): MemoryEntry[] {
         typeof payload.kind === "string"
           ? (payload.kind as MemoryKind)
           : "session_context";
-      const entry: MemoryEntry = {
+      entries.push({
+        bank: bankOf(payload),
         confirmedAt: event.timestamp,
         content,
+        id: `${source.sessionId}@${event.position}`,
         kind,
         position: event.position,
-        // Canonical scope from kind metadata; never the physical bank name.
         scope: describeMemoryKind(kind).scope,
         sessionId: source.sessionId,
-      };
-      const key = normalize(content);
-      const existing = byContent.get(key);
-      if (!existing || event.position > existing.position) byContent.set(key, entry);
+      });
     }
   }
-  return [
-    ...byContent.values(),
-  ].sort((a, b) => a.position - b.position);
+  return entries.sort((a, b) => a.position - b.position);
+}
+
+export function annotateMemoryDuplicates(entries: MemoryEntry[]): MemoryEntry[] {
+  return markExactDuplicates(
+    entries,
+    (entry) => Date.parse(entry.confirmedAt) || entry.position,
+  );
+}
+
+export function reportNearDuplicates(entries: MemoryEntry[]): Array<{
+  a: string;
+  b: string;
+  bank: string;
+  kind: string;
+}> {
+  return nearDuplicatePairs(entries);
+}
+
+export function duplicateCounts(entries: MemoryEntry[]): MemoryDuplicateCounts {
+  const marked = annotateMemoryDuplicates(entries);
+  return {
+    exact: marked.filter((entry) => entry.supersededBy).length,
+    near: reportNearDuplicates(entries).length,
+  };
 }
 
 /** Render MEMORY.md from confirmed T1 write events across sessions. */
 export function generateMemoryMarkdown(sources: MemorySource[]): MemoryDoc {
-  const entries = collectMemoryEntries(sources);
+  const entries = annotateMemoryDuplicates(collectMemoryEntries(sources));
   const grouped = new Map<string, MemoryEntry[]>();
   for (const entry of entries) {
     const title = sectionTitleOf(entry.kind);
@@ -129,9 +161,13 @@ export function generateMemoryMarkdown(sources: MemorySource[]): MemoryDoc {
     lines.push(`## ${title}`, "");
     for (const entry of grouped.get(title) ?? []) {
       const date = entry.confirmedAt.slice(0, 10);
+      const superseded =
+        entry.supersededBy === undefined
+          ? ""
+          : ` · supersededBy \`${entry.supersededBy}\``;
       lines.push(
         `- ${entry.content}`,
-        `  <sub>confirmed ${date} · \`${entry.kind}\` · scope \`${entry.scope}\` · session \`${entry.sessionId}\` @ position ${entry.position}</sub>`,
+        `  <sub>confirmed ${date} · \`${entry.kind}\` · scope \`${entry.scope}\` · session \`${entry.sessionId}\` @ position ${entry.position}${superseded}</sub>`,
       );
     }
     lines.push("");

@@ -44,6 +44,18 @@ describe("extraction budget ledger (task 3.3)", () => {
     expect(ledger.executionAllowed(limits)).toBe(true);
   });
 
+  it("advances consumedThrough monotonically", () => {
+    const dataDir = temporaryDirectory();
+    const ledger = createExtractionBudgetLedger({
+      sessionId: "session-1",
+      statePath: join(dataDir, "extraction-budget.json"),
+    });
+    expect(ledger.consumedThrough()).toBe(0);
+    ledger.recordConsumedThrough(4);
+    ledger.recordConsumedThrough(2);
+    expect(ledger.consumedThrough()).toBe(4);
+  });
+
   it("persists consumption across ledger instances for the same session", () => {
     const dataDir = temporaryDirectory();
     const statePath = join(dataDir, "extraction-budget.json");

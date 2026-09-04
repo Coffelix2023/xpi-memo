@@ -11,6 +11,7 @@
 
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -73,8 +74,15 @@ export function initializeLocalProject(root: string): LocalProjectIdentity {
     recursive: true,
   });
   const temporaryPath = `${target}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify(identity, null, 2)}\n`);
+  writeFileSync(temporaryPath, `${JSON.stringify(identity, null, 2)}\n`, {
+    mode: 0o600,
+  });
   renameSync(temporaryPath, target);
+  try {
+    chmodSync(target, 0o600);
+  } catch {
+    // Best effort on platforms without POSIX permissions.
+  }
   clearLocalIdentityCache();
   localCache.set(resolvedRoot, identity);
   return identity;

@@ -63,6 +63,15 @@ describe("non-Git local project identity", () => {
     ).toEqual([]);
   });
 
+  it("writes project.json with mode 0600", () => {
+    const root = createTemporaryDirectory();
+    initializeLocalProject(root);
+    const mode =
+      statSync(join(root, LOCAL_PROJECT_METADATA_DIR, LOCAL_PROJECT_METADATA_FILE))
+        .mode & 0o777;
+    expect(mode).toBe(0o600);
+  });
+
   it("resolves the same identity repeatedly for a directory and descendants", () => {
     const root = createTemporaryDirectory();
     initializeLocalProject(root);

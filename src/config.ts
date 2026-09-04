@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 
 import type { RecallPolicy } from "./recall-policy.js";
 export const DEFAULT_XPI_MEMO_CONFIG = {
-  autoExport: false,
+  autoExport: true,
   confirmStore: false,
   dataDir: join(homedir(), ".pi", "agent", "xpi-memo"),
   excludeToolResults: false,

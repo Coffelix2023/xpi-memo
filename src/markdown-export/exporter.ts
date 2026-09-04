@@ -25,7 +25,11 @@ import { sessionsDirFor } from "../l0/l0-runtime.js";
 import { sessionDirFor } from "../l0/session-manager.js";
 import type { L0Event } from "../l0/types.js";
 import { type DailyLog, generateDailyLogs } from "./daily-generator.js";
-import { generateMemoryMarkdown } from "./memory-generator.js";
+import {
+  collectMemoryEntries,
+  duplicateCounts,
+  generateMemoryMarkdown,
+} from "./memory-generator.js";
 import { corruptEventLine, type ExportFilters } from "./transformer.js";
 
 export interface ExportOptions {
@@ -34,6 +38,8 @@ export interface ExportOptions {
   filters?: ExportFilters;
   /** Full regeneration: ignore incremental state and re-export everything. */
   force?: boolean;
+  /** Rebuild MEMORY.md from all events without appending daily logs. */
+  memoryOnly?: boolean;
   /** Restrict export to one session id. */
   sessionId?: string;
 }
@@ -46,6 +52,10 @@ export interface SessionExportResult {
 
 export interface ExportResult {
   dailyFiles: number;
+  duplicates: {
+    exact: number;
+    near: number;
+  };
   /** Highest exported L0 position per session, persisted for incremental runs. */
   exportedPositions: Record<string, number>;
   markdownDir: string;
@@ -168,6 +178,7 @@ export async function exportMarkdown(
     ...options.filters,
   };
   const state = readState(markdownDir);
+  const memoryOnly = options.memoryOnly === true;
 
   const sessionsRoot = sessionsDirFor(dataDir);
   let sessionIds: string[] = [];
@@ -179,7 +190,8 @@ export async function exportMarkdown(
 
   const reads = await Promise.all(
     sessionIds.map((sessionId) => {
-      const fromPosition = options.force ? 0 : (state.positions[sessionId] ?? 0);
+      const fromPosition =
+        memoryOnly || options.force ? 0 : (state.positions[sessionId] ?? 0);
       return readSession(sessionId, dataDir, fromPosition, filters);
     }),
   );
@@ -194,23 +206,47 @@ export async function exportMarkdown(
     events: L0Event[];
     sessionId: string;
   }> = [];
-  for (const read of reads)
-    foldSession(read, {
-      dailyByDate,
-      memoryInputs,
-      nextPositions,
-      sessions,
-      warnings,
-    });
+  if (memoryOnly) {
+    for (const read of reads) {
+      if (read.error) {
+        sessions.push({
+          error: read.error,
+          exportedEvents: 0,
+          sessionId: read.sessionId,
+        });
+        continue;
+      }
+      memoryInputs.push({
+        events: read.events,
+        sessionId: read.sessionId,
+      });
+      sessions.push({
+        exportedEvents: read.events.length,
+        sessionId: read.sessionId,
+      });
+    }
+  } else {
+    for (const read of reads)
+      foldSession(read, {
+        dailyByDate,
+        memoryInputs,
+        nextPositions,
+        sessions,
+        warnings,
+      });
+  }
   const { dailyFiles, memoryMd } = persistOutputs({
     dailyByDate,
     markdownDir,
     memoryInputs,
     nextPositions,
+    skipDaily: memoryOnly,
+    skipState: memoryOnly,
     warnings,
   });
   return {
     dailyFiles,
+    duplicates: duplicateCounts(collectMemoryEntries(memoryInputs)),
     exportedPositions: nextPositions,
     markdownDir,
     memoryMd,
@@ -308,6 +344,8 @@ function persistOutputs(into: {
     sessionId: string;
   }>;
   nextPositions: Record<string, number>;
+  skipDaily?: boolean;
+  skipState?: boolean;
   warnings: string[];
 }): {
   dailyFiles: number;
@@ -317,19 +355,21 @@ function persistOutputs(into: {
     recursive: true,
   });
   let dailyFiles = 0;
-  const dates = [
-    ...into.dailyByDate.keys(),
-  ].sort((a, b) => a.localeCompare(b));
-  for (const date of dates) {
-    const logs = into.dailyByDate.get(date) ?? [];
-    const path = join(into.markdownDir, "daily", `${date}.md`);
-    try {
-      appendDailyFile(path, logs);
-      dailyFiles += 1;
-    } catch (error) {
-      into.warnings.push(
-        `daily ${date}: write failed (${error instanceof Error ? error.message : "daily-write-failed"})`,
-      );
+  if (!into.skipDaily) {
+    const dates = [
+      ...into.dailyByDate.keys(),
+    ].sort((a, b) => a.localeCompare(b));
+    for (const date of dates) {
+      const logs = into.dailyByDate.get(date) ?? [];
+      const path = join(into.markdownDir, "daily", `${date}.md`);
+      try {
+        appendDailyFile(path, logs);
+        dailyFiles += 1;
+      } catch (error) {
+        into.warnings.push(
+          `daily ${date}: write failed (${error instanceof Error ? error.message : "daily-write-failed"})`,
+        );
+      }
     }
   }
   let memoryMd = false;
@@ -346,15 +386,17 @@ function persistOutputs(into: {
       `MEMORY.md: write failed (${error instanceof Error ? error.message : "memory-write-failed"})`,
     );
   }
-  try {
-    writeState(into.markdownDir, {
-      positions: into.nextPositions,
-      version: 1,
-    });
-  } catch (error) {
-    into.warnings.push(
-      `state: could not persist export positions (${error instanceof Error ? error.message : "unknown"}) — next run re-exports`,
-    );
+  if (!into.skipState) {
+    try {
+      writeState(into.markdownDir, {
+        positions: into.nextPositions,
+        version: 1,
+      });
+    } catch (error) {
+      into.warnings.push(
+        `state: could not persist export positions (${error instanceof Error ? error.message : "unknown"}) — next run re-exports`,
+      );
+    }
   }
   return {
     dailyFiles,

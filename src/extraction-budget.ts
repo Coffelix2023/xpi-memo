@@ -30,14 +30,17 @@ export interface ExtractionBudgetConsumption {
 }
 
 export interface ExtractionBudgetLedger {
+  consumedThrough(): number;
   consumption(): ExtractionBudgetConsumption;
   executionAllowed(limits: ExtractionBudgetLimits): boolean;
+  recordConsumedThrough(position: number): void;
   recordExecution(): void;
   recordProposals(count: number, chars: number): void;
 }
 
 interface ExtractionBudgetState {
   chars: number;
+  consumedThrough: number;
   executions: number;
   proposals: number;
   sessionId: string;
@@ -52,6 +55,7 @@ interface CreateExtractionBudgetLedgerOptions {
 function emptyState(sessionId: string): ExtractionBudgetState {
   return {
     chars: 0,
+    consumedThrough: 0,
     executions: 0,
     proposals: 0,
     sessionId,
@@ -76,6 +80,8 @@ function loadState(path: string, sessionId: string): ExtractionBudgetState {
     }
     return {
       chars: parsed.chars,
+      consumedThrough:
+        typeof parsed.consumedThrough === "number" ? parsed.consumedThrough : 0,
       executions: parsed.executions,
       proposals: parsed.proposals,
       sessionId,
@@ -132,9 +138,21 @@ export function createExtractionBudgetLedger({
     saveState(statePath, state);
   }
 
+  function consumedThrough(): number {
+    return state.consumedThrough;
+  }
+
+  function recordConsumedThrough(position: number): void {
+    if (position <= state.consumedThrough) return;
+    state.consumedThrough = position;
+    saveState(statePath, state);
+  }
+
   return {
     consumption,
+    consumedThrough,
     executionAllowed,
+    recordConsumedThrough,
     recordExecution,
     recordProposals,
   };

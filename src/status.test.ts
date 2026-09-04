@@ -255,4 +255,17 @@ describe("XpiMemo status", () => {
     });
     expect(rendered.sleep.mode).not.toBe("dedicated");
   });
+
+  it("renders near-duplicate counts without exposing bodies", () => {
+    const rendered = renderStatus({
+      ...status,
+      nearDuplicates: {
+        count: 2,
+      },
+    });
+    expect(rendered.nearDuplicates).toEqual({
+      count: 2,
+    });
+    expect(JSON.stringify(rendered)).not.toContain("keep the adapter");
+  });
 });

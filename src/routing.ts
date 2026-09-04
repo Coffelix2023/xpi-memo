@@ -13,7 +13,27 @@ export interface RoutingDecision {
  * actionable guidance for the user-facing surface, instead of a generic error
  * that callers collapse into "Memory write failed.".
  */
+export interface RoutingRecovery {
+  agent: string;
+  cli: string;
+  tui: string;
+}
+
+const ROUTING_RECOVERY: Record<RoutingRejectionError["reason"], RoutingRecovery> = {
+  "invalid-scope": {
+    agent: "Use a supported T1 kind, then retry xpi_memo_remember.",
+    cli: "Pass a supported kind, then retry the write.",
+    tui: "Choose a supported memory kind, then retry.",
+  },
+  "project-identity-required": {
+    agent: "Call xpi_memo_init, then retry xpi_memo_remember with the same kind.",
+    cli: "Run /xpi-memo-init in this directory, then retry the write.",
+    tui: "Run /xpi-memo-init, then retry.",
+  },
+} as const;
+
 export class RoutingRejectionError extends Error {
+  readonly recovery: RoutingRecovery;
   constructor(
     public readonly reason: "project-identity-required" | "invalid-scope",
     /** Canonical semantic scope of the rejected kind (project / session). */
@@ -22,6 +42,7 @@ export class RoutingRejectionError extends Error {
   ) {
     super(guidance);
     this.name = "RoutingRejectionError";
+    this.recovery = ROUTING_RECOVERY[reason];
   }
 }
 

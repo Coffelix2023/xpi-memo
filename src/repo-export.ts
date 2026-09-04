@@ -24,6 +24,7 @@ import type { AuditLog } from "./audit.js";
 import type { RoutingContext } from "./banks.js";
 import type { CandidateStore } from "./candidate-lifecycle.js";
 import { classifyProhibitedContent } from "./content-policy.js";
+import { markExactDuplicates } from "./duplicate-report.js";
 import { createEvidenceRecord } from "./evidence.js";
 import {
   describeMemoryKind,
@@ -56,7 +57,6 @@ export function repoMemoryDir(projectRoot: string): string {
   return join(projectRoot, ".pi", "memory");
 }
 
-/** One exported project memory with its stable T1 anchor. */
 export interface RepoMemoryEntry {
   content: string;
   /** Stable T1 memory id (anchor for idempotent re-import). */
@@ -65,6 +65,7 @@ export interface RepoMemoryEntry {
   scope: MemoryScope;
   /** Original source metadata string (kind=…;ev=…;prov=…;ts=…;src=…). */
   source: string;
+  supersededBy?: string;
   /** ISO timestamp of the row. */
   timestamp: string;
 }
@@ -167,8 +168,10 @@ function kindFileName(kind: MemoryKind): string {
 }
 
 function anchorLine(entry: RepoMemoryEntry, sourceSummary: string): string {
+  const superseded =
+    entry.supersededBy === undefined ? "" : ` · supersededBy \`${entry.supersededBy}\``;
   return [
-    `  <sub>memory \`${entry.id}\` · kind \`${entry.kind}\` · scope \`${entry.scope}\` · source \`${sourceSummary}\` · updated \`${entry.timestamp}\`</sub>`,
+    `  <sub>memory \`${entry.id}\` · kind \`${entry.kind}\` · scope \`${entry.scope}\` · source \`${sourceSummary}\` · updated \`${entry.timestamp}\`${superseded}</sub>`,
   ].join("");
 }
 
@@ -181,8 +184,15 @@ export function renderRepoMemoryMarkdown(
   entries: RepoMemoryEntry[],
 ): Record<string, string> {
   const files: Record<string, string> = {};
-  const byKind = new Map<MemoryKind, RepoMemoryEntry[]>();
-  for (const entry of entries) {
+  const marked = markExactDuplicates(
+    entries.map((entry) => ({
+      ...entry,
+      bank: "project",
+    })),
+    (entry) => Date.parse(entry.timestamp) || 0,
+  );
+  const byKind = new Map<MemoryKind, typeof marked>();
+  for (const entry of marked) {
     const bucket = byKind.get(entry.kind);
     if (bucket) bucket.push(entry);
     else

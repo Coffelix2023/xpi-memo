@@ -175,33 +175,9 @@ describe("T1 dedicated sleep model capability", () => {
     ]);
   });
 
-  it("executes an explicit mechanical fallback and names the actual mode (task 5.2)", async () => {
+  it("runs mechanical sleep as local maintenance without the sleep CLI", async () => {
     const calls: string[][] = [];
-    const result = await executeSleep(
-      {
-        ...authorizedRequest,
-        sleepMode: "mechanical",
-      },
-      async (args: string[]) => {
-        calls.push(args);
-        return "consolidated";
-      },
-    );
-
-    expect(result).toEqual({
-      executed: true,
-      mode: "mechanical",
-      reason: "sleep-executed",
-    });
-    expect(calls).toEqual([
-      [
-        "sleep",
-      ],
-    ]);
-  });
-
-  it("rejects execution when the upstream sleep command is unavailable", async () => {
-    const calls: string[][] = [];
+    const maintained: string[] = [];
     const result = await executeSleep(
       {
         ...authorizedRequest,
@@ -216,13 +192,19 @@ describe("T1 dedicated sleep model capability", () => {
         calls.push(args);
         return "should not run";
       },
+      async () => {
+        maintained.push("export");
+      },
     );
 
     expect(result).toEqual({
-      executed: false,
-      mode: "none",
-      reason: "sleep-command-unavailable",
+      executed: true,
+      mode: "mechanical",
+      reason: "sleep-executed",
     });
     expect(calls).toEqual([]);
+    expect(maintained).toEqual([
+      "export",
+    ]);
   });
 });

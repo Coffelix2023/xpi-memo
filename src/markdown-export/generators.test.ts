@@ -193,8 +193,8 @@ describe("memory generator", () => {
     expect(doc.markdown).toContain("scope `global`");
     expect(doc.markdown).toContain("scope `session`");
   });
-  it("keeps only the latest version of duplicate content (latest-wins)", () => {
-    const entries = collectMemoryEntries([
+  it("marks exact duplicate content with supersededBy instead of dropping it", () => {
+    const sources = [
       {
         sessionId: SESSION,
         events: [
@@ -208,9 +208,13 @@ describe("memory generator", () => {
           }),
         ],
       },
-    ]);
-    expect(entries.length).toBe(1);
-    expect(entries[0]?.position).toBe(2);
+    ];
+    const entries = collectMemoryEntries(sources);
+    expect(entries.length).toBe(2);
+    const doc = generateMemoryMarkdown(sources);
+    expect(doc.markdown).toContain("deploy at  9am");
+    expect(doc.markdown).toContain("deploy at 9am");
+    expect(doc.markdown).toContain("supersededBy `");
   });
 
   it("renders an empty-state note when nothing was confirmed", () => {

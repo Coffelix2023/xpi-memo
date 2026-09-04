@@ -155,6 +155,37 @@ describe("T1 candidate lifecycle", () => {
     expect(operations).toHaveLength(1);
     expect(store.list()).toEqual([]);
   });
+  it("runs the L0 hook before adapter persistence", async () => {
+    const dataDir = createTemporaryDirectory();
+    const order: string[] = [];
+    const adapter: MnemosyneAdapter = {
+      async store() {
+        order.push("adapter");
+        return {
+          id: "memory-1",
+          operation: createOperation(),
+          output: "stored",
+        };
+      },
+    };
+    const store = createCandidateStore({
+      adapter,
+      statePath: join(dataDir, "candidates.json"),
+      beforeStore(operation) {
+        order.push(`l0:${operation.content}`);
+      },
+    });
+    const candidate = createCandidate();
+    store.add(candidate, createOperation());
+
+    await expect(store.confirm(candidate.id)).resolves.toMatchObject({
+      status: "stored",
+    });
+    expect(order).toEqual([
+      "l0:Use pnpm for repository scripts.",
+      "adapter",
+    ]);
+  });
 
   it("rejects a candidate without retaining its content in the event log", async () => {
     const dataDir = createTemporaryDirectory();
