@@ -18,7 +18,9 @@ import { formatStatusJson, type MemoryStatus } from "./status.js";
 export type ConsoleSettings = Partial<
   Pick<
     XpiMemoConfig,
+    | "confirmStore"
     | "globalLimit"
+    | "language"
     | "limit"
     | "paused"
     | "projectLimit"
@@ -240,6 +242,26 @@ export function settingsItems(
         "on",
       ],
       "XPI_MEMO_PAUSED",
+    ),
+    item(
+      "confirmStore",
+      "Confirm before store",
+      config.confirmStore ? "on" : "off",
+      [
+        "off",
+        "on",
+      ],
+      "XPI_MEMO_CONFIRM_STORE",
+    ),
+    item(
+      "language",
+      "Language",
+      config.language,
+      [
+        "en",
+        "zh",
+      ],
+      "XPI_MEMO_LANGUAGE",
     ),
     item(
       "recallPolicy",
@@ -529,11 +551,16 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
         });
       return;
     }
-    if (id === "paused")
+    if (id === "paused" || id === "confirmStore")
       actions.save({
-        paused: value === "on",
-      });
-    else if (id === "recallPolicy" || id === "retrievalMode" || id === "searchBackend")
+        [id]: value === "on",
+      } as ConsoleSettings);
+    else if (
+      id === "language" ||
+      id === "recallPolicy" ||
+      id === "retrievalMode" ||
+      id === "searchBackend"
+    )
       actions.save({
         [id]: value,
       } as ConsoleSettings);

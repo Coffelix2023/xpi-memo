@@ -1601,6 +1601,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_CONFIRM_STORE: "true",
         XPI_MEMO_DATA_DIR: dataDir,
       },
       run,
@@ -1648,6 +1649,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_CONFIRM_STORE: "true",
         XPI_MEMO_DATA_DIR: dataDir,
       },
       run,
@@ -1690,6 +1692,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_CONFIRM_STORE: "true",
         XPI_MEMO_DATA_DIR: dataDir,
       },
       run,
@@ -1732,6 +1735,114 @@ describe("xpi-memo bootstrap entrypoint", () => {
     };
     const [entry] = Object.values(persisted.candidates);
     expect(entry?.candidate.kind).toBe("project_decision");
+  });
+
+  it("stores a TUI candidate immediately when confirmStore is off", async () => {
+    const dataDir = createTemporaryDirectory();
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      if (args[0] === "store") return "Stored: decision-123";
+      return "";
+    };
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      run,
+      resolveProjectIdentity: () => ({
+        id: "project-test",
+        label: "test-project",
+      }),
+    });
+    const result = await toolByName(tools, "xpi_memo_remember").execute(
+      "remember-decision",
+      {
+        content: "Use the existing adapter boundary.",
+        kind: "project_decision",
+      },
+      undefined,
+      undefined,
+      createToolContext({
+        mode: "tui",
+        select: "Later",
+      }),
+    );
+    const details = result.details as Record<string, unknown>;
+
+    expect(details).toMatchObject({
+      kind: "project_decision",
+      status: "stored",
+    });
+    expect(calls.map(([command]) => command)).toEqual([
+      "bank",
+      "store",
+    ]);
+  });
+
+  it("shows Chinese confirmation copy when language is zh", async () => {
+    const dataDir = createTemporaryDirectory();
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      if (args[0] === "store") return "Stored: decision-123";
+      return "";
+    };
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_CONFIRM_STORE: "true",
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_LANGUAGE: "zh",
+      },
+      run,
+      resolveProjectIdentity: () => ({
+        id: "project-test",
+        label: "test-project",
+      }),
+    });
+    const captured: {
+      items?: string[];
+      title?: string;
+    } = {};
+    const context = createToolContext({
+      mode: "tui",
+    });
+    (
+      context as unknown as {
+        ui: {
+          select: (title: string, items: string[]) => Promise<string>;
+        };
+      }
+    ).ui.select = async (title, items) => {
+      captured.title = title;
+      captured.items = items;
+      return "存储";
+    };
+    const result = await toolByName(tools, "xpi_memo_remember").execute(
+      "remember-decision",
+      {
+        content: "Use the existing adapter boundary.",
+        kind: "project_decision",
+      },
+      undefined,
+      undefined,
+      context,
+    );
+    const details = result.details as Record<string, unknown>;
+
+    expect(captured.title?.split("\n")[0]).toBe(
+      "将 project_decision 存入 project-project-test?",
+    );
+    expect(captured.items).toEqual([
+      "存储",
+      "稍后",
+      "拒绝",
+    ]);
+    expect(details).toMatchObject({
+      status: "stored",
+    });
   });
 
   it("rejects prohibited content before the auto-store path", async () => {

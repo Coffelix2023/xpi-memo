@@ -565,11 +565,13 @@ describe("4.5b Status tab", () => {
 
 // 4.6 — Settings tab: SettingsList, save calls, env locks, one-shot sleep
 describe("4.6 Settings tab", () => {
-  it("settingsItems has pause + three limits + recallPolicy + retrievalMode + sleep", () => {
+  it("settingsItems has pause + confirmStore + language + three limits + recallPolicy + retrievalMode + sleep", () => {
     const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {});
     const ids = items.map((i) => i.id);
     expect(ids).toEqual([
       "paused",
+      "confirmStore",
+      "language",
       "recallPolicy",
       "retrievalMode",
       "searchBackend",
@@ -587,8 +589,16 @@ describe("4.6 Settings tab", () => {
 
   it("env-locked fields omit values and gain (env locked) label", () => {
     const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {
+      XPI_MEMO_CONFIRM_STORE: "true",
+      XPI_MEMO_LANGUAGE: "zh",
       XPI_MEMO_RECALL_POLICY: "assist",
     });
+    const confirm = items.find((i) => i.id === "confirmStore");
+    expect(confirm?.label).toBe("Confirm before store (env locked)");
+    expect(confirm?.values).toBeUndefined();
+    const language = items.find((i) => i.id === "language");
+    expect(language?.label).toBe("Language (env locked)");
+    expect(language?.values).toBeUndefined();
     const policy = items.find((i) => i.id === "recallPolicy");
     expect(policy?.label).toBe("Recall policy (env locked)");
     expect(policy?.values).toBeUndefined();
@@ -610,11 +620,16 @@ describe("4.6 Settings tab", () => {
     expect(save).toHaveBeenCalledWith({
       paused: true,
     });
-    // Tab walks down one field
+    // Tab walks down one field: confirmStore (off → on)
     panel.handleInput("\t");
     panel.handleInput("\r");
     expect(save).toHaveBeenLastCalledWith({
-      recallPolicy: "active",
+      confirmStore: true,
+    });
+    panel.handleInput("\t");
+    panel.handleInput("\r");
+    expect(save).toHaveBeenLastCalledWith({
+      language: "zh",
     });
   });
 
@@ -627,8 +642,10 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    // Walk to limit (4 Tab presses from paused: recallPolicy, retrievalMode,
-    // searchBackend, limit)
+    // Walk to limit (6 Tab presses from paused: confirmStore, language,
+    // recallPolicy, retrievalMode, searchBackend, limit)
+    panel.handleInput("\t");
+    panel.handleInput("\t");
     panel.handleInput("\t");
     panel.handleInput("\t");
     panel.handleInput("\t");
@@ -651,6 +668,8 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
+    panel.handleInput("\t"); // → confirmStore
+    panel.handleInput("\t"); // → language
     panel.handleInput("\t"); // → recallPolicy (locked)
     panel.handleInput("\r");
     expect(save).not.toHaveBeenCalled();
@@ -670,8 +689,8 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    // Walk to sleep (last field): 7 Tab presses
-    for (let i = 0; i < 7; i += 1) panel.handleInput("\t");
+    // Walk to sleep (last field): 9 Tab presses
+    for (let i = 0; i < 9; i += 1) panel.handleInput("\t");
     panel.handleInput("\r");
     await Promise.resolve();
     await Promise.resolve();
@@ -697,7 +716,7 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    for (let i = 0; i < 7; i += 1) panel.handleInput("\t");
+    for (let i = 0; i < 9; i += 1) panel.handleInput("\t");
     panel.handleInput("\r");
     await Promise.resolve();
     await Promise.resolve();

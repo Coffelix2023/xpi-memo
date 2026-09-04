@@ -512,26 +512,46 @@ function pendingReasonFor(kind: MemoryKind): PendingCandidateReason {
 
 type CandidateDecision = "store" | "later" | "reject";
 
+const CANDIDATE_COPY = {
+  en: {
+    later: "Later",
+    reject: "Reject",
+    store: "Store",
+    title: (kind: string, bank: string) => `Store ${kind} in ${bank}?`,
+  },
+  zh: {
+    later: "稍后",
+    reject: "拒绝",
+    store: "存储",
+    title: (kind: string, bank: string) => `将 ${kind} 存入 ${bank}?`,
+  },
+} as const;
+
 /**
  * Three-way candidate confirmation (Design Decision 3): Store / Later / Reject.
  * Non-TUI modes queue the candidate and never block on a dialog.
+ * `force` is for the Pending-tab review path, which always shows the panel.
  */
 async function chooseCandidateAction(
   ctx: ExtensionContext,
   candidate: PendingCandidate,
+  config: Runtime["config"],
+  force = false,
 ): Promise<CandidateDecision> {
   if (ctx.mode !== "tui") return "later";
+  if (!force && !config.confirmStore) return "store";
+  const copy = CANDIDATE_COPY[config.language];
   const title = [
-    `Store ${candidate.kind} in ${candidate.targetBank}?`,
+    copy.title(candidate.kind, candidate.targetBank),
     candidate.evidenceSummary,
   ].join("\n");
   const choice = await ctx.ui.select(title, [
-    "Store",
-    "Later",
-    "Reject",
+    copy.store,
+    copy.later,
+    copy.reject,
   ]);
-  if (choice === "Store") return "store";
-  if (choice === "Reject") return "reject";
+  if (choice === copy.store) return "store";
+  if (choice === copy.reject) return "reject";
   return "later";
 }
 
@@ -786,7 +806,7 @@ async function executeRemember(
           "Memory candidate queued while T1 is paused.",
         );
       }
-      const decision = await chooseCandidateAction(ctx, candidate);
+      const decision = await chooseCandidateAction(ctx, candidate, runtime.config);
       if (decision === "later") {
         return toolResult(
           {
@@ -1801,7 +1821,12 @@ export default function xpiMemo(
         {
           confirm: ctx.ui.confirm.bind(ctx.ui),
           async reviewCandidate(candidate) {
-            const decision = await chooseCandidateAction(ctx, candidate);
+            const decision = await chooseCandidateAction(
+              ctx,
+              candidate,
+              runtime.config,
+              true,
+            );
             if (decision === "later") return;
             if (decision === "reject") {
               const rejected = await runtime.candidates.reject(candidate.id);

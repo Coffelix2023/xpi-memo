@@ -156,6 +156,8 @@ User config lives at `~/.config/xpi-memo/config.json` (or set keys via the conso
 | --- | --- | --- | --- |
 | `dataDir` | `XPI_MEMO_DATA_DIR` | `~/.pi/agent/xpi-memo` | Data root (banks, sessions, markdown) |
 | `paused` | `XPI_MEMO_PAUSED` | `false` | Pause all T1 writes/recalls |
+| `confirmStore` | `XPI_MEMO_CONFIRM_STORE` | `false` | TUI remember stores immediately when false; set `true` to show Store/Later/Reject. Pending-tab review always shows the panel. Non-TUI still queues. |
+| `language` | `XPI_MEMO_LANGUAGE` | `en` | Confirmation panel copy: `en` or `zh` |
 | `l0Enabled` | `XPI_MEMO_L0_ENABLED` | `true` | Disable L0 logging (system behaves like v0.1) |
 | `limit` | `XPI_MEMO_LIMIT` | `5` | Recall result cap |
 | `globalLimit` | `XPI_MEMO_GLOBAL_LIMIT` | `5` | Cap for global-scope results |

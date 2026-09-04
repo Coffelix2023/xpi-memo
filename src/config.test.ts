@@ -74,6 +74,69 @@ describe("XpiMemo configuration", () => {
     ).toBe(false);
   });
 
+  it("loads confirmStore and language from config and environment", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        confirmStore: true,
+        language: "zh",
+      }),
+    );
+
+    expect(
+      loadConfig({
+        configHome,
+        env: {},
+      }).config,
+    ).toMatchObject({
+      confirmStore: true,
+      language: "zh",
+    });
+    expect(
+      loadConfig({
+        configHome,
+        env: {
+          XPI_MEMO_CONFIRM_STORE: "false",
+          XPI_MEMO_LANGUAGE: "en",
+        },
+      }).config,
+    ).toMatchObject({
+      confirmStore: false,
+      language: "en",
+    });
+  });
+
+  it("falls back to safe defaults for invalid confirmStore and language", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        confirmStore: "yes",
+        language: "ja",
+      }),
+    );
+
+    expect(
+      loadConfig({
+        configHome,
+        env: {
+          XPI_MEMO_CONFIRM_STORE: "yes",
+          XPI_MEMO_LANGUAGE: "ja",
+        },
+      }).config,
+    ).toMatchObject({
+      confirmStore: false,
+      language: "en",
+    });
+  });
+
   it("loads only non-sensitive values from the user configuration", () => {
     const configHome = createTemporaryDirectory();
     mkdirSync(join(configHome, "xpi-memo"), {

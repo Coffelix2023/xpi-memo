@@ -12,10 +12,12 @@ import { dirname, join } from "node:path";
 import type { RecallPolicy } from "./recall-policy.js";
 export const DEFAULT_XPI_MEMO_CONFIG = {
   autoExport: false,
+  confirmStore: false,
   dataDir: join(homedir(), ".pi", "agent", "xpi-memo"),
   excludeToolResults: false,
   globalLimit: 5,
   l0Enabled: true,
+  language: "en",
   limit: 5,
   offlineExtractionEnabled: false,
   paused: false,
@@ -28,6 +30,7 @@ export const DEFAULT_XPI_MEMO_CONFIG = {
 } as const;
 
 export type RetrievalMode = "fts5" | "hybrid";
+export type Language = "en" | "zh";
 
 /**
  * Search backend selection (Task 13.1). "auto" walks the fallback chain
@@ -43,10 +46,12 @@ export type SleepModeSetting =
 
 export interface XpiMemoConfig {
   autoExport: boolean;
+  confirmStore: boolean;
   dataDir: string;
   excludeToolResults: boolean;
   globalLimit: number;
   l0Enabled: boolean;
+  language: Language;
   limit: number;
   offlineExtractionEnabled: boolean;
   paused: boolean;
@@ -62,10 +67,12 @@ export interface XpiMemoConfig {
 
 export interface UserConfig {
   autoExport?: unknown;
+  confirmStore?: unknown;
   dataDir?: unknown;
   excludeToolResults?: unknown;
   globalLimit?: unknown;
   l0Enabled?: unknown;
+  language?: unknown;
   limit?: unknown;
   offlineExtractionEnabled?: unknown;
   paused?: unknown;
@@ -140,8 +147,10 @@ export interface SaveUserConfigOptions {
   values: Partial<
     Pick<
       XpiMemoConfig,
+      | "confirmStore"
       | "globalLimit"
       | "l0Enabled"
+      | "language"
       | "limit"
       | "offlineExtractionEnabled"
       | "paused"
@@ -156,9 +165,11 @@ export interface SaveUserConfigOptions {
 
 const WRITABLE_KEYS = new Set([
   "autoExport",
+  "confirmStore",
   "excludeToolResults",
   "globalLimit",
   "l0Enabled",
+  "language",
   "limit",
   "offlineExtractionEnabled",
   "paused",
@@ -171,9 +182,11 @@ const WRITABLE_KEYS = new Set([
 ]);
 const ENV_KEYS: Record<string, string> = {
   autoExport: "XPI_MEMO_AUTO_EXPORT",
+  confirmStore: "XPI_MEMO_CONFIRM_STORE",
   excludeToolResults: "XPI_MEMO_EXCLUDE_TOOL_RESULTS",
   globalLimit: "XPI_MEMO_GLOBAL_LIMIT",
   l0Enabled: "XPI_MEMO_L0_ENABLED",
+  language: "XPI_MEMO_LANGUAGE",
   limit: "XPI_MEMO_LIMIT",
   offlineExtractionEnabled: "XPI_MEMO_OFFLINE_EXTRACTION_ENABLED",
   paused: "XPI_MEMO_PAUSED",
@@ -293,6 +306,15 @@ function resolveSearchBackend(
   return DEFAULT_XPI_MEMO_CONFIG.searchBackend;
 }
 
+function resolveLanguage(
+  environmentValue: string | undefined,
+  userValue: unknown,
+): Language {
+  if (environmentValue === "en" || environmentValue === "zh") return environmentValue;
+  if (userValue === "en" || userValue === "zh") return userValue;
+  return DEFAULT_XPI_MEMO_CONFIG.language;
+}
+
 function resolveSleepMode(
   environmentValue: string | undefined,
   userValue: unknown,
@@ -328,6 +350,12 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
         ? user.config.autoExport
         : DEFAULT_XPI_MEMO_CONFIG.autoExport,
     ),
+    confirmStore: envBool(
+      "XPI_MEMO_CONFIRM_STORE",
+      boolean(user.config.confirmStore)
+        ? user.config.confirmStore
+        : DEFAULT_XPI_MEMO_CONFIG.confirmStore,
+    ),
     dataDir:
       envString(env, "XPI_MEMO_DATA_DIR") ??
       (nonEmptyString(user.config.dataDir)
@@ -352,6 +380,10 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
         ? user.config.l0Enabled
         : DEFAULT_XPI_MEMO_CONFIG.l0Enabled;
     })(),
+    language: resolveLanguage(
+      envString(env, "XPI_MEMO_LANGUAGE"),
+      user.config.language,
+    ),
     limit:
       envPositiveInteger(env, "XPI_MEMO_LIMIT") ??
       (positiveInteger(user.config.limit)

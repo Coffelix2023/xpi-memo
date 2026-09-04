@@ -64,6 +64,8 @@ Environment variables:
 
 - `XPI_MEMO_DATA_DIR`
 - `XPI_MEMO_PAUSED`
+- `XPI_MEMO_CONFIRM_STORE` = `true|false` (default `false`; TUI remember stores immediately unless true)
+- `XPI_MEMO_LANGUAGE` = `en|zh` (default `en`; confirmation panel copy)
 - `XPI_MEMO_L0_ENABLED`
 - `XPI_MEMO_LIMIT` / `XPI_MEMO_GLOBAL_LIMIT` / `XPI_MEMO_PROJECT_LIMIT`
 - `XPI_MEMO_AUTO_EXPORT`
