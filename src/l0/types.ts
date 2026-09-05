@@ -12,6 +12,8 @@ export const L0_EVENT_TYPES = [
   "tool_result",
   "file_change",
   "compaction",
+  "memory_injected",
+  "memory_deleted",
   "t1_memory_write",
   "candidate_created",
   "candidate_confirmed",
@@ -22,6 +24,16 @@ export const L0_EVENT_TYPES = [
 ] as const;
 
 export type L0EventType = (typeof L0_EVENT_TYPES)[number];
+
+/** Payload for a memory injection trace event; content stays in the T1 bank. */
+export interface L0MemoryInjectedPayload {
+  injectedMemoryIds: readonly string[];
+}
+
+/** Payload for a memory deletion trace event; deleted content stays out of L0. */
+export interface L0MemoryDeletedPayload {
+  memoryId: string;
+}
 
 /** Schema version for forward-compatible evolution. */
 export const L0_SCHEMA_VERSION = 1;

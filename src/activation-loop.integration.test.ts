@@ -202,6 +202,7 @@ describe("activation-loop non-TUI acceptance (tasks 4.1-4.2)", () => {
       env: {
         XDG_CONFIG_HOME: dataDir,
         XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_RECALL_POLICY: "active",
       },
       run,
       resolveProjectIdentity: () => null,
@@ -225,6 +226,8 @@ describe("activation-loop non-TUI acceptance (tasks 4.1-4.2)", () => {
     const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8")).entries;
     expect(audit.map((entry: { action: string }) => entry.action)).toEqual([
       "write",
+      "recall",
+      "recall",
     ]);
 
     const eventsLog = await l0Events(dataDir);
@@ -240,6 +243,16 @@ describe("activation-loop non-TUI acceptance (tasks 4.1-4.2)", () => {
       sourceEventPosition: 1,
       sourceSessionId: expect.any(String),
     });
+
+    const injections = eventsLog.filter((event) => event.type === "memory_injected");
+    expect(injections).toHaveLength(2);
+    for (const injection of injections) {
+      expect(injection.payload).toMatchObject({
+        injectedMemoryIds: [
+          "memory-1",
+        ],
+      });
+    }
 
     // A later session recalls the stored preference from the shared bank.
     const response = await recall(

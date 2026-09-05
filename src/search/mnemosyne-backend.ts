@@ -156,8 +156,9 @@ export class MnemosyneBackend implements SearchBackend {
       banks.unshift(this.context.projectBank);
     return banks;
   }
-
   async search(query: SearchQuery): Promise<SearchResult[]> {
+    const offset = query.offset ?? 0;
+    const cliLimit = Math.min(50, query.limit + offset);
     // Spec scope mapping (recall.ts parity): project queries both the project
     // bank and the default bank; global and session query the default bank.
     const banks =
@@ -172,7 +173,7 @@ export class MnemosyneBackend implements SearchBackend {
           [
             "recall",
             query.query,
-            String(query.limit),
+            String(cliLimit),
             "--explain",
             "--json",
           ],
@@ -184,7 +185,7 @@ export class MnemosyneBackend implements SearchBackend {
         return toResults(bank, output, query);
       }),
     );
-    // Limit enforcement (Task 12.5): the CLI caps internally, truncate anyway.
-    return batches.flat().slice(0, query.limit);
+    // Limit enforcement (Task 12.5): fetch enough rows for client-side pagination.
+    return batches.flat().slice(offset, offset + query.limit);
   }
 }

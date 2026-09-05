@@ -70,9 +70,11 @@ interface ProsePayload {
   bank?: unknown;
   content?: unknown;
   error?: unknown;
+  injectedMemoryIds?: unknown;
   input?: unknown;
   isError?: unknown;
   kind?: unknown;
+  memoryId?: unknown;
   output?: unknown;
   path?: unknown;
   phase?: unknown;
@@ -106,6 +108,14 @@ function prose(event: L0Event, filters: ExportFilters): string {
       return `File changed: ${text(payload.path)} (${text(payload.action)})`;
     case "compaction":
       return `Context compacted: ${text(payload.reason)}`;
+    case "memory_injected": {
+      const ids = Array.isArray(payload.injectedMemoryIds)
+        ? payload.injectedMemoryIds
+        : [];
+      return `Memory injected: ${ids.length} item${ids.length === 1 ? "" : "s"}`;
+    }
+    case "memory_deleted":
+      return `Memory deleted: ${text(payload.memoryId)}`;
     case "t1_memory_write":
       return `Memory stored [${text(payload.kind)}]: ${text(payload.content)}`;
     case "candidate_created":

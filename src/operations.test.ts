@@ -5,6 +5,7 @@ import {
   createMnemosyneAdapter,
   decodeSourceMetadata,
   encodeSourceMetadata,
+  getMemoryById,
   type T1MemoryOperation,
 } from "./operations.js";
 
@@ -109,6 +110,55 @@ describe("routing-aware Mnemosyne operations", () => {
       kind: null,
       sessionId: null,
       source: "package.json",
+    });
+  });
+  it("looks up a memory by exact id", async () => {
+    const calls: Array<{
+      args: string[];
+      options: CliOptions | undefined;
+    }> = [];
+    const result = await getMemoryById(
+      "memory-123",
+      "/tmp/xpi-memo-data",
+      "project-bank",
+      async (args, options) => {
+        calls.push({
+          args,
+          options,
+        });
+        return JSON.stringify({
+          results: [
+            {
+              content: "Use pnpm for repository scripts.",
+              id: "memory-123",
+              source: encodeSourceMetadata(operation),
+              timestamp: "2026-01-02T00:00:00.000Z",
+            },
+          ],
+        });
+      },
+    );
+    expect(calls[0]).toEqual({
+      args: [
+        "recall",
+        "memory-123",
+        "50",
+        "--explain",
+        "--json",
+      ],
+      options: {
+        bank: "project-bank",
+        dataDir: "/tmp/xpi-memo-data",
+      },
+    });
+    expect(result).toEqual({
+      bank: "project-bank",
+      content: operation.content,
+      id: "memory-123",
+      kind: operation.kind,
+      scope: "project",
+      source: operation.source.source,
+      timestamp: "2026-01-02T00:00:00.000Z",
     });
   });
 });

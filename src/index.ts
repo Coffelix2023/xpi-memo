@@ -44,6 +44,7 @@ import {
   initializeLocalProject,
   LOCAL_PROJECT_METADATA_DIR,
   resolveLocalProjectIdentity,
+  revokeLocalProject,
 } from "./local-identity.ts";
 import { exportMarkdown, validateExport } from "./markdown-export/exporter.js";
 import {
@@ -70,6 +71,7 @@ import {
 } from "./offline-extraction.ts";
 import {
   createMnemosyneAdapter,
+  getMemoryById,
   type MnemosyneRunner,
   type T1MemoryOperation,
 } from "./operations.ts";
@@ -81,6 +83,7 @@ import {
 import type { RecallItem, RecallResponse } from "./recall.ts";
 import { decideRecall, type RecallPolicy } from "./recall-policy.ts";
 import { rankRecallResults } from "./recall-ranking.ts";
+import { writeMemoryRecovery } from "./recovery.ts";
 import { loadRegistry, registryPath } from "./registry.ts";
 import {
   detectOrphanBanks,
@@ -117,10 +120,10 @@ type ToolStatus =
   | "executed"
   | "recalled"
   | "rejected"
+  | "revoked"
   | "routing_rejected"
   | "skipped"
   | "stored";
-
 interface ToolDetails {
   /** Backend execution state for recall (task 3.3):
    * backend-not-run vs backend-queried-no-hits vs backend-queried-with-hits. */
@@ -141,6 +144,7 @@ interface ToolDetails {
     cli: string;
     tui: string;
   };
+  recoveryId?: string;
   resultCount?: number;
   scope?: "global" | "project" | "session";
   status: ToolStatus;
@@ -418,16 +422,19 @@ function createRuntime(
   const candidates = createCandidateStore({
     adapter,
     statePath: join(configResult.config.dataDir, "candidates.json"),
-    afterStore() {
+    afterStore(operation, memoryId) {
       scheduleAutoExport(configResult.config, dependencies.env);
-    },
-    beforeStore(operation) {
-      l0.record("t1_memory_write", {
+      l0.recordSafe("t1_memory_write", {
         bank: operation.targetBank,
         confidence: operation.confidence,
         content: operation.content,
         evidenceType: operation.source.evidenceType,
         fingerprint: contentFingerprint(operation.content),
+        ...(memoryId
+          ? {
+              memoryId,
+            }
+          : {}),
         kind: operation.kind,
         scope: operation.scope,
       });
@@ -1023,7 +1030,7 @@ async function executeRemember(
       projectBank: runtime.context.projectBank,
       scope: operation.scope,
     });
-    // Dual-write: L0 first (source of truth); abort the operation if it fails.
+    const stored = await runtime.adapter.store(operation);
     runtime.l0.record("t1_memory_write", {
       ...(provenance
         ? {
@@ -1037,10 +1044,14 @@ async function executeRemember(
       evidenceType,
       confidence: operation.confidence,
       content: operation.content,
+      ...(stored.id
+        ? {
+            memoryId: stored.id,
+          }
+        : {}),
       kind: operation.kind,
       scope: operation.scope,
     });
-    const stored = await runtime.adapter.store(operation);
     scheduleAutoExport(runtime.config, dependencies.env);
     runtime.audit.record("write", {
       bank: operation.targetBank,
@@ -1109,9 +1120,17 @@ const recallParameters = Type.Object({
       minimum: 1,
     }),
   ),
-  query: Type.String({
-    description: "Recall query",
-  }),
+  offset: Type.Optional(
+    Type.Integer({
+      description: "Skip this many results when listing memories",
+      minimum: 0,
+    }),
+  ),
+  query: Type.Optional(
+    Type.String({
+      description: "Recall query; omit to list memories",
+    }),
+  ),
 });
 type RecallParams = Static<typeof recallParameters>;
 
@@ -1177,7 +1196,8 @@ async function executeRecall(
     // Phase 4: search backend chain (configured → mnemosyne → ripgrep → qmd).
     const outcome = await runtime.search.runSearch({
       limit,
-      query: params.query,
+      offset: params.offset ?? 0,
+      query: params.query ?? "",
       scope: runtime.context.projectBank ? "project" : "global",
       sessionId: l0?.sessionId() ?? undefined,
     });
@@ -1879,6 +1899,13 @@ async function recallForContext(
       });
     }
     const context = renderMemoryContext(injected);
+    const injectedMemoryIds = injected
+      .map((item) => item.id)
+      .filter((id): id is string => typeof id === "string");
+    if (l0 && injectedMemoryIds.length > 0)
+      l0.recordSafe("memory_injected", {
+        injectedMemoryIds,
+      });
     // plan-note-03 visibility: one status line shared by the TUI widget and the
     const action = policy === "active" ? "inject" : "recall";
     surface.complete(action, injected.length);
@@ -2208,19 +2235,49 @@ export default function xpiMemo(
 
   pi.registerCommand("xpi-memo-init", {
     description:
-      "Initialize a non-Git project identity (writes .pi/xpi-memo/project.json; no SQLite in the repo). Usage: /xpi-memo-init",
-    handler: async (_args, ctx) => {
+      "Initialize or revoke a non-Git project identity. Usage: /xpi-memo-init [--revoke]",
+    handler: async (args, ctx) => {
+      const flags = args.split(WS_SPLIT).filter(Boolean);
+      const revoke = flags.includes("--revoke");
+      const env = dependencies.env ?? process.env;
+      const config = loadConfig({
+        env,
+      }).config;
       const gitIdentity = (
         dependencies.resolveProjectIdentity ?? resolveProjectIdentity
       )(ctx.cwd);
       if (gitIdentity) {
         ctx.ui.notify(
-          `Already inside Git project "${gitIdentity.label}" (${gitIdentity.id}); local initialization not needed.`,
-          "info",
+          revoke
+            ? "Cannot revoke a recognized Git project with xpi_memo_init."
+            : `Already inside Git project "${gitIdentity.label}" (${gitIdentity.id}); local initialization not needed.`,
+          revoke ? "warning" : "info",
         );
         return;
       }
       const existing = resolveLocalProjectIdentity(ctx.cwd);
+      if (revoke) {
+        if (!existing) {
+          ctx.ui.notify("No local project identity found; nothing to revoke.", "info");
+          return;
+        }
+        const result = revokeLocalProject(existing, config.dataDir);
+        if (!result) {
+          ctx.ui.notify(
+            "Local project metadata is unavailable; nothing to revoke.",
+            "info",
+          );
+          return;
+        }
+        ctx.ui.notify(
+          `Revoked local project "${existing.label}" (${existing.id}).` +
+            (result.archivePath
+              ? `\nArchived bank: ${result.archivePath}`
+              : "\nNo project bank found to archive."),
+          "info",
+        );
+        return;
+      }
       if (existing) {
         ctx.ui.notify(
           `Already initialized as "${existing.label}" (${existing.id}) at ${existing.root}; nothing changed.`,
@@ -2232,7 +2289,7 @@ export default function xpiMemo(
       ctx.ui.notify(
         `Initialized non-Git project identity "${identity.label}" (${identity.id}) at ${identity.root}.` +
           `\nMetadata: ${join(identity.root, LOCAL_PROJECT_METADATA_DIR, "project.json")}` +
-          `\nProject memory is now routed to this project; no SQLite was created in the repository.`,
+          "\nProject memory is now routed to this project; no SQLite was created in the repository.",
         "info",
       );
     },
@@ -2527,7 +2584,9 @@ export default function xpiMemo(
           auditForHooks(),
           "session_shutdown",
         );
-      } catch {}
+      } catch {
+        // Extraction failure must not block session shutdown.
+      }
     }
   });
 
@@ -2558,6 +2617,93 @@ export default function xpiMemo(
       (params, ctx) => executeRecall(params, ctx, dependencies, l0ForHooks()),
     ),
   );
+  pi.registerTool(
+    realTool(
+      "xpi_memo_show_injected",
+      "XpiMemo Show Injected",
+      "Show memories injected during the current Pi session.",
+      Type.Object({}),
+      async (_params, ctx) => {
+        try {
+          const runtime = createRuntime(ctx.cwd, dependencies);
+          const sessionId = l0ForHooks().sessionId();
+          if (!sessionId)
+            return toolResult(
+              {
+                resultCount: 0,
+                status: "recalled",
+              },
+              JSON.stringify({
+                injected: [],
+                warning: "No L0 session is available.",
+              }),
+            );
+          const reader = createEventLogReader({
+            sessionDir: sessionDirFor(runtime.config.dataDir, sessionId),
+          });
+          const events = await reader.readByType("memory_injected");
+          const latest = events.at(-1);
+          const rawIds = latest?.payload.injectedMemoryIds;
+          const ids = Array.isArray(rawIds)
+            ? rawIds.filter((id): id is string => typeof id === "string")
+            : [];
+          const banks = [
+            ...(runtime.context.projectBank
+              ? [
+                  runtime.context.projectBank,
+                ]
+              : []),
+            GLOBAL_BANK,
+          ];
+          const injected = (
+            await Promise.all(
+              ids.map(async (id) => {
+                const memories = await Promise.all(
+                  banks.map(async (bank) => {
+                    try {
+                      return await getMemoryById(
+                        id,
+                        runtime.config.dataDir,
+                        bank,
+                        runtime.run,
+                      );
+                    } catch {
+                      return null;
+                    }
+                  }),
+                );
+                return memories.find((memory) => memory !== null) ?? null;
+              }),
+            )
+          ).filter((memory) => memory !== null);
+          return toolResult(
+            {
+              resultCount: injected.length,
+              status: "recalled",
+            },
+            JSON.stringify({
+              eventPosition: latest?.position ?? null,
+              injected,
+              ...(latest
+                ? {}
+                : {
+                    warning: "No memory injection event found.",
+                  }),
+            }),
+          );
+        } catch (error) {
+          const reason = boundedFailureReason(error);
+          return toolResult(
+            {
+              reason,
+              status: "error",
+            },
+            `Injected memory lookup failed: ${reason}.`,
+          );
+        }
+      },
+    ),
+  );
 
   pi.registerTool(
     realTool(
@@ -2585,7 +2731,33 @@ export default function xpiMemo(
           let lastError: unknown;
           for (const bank of banks) {
             try {
-              // biome-ignore lint/performance/noAwaitInLoops: bank probing must remain ordered and stop after first success.
+              // biome-ignore lint/performance/noAwaitInLoops: bank probing must remain ordered and stop after the first matching memory.
+              const memory = await getMemoryById(
+                params.memoryId,
+                runtime.config.dataDir,
+                bank,
+                runtime.run,
+              );
+              if (!memory) {
+                lastError = new Error("memory-not-found");
+                continue;
+              }
+              let recovery: ReturnType<typeof writeMemoryRecovery> | undefined;
+              try {
+                recovery = writeMemoryRecovery(runtime.config.dataDir, memory);
+              } catch (error) {
+                return toolResult(
+                  {
+                    bank,
+                    id: params.memoryId,
+                    reason: boundedFailureReason(error),
+                    status: "error",
+                  },
+                  "Memory recovery failed; deletion was not attempted.",
+                );
+              }
+              // Recovery must succeed before the destructive backend call.
+              // The recovery file is the user's manual restore source.
               await runtime.run(
                 [
                   "delete",
@@ -2596,6 +2768,9 @@ export default function xpiMemo(
                   dataDir: runtime.config.dataDir,
                 },
               );
+              l0ForHooks().recordSafe("memory_deleted", {
+                memoryId: params.memoryId,
+              });
               runtime.audit.record("rejection", {
                 bank,
                 reason: "memory-deleted-by-user",
@@ -2606,9 +2781,10 @@ export default function xpiMemo(
                   bank,
                   id: params.memoryId,
                   reason: "memory-deleted-by-user",
+                  recoveryId: recovery.recoveryId,
                   status: "deleted",
                 },
-                `Memory ${params.memoryId} deleted.`,
+                `Memory ${params.memoryId} deleted. Recovery: ${recovery.recoveryId}.`,
               );
             } catch (error) {
               lastError = error;
@@ -2649,9 +2825,15 @@ export default function xpiMemo(
     realTool(
       "xpi_memo_init",
       "XpiMemo Init",
-      "Initialize a non-Git project identity by writing .pi/xpi-memo/project.json.",
-      Type.Object({}),
-      async (_params, ctx) => {
+      "Initialize or revoke a non-Git project identity.",
+      Type.Object({
+        revoke: Type.Optional(
+          Type.Boolean({
+            description: "Archive the local bank and remove project.json",
+          }),
+        ),
+      }),
+      async (params, ctx) => {
         const gitIdentity = (
           dependencies.resolveProjectIdentity ?? resolveProjectIdentity
         )(ctx.cwd);
@@ -2659,13 +2841,50 @@ export default function xpiMemo(
           return toolResult(
             {
               id: gitIdentity.id,
-              reason: "git-project-already-identified",
+              reason: params.revoke
+                ? "git-project-cannot-be-revoked"
+                : "git-project-already-identified",
               status: "skipped",
             },
-            `Already inside Git project "${gitIdentity.label}" (${gitIdentity.id}); local initialization not needed.`,
+            params.revoke
+              ? "Cannot revoke a recognized Git project with xpi_memo_init."
+              : `Already inside Git project "${gitIdentity.label}" (${gitIdentity.id}); local initialization not needed.`,
           );
         }
         const existing = resolveLocalProjectIdentity(ctx.cwd);
+        if (params.revoke) {
+          if (!existing)
+            return toolResult(
+              {
+                reason: "local-project-not-found",
+                status: "skipped",
+              },
+              "No local project identity found; nothing to revoke.",
+            );
+          const config = loadConfig({
+            env: dependencies.env,
+          }).config;
+          const result = revokeLocalProject(existing, config.dataDir);
+          if (!result)
+            return toolResult(
+              {
+                reason: "local-project-not-found",
+                status: "skipped",
+              },
+              "Local project metadata is unavailable; nothing to revoke.",
+            );
+          return toolResult(
+            {
+              bank: result.bank,
+              reason: "revoked",
+              status: "revoked",
+            },
+            `Revoked local project "${existing.label}" (${existing.id}).` +
+              (result.archivePath
+                ? ` Archived bank: ${result.archivePath}.`
+                : " No project bank found to archive."),
+          );
+        }
         if (existing) {
           return toolResult(
             {

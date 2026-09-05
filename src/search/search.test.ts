@@ -266,6 +266,56 @@ describe("Task 12.1 — MnemosyneBackend", () => {
     });
     expect(results[0]?.id).toBe("m1");
   });
+  it("lists all memories with empty query and applies offset pagination", async () => {
+    const calls: string[][] = [];
+    const backend = new MnemosyneBackend(
+      {
+        dataDir: "/tmp/x",
+        projectBank: null,
+      },
+      async (args) => {
+        calls.push(args);
+        return JSON.stringify({
+          results: [
+            {
+              content: "one",
+              id: "m1",
+              score: 0.9,
+            },
+            {
+              content: "two",
+              id: "m2",
+              score: 0.8,
+            },
+            {
+              content: "three",
+              id: "m3",
+              score: 0.7,
+            },
+          ],
+        });
+      },
+    );
+    const results = await backend.search(
+      query({
+        limit: 2,
+        offset: 1,
+        query: "",
+      }),
+    );
+    expect(calls[0]).toEqual([
+      "recall",
+      "",
+      "3",
+      "--explain",
+      "--json",
+    ]);
+    expect(results.map(({ content }) => content)).toEqual([
+      "two",
+      "three",
+    ]);
+  });
+
   it("omits a missing Mnemosyne row ID", async () => {
     const backend = new MnemosyneBackend(
       {

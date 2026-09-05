@@ -1,6 +1,11 @@
 import { type CliOptions, parseStoredId, runMnemosyne } from "./cli.ts";
 import type { EvidenceType } from "./evidence.js";
-import { isMemoryKind, type MemoryKind, type MemoryScope } from "./kinds.js";
+import {
+  describeMemoryKind,
+  isMemoryKind,
+  type MemoryKind,
+  type MemoryScope,
+} from "./kinds.js";
 
 /** Encoded into Mnemosyne `source` as kind=...;ev=...;prov=...;ts=...;src=...[;sid=...][;rev=...]. */
 interface T1SourceMetadata {
@@ -122,5 +127,84 @@ export function createMnemosyneAdapter(
         output,
       };
     },
+  };
+}
+
+export interface GetMemoryByIdResult {
+  bank: string;
+  content: string;
+  id: string;
+  kind: MemoryKind | null;
+  scope: MemoryScope | null;
+  source?: string;
+  timestamp?: string;
+}
+
+/** Look up one T1 row by exact id using Mnemosyne's JSON recall output. */
+export async function getMemoryById(
+  id: string,
+  dataDir: string,
+  bank = "default",
+  run: MnemosyneRunner = runMnemosyne,
+): Promise<GetMemoryByIdResult | null> {
+  if (!id) return null;
+  const output = await run(
+    [
+      "recall",
+      id,
+      "50",
+      "--explain",
+      "--json",
+    ],
+    {
+      bank: bank === "default" ? undefined : bank,
+      dataDir,
+    },
+  );
+  let results: unknown;
+  try {
+    const parsed: unknown = JSON.parse(output);
+    results =
+      typeof parsed === "object" && parsed !== null
+        ? (
+            parsed as {
+              results?: unknown;
+            }
+          ).results
+        : undefined;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(results)) return null;
+  const row = results.find(
+    (candidate): candidate is Record<string, unknown> =>
+      typeof candidate === "object" &&
+      candidate !== null &&
+      (
+        candidate as {
+          id?: unknown;
+        }
+      ).id === id,
+  );
+  if (!row || typeof row.content !== "string") return null;
+  const decoded =
+    typeof row.source === "string" ? decodeSourceMetadata(row.source) : null;
+  const kind = decoded?.kind ?? null;
+  return {
+    bank,
+    content: row.content,
+    id,
+    kind,
+    scope: kind ? describeMemoryKind(kind).scope : null,
+    ...(decoded?.source
+      ? {
+          source: decoded.source,
+        }
+      : {}),
+    ...(typeof row.timestamp === "string"
+      ? {
+          timestamp: row.timestamp,
+        }
+      : {}),
   };
 }

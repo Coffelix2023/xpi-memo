@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { CliOptions } from "./cli.ts";
 import xpiMemo from "./index.ts";
 import { createEventLogReader } from "./l0/event-log-reader.js";
+import { createEventLogWriter } from "./l0/event-log-writer.js";
 import { initializeLocalProject } from "./local-identity.ts";
 import type { OfflineExtractionRunner } from "./offline-extraction.js";
 
@@ -58,6 +59,7 @@ interface TestDependencies {
 
 const temporaryDirectories: string[] = [];
 const SOURCE_SID_PATTERN = /sid=([^;]+)/;
+const RECOVERY_ID_PATTERN = /^memory-1-\d{4}-\d{2}-\d{2}T/;
 const CHINESE_TEMPLATE_HIT = /决策|项目/;
 
 function createTemporaryDirectory(): string {
@@ -188,6 +190,17 @@ describe("xpi_memo_forget bank resolution", () => {
         args,
         bank: cliOptions?.bank,
       });
+      if (args[0] === "recall")
+        return JSON.stringify({
+          results: [
+            {
+              content: "recoverable memory content",
+              id: "memory-1",
+              source: "kind=project_decision;src=test",
+              timestamp: "2026-09-04T00:00:00.000Z",
+            },
+          ],
+        });
       const response = options.responses[cliOptions?.bank ?? "default"];
       if (response instanceof Error) throw response;
       return response ?? "";
@@ -228,13 +241,39 @@ describe("xpi_memo_forget bank resolution", () => {
         "forget-project": "ok",
       },
     });
-    expect(result.calls.map(({ bank }) => bank)).toEqual([
+    expect(
+      result.calls.filter(({ args }) => args[0] === "delete").map(({ bank }) => bank),
+    ).toEqual([
       "project-forget-project",
     ]);
     expect(result.details).toMatchObject({
       bank: "project-forget-project",
       status: "deleted",
     });
+    const recoveryId = result.details.recoveryId;
+    expect(recoveryId).toEqual(expect.stringMatching(RECOVERY_ID_PATTERN));
+    const recoveryPath = join(result.dataDir, "recovery", `${recoveryId}.json`);
+    expect(existsSync(recoveryPath)).toBe(true);
+    expect(JSON.parse(readFileSync(recoveryPath, "utf8"))).toMatchObject({
+      memory: {
+        content: "recoverable memory content",
+        id: "memory-1",
+      },
+      recoveryId,
+      version: 1,
+    });
+    const sessionId = readdirSync(join(result.dataDir, "sessions"))[0];
+    expect(sessionId).toBeDefined();
+    const events = await createEventLogReader({
+      sessionDir: join(result.dataDir, "sessions", sessionId as string),
+    }).readAll();
+    expect(events.filter((event) => event.type === "memory_deleted")).toEqual([
+      expect.objectContaining({
+        payload: {
+          memoryId: "memory-1",
+        },
+      }),
+    ]);
   });
 
   it("falls back from project bank to default", async () => {
@@ -245,7 +284,9 @@ describe("xpi_memo_forget bank resolution", () => {
         "project-forget-project": new Error("missing"),
       },
     });
-    expect(result.calls.map(({ bank }) => bank)).toEqual([
+    expect(
+      result.calls.filter(({ args }) => args[0] === "delete").map(({ bank }) => bank),
+    ).toEqual([
       "project-forget-project",
       undefined,
     ]);
@@ -262,7 +303,9 @@ describe("xpi_memo_forget bank resolution", () => {
         default: "ok",
       },
     });
-    expect(result.calls.map(({ bank }) => bank)).toEqual([
+    expect(
+      result.calls.filter(({ args }) => args[0] === "delete").map(({ bank }) => bank),
+    ).toEqual([
       undefined,
     ]);
     expect(result.details).toMatchObject({
@@ -303,6 +346,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(tools.map(({ name }) => name)).toEqual([
       "xpi_memo_remember",
       "xpi_memo_recall",
+      "xpi_memo_show_injected",
       "xpi_memo_forget",
       "xpi_memo_sleep",
       "xpi_memo_init",
@@ -317,6 +361,70 @@ describe("xpi-memo bootstrap entrypoint", () => {
       "session_before_compact",
       "session_shutdown",
     ]);
+  });
+  it("shows memories from the latest injection event", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { events, tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => null,
+      run: async (args) => {
+        if (args[0] !== "recall") return "";
+        return JSON.stringify({
+          results: [
+            {
+              content: "Prefer tests before implementation.",
+              id: "memory-123",
+              source:
+                "kind=global_preference;ev=explicit-user-statement;prov=pi;ts=2026-01-01T00%3A00%3A00.000Z;src=user",
+            },
+          ],
+        });
+      },
+    });
+    const input = events.find(({ name }) => name === "input");
+    if (!input) throw new Error("input event not registered");
+    const context = createToolContext({
+      cwd: dataDir,
+    });
+    await input.handler(
+      {
+        source: "user",
+        text: "hello",
+      },
+      context,
+    );
+    const sessionRoot = join(dataDir, "sessions");
+    const session = readdirSync(sessionRoot)[0];
+    if (!session) throw new Error("L0 session not created");
+    const writer = createEventLogWriter({
+      sessionDir: join(sessionRoot, session),
+    });
+    writer.append("memory_injected", {
+      injectedMemoryIds: [
+        "memory-123",
+      ],
+    });
+    const result = await toolByName(tools, "xpi_memo_show_injected").execute(
+      "show-injected",
+      {},
+      undefined,
+      undefined,
+      context,
+    );
+    const text = result.content[0];
+    const response = text && "text" in text ? JSON.parse(text.text) : null;
+    expect(response).toMatchObject({
+      eventPosition: 2,
+      injected: [
+        {
+          content: "Prefer tests before implementation.",
+          id: "memory-123",
+        },
+      ],
+    });
   });
 
   it("initializes a non-Git directory with only the metadata file", async () => {
@@ -427,6 +535,84 @@ describe("xpi-memo bootstrap entrypoint", () => {
       status: "stored",
     });
   });
+  it("revokes a local project by archiving its bank before removing metadata", async () => {
+    const root = createTemporaryDirectory();
+    const dataDir = createTemporaryDirectory();
+    const identity = initializeLocalProject(root);
+    const bank = `project-${identity.id}`;
+    const bankDir = join(dataDir, "banks", bank);
+    mkdirSync(bankDir, {
+      recursive: true,
+    });
+    writeFileSync(join(bankDir, "mnemosyne.db"), "bank-data");
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const result = await toolByName(tools, "xpi_memo_init").execute(
+      "revoke-local",
+      {
+        revoke: true,
+      },
+      undefined,
+      undefined,
+      createToolContext({
+        cwd: root,
+      }),
+    );
+    const archiveRoot = join(dataDir, "banks-archived");
+    const archived = readdirSync(archiveRoot);
+    const metadataPath = join(root, ".pi", "xpi-memo", "project.json");
+    expect(existsSync(metadataPath)).toBe(false);
+    expect(existsSync(join(dataDir, "banks", bank))).toBe(false);
+    expect(archived).toHaveLength(1);
+    const archiveName = archived[0];
+    if (!archiveName) throw new Error("archive directory was not created");
+    expect(archiveName).toMatch(new RegExp(`^${bank}-\\d{4}-\\d{2}-\\d{2}T`));
+    expect(readFileSync(join(archiveRoot, archiveName, "mnemosyne.db"), "utf8")).toBe(
+      "bank-data",
+    );
+    expect(result.details).toMatchObject({
+      reason: "revoked",
+      status: "revoked",
+    });
+  });
+
+  it("revokes a local project through the slash command", async () => {
+    const root = createTemporaryDirectory();
+    const dataDir = createTemporaryDirectory();
+    const identity = initializeLocalProject(root);
+    const bank = `project-${identity.id}`;
+    mkdirSync(join(dataDir, "banks", bank), {
+      recursive: true,
+    });
+    const { commands } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const initCommand = commands.find(({ name }) => name === "xpi-memo-init");
+    if (!initCommand) throw new Error("init command was not registered");
+    const notifications: string[] = [];
+    await initCommand.options.handler("--revoke", {
+      cwd: root,
+      ui: {
+        confirm: async () => false,
+        notify(message) {
+          notifications.push(message);
+        },
+      },
+    });
+    expect(existsSync(join(root, ".pi", "xpi-memo", "project.json"))).toBe(false);
+    expect(existsSync(join(dataDir, "banks", bank))).toBe(false);
+    expect(notifications[0]).toContain("Revoked local project");
+  });
+
   it("directs non-TUI users to JSON status", async () => {
     const { commands } = loadExtension();
     const consoleCommand = commands.find(({ name }) => name === "xpi-memo");

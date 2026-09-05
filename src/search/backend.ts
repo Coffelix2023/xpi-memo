@@ -15,6 +15,8 @@ export type SearchScope = "global" | "project" | "session";
 
 export interface SearchQuery {
   limit: number;
+  /** Number of results to skip; empty query lists memories. */
+  offset?: number;
   query: string;
   scope: SearchScope;
   /** Current L0 session id; used to isolate session-scoped rows (task 2.3). */

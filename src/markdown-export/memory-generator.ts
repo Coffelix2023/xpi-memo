@@ -20,6 +20,8 @@ export interface MemoryEntry {
   /** Stable export id: session@position. */
   id: string;
   kind: MemoryKind;
+  /** Mnemosyne backend id used to correlate memory_deleted events. */
+  memoryId?: string;
   /** L0 position of the latest confirming event */
   position: number;
   /** Canonical semantic scope derived from kind metadata (task 2.4). */
@@ -70,7 +72,17 @@ function bankOf(payload: { bank?: unknown }): string {
  * Collect confirmed T1 writes. Exact duplicates stay in the export and are
  * marked `supersededBy` later; SQLite is never rewritten.
  */
+// TODO(L2): rebuild MEMORY.md from the current T1 bank instead of projecting L0 history; see fast-fix plan.md.
 export function collectMemoryEntries(sources: MemorySource[]): MemoryEntry[] {
+  const deletedIds = new Set<string>();
+  for (const source of sources) {
+    for (const event of source.events) {
+      if (event.type !== "memory_deleted") continue;
+      const memoryId = event.payload.memoryId;
+      if (typeof memoryId === "string" && memoryId.length > 0) deletedIds.add(memoryId);
+    }
+  }
+
   const entries: MemoryEntry[] = [];
   for (const source of sources) {
     for (const event of source.events) {
@@ -79,7 +91,11 @@ export function collectMemoryEntries(sources: MemorySource[]): MemoryEntry[] {
         bank?: unknown;
         content?: unknown;
         kind?: unknown;
+        memoryId?: unknown;
       };
+      const memoryId =
+        typeof payload.memoryId === "string" ? payload.memoryId : undefined;
+      if (memoryId && deletedIds.has(memoryId)) continue;
       const content = typeof payload.content === "string" ? payload.content : "";
       if (!content) continue;
       const kind =
@@ -91,6 +107,11 @@ export function collectMemoryEntries(sources: MemorySource[]): MemoryEntry[] {
         confirmedAt: event.timestamp,
         content,
         id: `${source.sessionId}@${event.position}`,
+        ...(memoryId
+          ? {
+              memoryId,
+            }
+          : {}),
         kind,
         position: event.position,
         scope: describeMemoryKind(kind).scope,

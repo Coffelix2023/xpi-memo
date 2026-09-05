@@ -510,15 +510,20 @@ async function directStore(
     kind: operation.kind,
     scope: operation.scope,
   });
+  const stored = await runtime.adapter.store(operation);
   runtime.l0.recordSafe("t1_memory_write", {
     bank: operation.targetBank,
     confidence: operation.confidence,
     content: operation.content,
     evidenceType: "l0-conclusion",
+    ...(stored.id
+      ? {
+          memoryId: stored.id,
+        }
+      : {}),
     kind: operation.kind,
     scope: operation.scope,
   });
-  await runtime.adapter.store(operation);
   runtime.audit.record("write", {
     bank: operation.targetBank,
     confidence: operation.confidence,

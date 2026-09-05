@@ -55,7 +55,7 @@ export interface CandidateStore {
 
 interface CreateCandidateStoreOptions {
   adapter: MnemosyneAdapter;
-  afterStore?: (operation: T1MemoryOperation) => void;
+  afterStore?: (operation: T1MemoryOperation, memoryId: string | null) => void;
   beforeStore?: (operation: T1MemoryOperation) => void;
   statePath: string;
 }
@@ -190,11 +190,11 @@ export function createCandidateStore({
       };
     }
     beforeStore?.(stored.operation);
-    await adapter.store(stored.operation);
+    const storeResult = await adapter.store(stored.operation);
     delete state.candidates[candidateId];
     audit(state, "candidate-confirmed", candidateId);
     try {
-      afterStore?.(stored.operation);
+      afterStore?.(stored.operation, storeResult.id);
     } catch {
       // Post-store hooks are best effort and must not undo a confirmed write.
     }

@@ -351,6 +351,42 @@ describe("markdown export", () => {
     expect(memory).toContain("supersededBy `");
     expect((memory.match(/Deploy at/g) ?? []).length).toBe(3);
   });
+  it("removes deleted historical memory from a full MEMORY.md export", async () => {
+    writeEvents([
+      {
+        type: "t1_memory_write",
+        payload: {
+          content: "historical memory to remove",
+          kind: "global_preference",
+          memoryId: "memory-deleted",
+        },
+      },
+      {
+        type: "t1_memory_write",
+        payload: {
+          content: "historical memory to keep",
+          kind: "global_preference",
+          memoryId: "memory-kept",
+        },
+      },
+      {
+        type: "memory_deleted",
+        payload: {
+          memoryId: "memory-deleted",
+        },
+      },
+    ]);
+    const result = await exportMarkdown({
+      memoryOnly: true,
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+    expect(result.memoryMd).toBe(true);
+    const memory = readFileSync(join(markdownDirFor(dataDir), "MEMORY.md"), "utf8");
+    expect(memory).not.toContain("historical memory to remove");
+    expect(memory).toContain("historical memory to keep");
+  });
 
   it("exports a single session when sessionId is provided", async () => {
     const idA = "2024-03-15T10-00-00-00000000-aaaa";

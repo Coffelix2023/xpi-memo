@@ -43,10 +43,16 @@ describe("transformer", () => {
         action: "edited",
         path: "/a/b.ts",
       },
+      memory_deleted: {
+        memoryId: "memory-1",
+      },
       memory_failed: {
         kind: "project_decision",
         phase: "backend",
         reason: "backend-degraded",
+      },
+      memory_injected: {
+        injectedMemoryIds: [],
       },
       routing_decision: {
         bank: "default",
@@ -215,6 +221,32 @@ describe("memory generator", () => {
     expect(doc.markdown).toContain("deploy at  9am");
     expect(doc.markdown).toContain("deploy at 9am");
     expect(doc.markdown).toContain("supersededBy `");
+  });
+
+  it("excludes entries whose backend memory id was deleted", () => {
+    const sources = [
+      {
+        sessionId: SESSION,
+        events: [
+          event("t1_memory_write", 1, {
+            content: "keep this memory",
+            kind: "global_preference",
+            memoryId: "memory-keep",
+          }),
+          event("t1_memory_write", 2, {
+            content: "remove this memory",
+            kind: "global_preference",
+            memoryId: "memory-delete",
+          }),
+          event("memory_deleted", 3, {
+            memoryId: "memory-delete",
+          }),
+        ],
+      },
+    ];
+    expect(collectMemoryEntries(sources).map(({ content }) => content)).toEqual([
+      "keep this memory",
+    ]);
   });
 
   it("renders an empty-state note when nothing was confirmed", () => {

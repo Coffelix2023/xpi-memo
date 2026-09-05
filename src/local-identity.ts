@@ -17,6 +17,7 @@ import {
   readFileSync,
   realpathSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, parse, resolve } from "node:path";
@@ -86,6 +87,48 @@ export function initializeLocalProject(root: string): LocalProjectIdentity {
   clearLocalIdentityCache();
   localCache.set(resolvedRoot, identity);
   return identity;
+}
+
+export interface LocalProjectRevokeResult {
+  archivePath?: string;
+  bank: string;
+}
+
+/** Archive a local project's bank, then remove its identity metadata. */
+export function revokeLocalProject(
+  identity: LocalProjectIdentity,
+  dataDir: string,
+  now = new Date(),
+): LocalProjectRevokeResult | null {
+  if (identity.id !== localProjectIdFor(identity.root))
+    throw new Error("invalid-local-project-identity");
+  const bank = `project-${identity.id}`;
+  const bankPath = join(dataDir, "banks", bank);
+  const metadata = metadataPath(identity.root);
+  if (!existsSync(metadata)) return null;
+  let archivePath: string | undefined;
+  if (existsSync(bankPath)) {
+    const archiveRoot = join(dataDir, "banks-archived");
+    mkdirSync(archiveRoot, {
+      mode: 0o700,
+      recursive: true,
+    });
+    archivePath = join(
+      archiveRoot,
+      `${bank}-${now.toISOString().replaceAll(":", "-")}`,
+    );
+    renameSync(bankPath, archivePath);
+  }
+  rmSync(metadata);
+  clearLocalIdentityCache();
+  return {
+    bank,
+    ...(archivePath
+      ? {
+          archivePath,
+        }
+      : {}),
+  };
 }
 
 function readIdentityFile(path: string): LocalProjectIdentity | null {

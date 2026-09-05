@@ -336,6 +336,7 @@ export async function activateExplicitMemoryIntent(
     projectBank: runtime.context.projectBank,
     scope: operation.scope,
   });
+  const stored = await runtime.adapter.store(operation);
   runtime.l0.recordSafe("t1_memory_write", {
     ...provenancePayload(provenance),
     bank: operation.targetBank,
@@ -343,10 +344,14 @@ export async function activateExplicitMemoryIntent(
     content: operation.content,
     evidenceType: operation.source.evidenceType,
     fingerprint: claim.fingerprint,
+    ...(stored.id
+      ? {
+          memoryId: stored.id,
+        }
+      : {}),
     kind: operation.kind,
     scope: operation.scope,
   });
-  await runtime.adapter.store(operation);
   runtime.audit.record("write", {
     bank: operation.targetBank,
     confidence: operation.confidence,
