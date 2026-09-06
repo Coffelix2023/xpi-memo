@@ -1,6 +1,7 @@
 import { bankExists, GLOBAL_BANK, type RoutingContext } from "./banks.ts";
 import { type CliOptions, runMnemosyne } from "./cli.ts";
 import { describeMemoryKindOrNull, type MemoryKind } from "./kinds.js";
+import { prepareExternalContent } from "./memory-safety.js";
 import { decodeSourceMetadata } from "./operations.js";
 
 import {
@@ -185,6 +186,9 @@ async function recallBank(
   embeddingAvailable: boolean;
   fallback: boolean;
 }> {
+  const safety = prepareExternalContent(query);
+  if (safety.status === "refused")
+    throw new Error(`external-safety-refused:${safety.reason}`);
   const options: CliOptions = {
     dataDir,
   };
@@ -192,7 +196,7 @@ async function recallBank(
   const output = await run(
     [
       "recall",
-      query,
+      safety.content,
       String(limit),
       "--explain",
       "--json",

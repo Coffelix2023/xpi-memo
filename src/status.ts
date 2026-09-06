@@ -78,6 +78,15 @@ export interface MemoryStatus {
       name: string;
     }>;
   };
+  security?: {
+    backendNoHitCount: number;
+    backendNotRunCount: number;
+    policyVersion?: string;
+    recallBlocked: number;
+    recallOmitted: number;
+    routingRejectionCount: number;
+    storageFailureCount: number;
+  };
   sleep: {
     dedicatedModelSupported: boolean;
     enabled: boolean;
@@ -187,6 +196,23 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
     doctor: status.doctor,
     fallback: status.fallback,
     observability: status.observability,
+    ...(status.security
+      ? {
+          security: {
+            backendNoHitCount: status.security.backendNoHitCount,
+            backendNotRunCount: status.security.backendNotRunCount,
+            ...(status.security.policyVersion
+              ? {
+                  policyVersion: status.security.policyVersion,
+                }
+              : {}),
+            recallBlocked: status.security.recallBlocked,
+            recallOmitted: status.security.recallOmitted,
+            routingRejectionCount: status.security.routingRejectionCount,
+            storageFailureCount: status.security.storageFailureCount,
+          },
+        }
+      : {}),
     ...(status.nearDuplicates
       ? {
           nearDuplicates: {

@@ -10,6 +10,7 @@ import type {
 import { isMemoryKind, type MemoryKind } from "./kinds.js";
 import type { L0Coordinator } from "./l0/l0-runtime.js";
 import type { L0Event } from "./l0/types.js";
+import { prepareExternalEvents } from "./memory-safety.js";
 import type {
   MnemosyneAdapter,
   MnemosyneRunner,
@@ -71,7 +72,8 @@ export type OfflineExtractionStatus =
   | "disabled"
   | "failed"
   | "timed-out"
-  | "unavailable";
+  | "unavailable"
+  | "refused";
 export interface OfflineExtractionDiagnostics {
   /** Current per-session budget consumption; present when a ledger is wired. */
   budgetChars?: number;
@@ -190,6 +192,20 @@ export async function runOfflineExtraction(
     options.maxInputChars,
   );
 
+  const external = prepareExternalEvents(events);
+  if (external.result.status === "refused") {
+    return {
+      diagnostics: diagnostics(
+        "refused",
+        events,
+        options.maxEvents,
+        options.maxInputChars,
+        options.timeoutMs,
+        options.ledger,
+      ),
+      status: "refused",
+    };
+  }
   if (options.ledger) {
     const limits = options.limits;
     if (
@@ -242,7 +258,7 @@ export async function runOfflineExtraction(
   try {
     const output = await Promise.race([
       options.runner({
-        events,
+        events: external.events,
         maxInputChars: options.maxInputChars,
         sessionId: options.sessionId,
       }),

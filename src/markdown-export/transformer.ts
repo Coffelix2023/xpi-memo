@@ -7,6 +7,7 @@
  * position order so Git diffs stay append-only and stable.
  */
 
+import { redactCredentials } from "../content-policy.js";
 import type { L0Event } from "../l0/types.js";
 
 export interface ExportFilters {
@@ -25,19 +26,13 @@ const REDACTIONS: Array<{
     pattern: /(?:\/[\w.-]+){2,}/g,
     replacement: "[REDACTED]",
   },
-  // Key/token-like assignments (sk-…, token=…, Bearer …)
-  {
-    pattern:
-      /(?:sk-[\w-]{8,}|(?:api[_-]?key|token|secret)\s*[=:]?\s*[\w-]{8,}|Bearer\s+[\w.-]{8,})/gi,
-    replacement: "[REDACTED]",
-  },
 ];
 
 export function redactSensitive(text: string): string {
   let out = text;
   for (const { pattern, replacement } of REDACTIONS)
     out = out.replace(pattern, replacement);
-  return out;
+  return redactCredentials(out);
 }
 
 /** First line of a scalar, or a compact `key: value` list for plain objects (no JSON dumps). */

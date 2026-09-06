@@ -324,6 +324,34 @@ describe("markdown export", () => {
     expect(daily).not.toContain("sk-abcdef1234567890");
   });
 
+  it("redacts credentials in MEMORY.md without changing L0 events", async () => {
+    const content = "token=memory-export-secret";
+    writeRawEvent(
+      SESSION_ID,
+      createL0Event(
+        "t1_memory_write",
+        1,
+        {
+          content,
+          kind: "global_preference",
+        },
+        "2024-03-15T08:00:00.000Z",
+      ),
+    );
+
+    await exportMarkdown({
+      memoryOnly: true,
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_PRIVACY: "true",
+      },
+    });
+
+    const memory = readFileSync(join(markdownDirFor(dataDir), "MEMORY.md"), "utf8");
+    expect(memory).toContain("token=[REDACTED]");
+    expect(memory).not.toContain(content);
+  });
+
   it("marks duplicate memory content with supersededBy instead of dropping it", async () => {
     const writer = createEventLogWriter({
       sessionDir: sessionDirFor(dataDir, SESSION_ID),

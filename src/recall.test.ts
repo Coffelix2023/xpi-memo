@@ -164,6 +164,45 @@ describe("bounded T1 recall", () => {
     expect(result.results).toHaveLength(3);
   });
 
+  it("redacts credential queries before calling Mnemosyne", async () => {
+    const calls: string[][] = [];
+    await recall(
+      {
+        query: "token=recall-secret",
+        context: {
+          dataDir: createTemporaryDirectory(),
+          projectBank: null,
+        },
+      },
+      async (args) => {
+        calls.push(args);
+        return payload([]);
+      },
+    );
+
+    expect(calls[0]?.[1]).toBe("token=[REDACTED]");
+  });
+
+  it("refuses uncertain credential queries without calling Mnemosyne", async () => {
+    let called = false;
+    await expect(
+      recall(
+        {
+          query: "-----BEGIN PRIVATE KEY-----\\nmissing end marker",
+          context: {
+            dataDir: createTemporaryDirectory(),
+            projectBank: null,
+          },
+        },
+        async () => {
+          called = true;
+          return payload([]);
+        },
+      ),
+    ).rejects.toThrow("external-safety-refused:uncertain-credential");
+    expect(called).toBe(false);
+  });
+
   it("skips a missing project bank without creating it", async () => {
     const dataDir = createTemporaryDirectory();
     const calls: Array<{

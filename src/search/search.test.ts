@@ -266,6 +266,45 @@ describe("Task 12.1 — MnemosyneBackend", () => {
     });
     expect(results[0]?.id).toBe("m1");
   });
+
+  it("redacts credential queries and refuses uncertain queries", async () => {
+    const calls: string[][] = [];
+    const backend = new MnemosyneBackend(
+      {
+        dataDir: "/tmp/x",
+        projectBank: null,
+      },
+      async (args) => {
+        calls.push(args);
+        return JSON.stringify({
+          results: [],
+        });
+      },
+    );
+
+    await backend.search(
+      query({
+        query: "token=search-secret",
+      }),
+    );
+    await expect(
+      backend.search(
+        query({
+          query: "-----BEGIN PRIVATE KEY-----\\nmissing end marker",
+        }),
+      ),
+    ).rejects.toThrow("external-safety-refused:uncertain-credential");
+
+    expect(calls).toEqual([
+      [
+        "recall",
+        "token=[REDACTED]",
+        "5",
+        "--explain",
+        "--json",
+      ],
+    ]);
+  });
   it("lists all memories with empty query and applies offset pagination", async () => {
     const calls: string[][] = [];
     const backend = new MnemosyneBackend(

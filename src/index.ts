@@ -8,7 +8,7 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { type Static, type TSchema, Type } from "typebox";
-import { type AuditLog, createAuditLog } from "./audit.ts";
+import { type AuditEntry, type AuditLog, createAuditLog } from "./audit.ts";
 import {
   bankDbPath,
   bankExists,
@@ -56,6 +56,7 @@ import {
   createMemoryIdempotencyStore,
   type MemoryIdempotencyStore,
 } from "./memory-idempotency.ts";
+import { filterRecallEntries, MAX_MEMORY_SAFETY_COUNT } from "./memory-safety.js";
 import { buildObservabilitySnapshot } from "./observability.ts";
 import {
   DEFAULT_OFFLINE_EXTRACTION_MAX_CHARS_PER_SESSION,
@@ -146,6 +147,12 @@ interface ToolDetails {
   };
   recoveryId?: string;
   resultCount?: number;
+  safety?: {
+    blocked: number;
+    omitted: number;
+    policyVersion: string;
+    reasons: string[];
+  };
   scope?: "global" | "project" | "session";
   status: ToolStatus;
 }
@@ -1232,13 +1239,21 @@ async function executeRecall(
         }),
       );
     }
-    const response: RecallResponse = toRecallResponse(outcome);
+    const response = toRecallResponse(outcome);
+    const safety = filterRecallEntries(response.results);
+    let recallStatus = "no-hits";
+    if (safety.items.length > 0) recallStatus = "recalled";
+    else if (safety.counts.blocked > 0) recallStatus = "security-blocked";
     runtime.audit.record("recall", {
       backend: outcome.backendName,
+      blockedCount: safety.counts.blocked,
       fallback: outcome.backendName !== "mnemosyne",
+      omittedCount: safety.counts.omitted,
+      policyVersion: safety.policyVersion,
       reason: params.query,
-      resultCount: response.results.length,
-      status: response.results.length > 0 ? "recalled" : "no-hits",
+      resultCount: safety.items.length,
+      safetyReasons: safety.reasons,
+      status: recallStatus,
     });
     return toolResult(
       {
@@ -1250,12 +1265,26 @@ async function executeRecall(
         reason:
           outcome.warning ??
           (response.retrieval.fallback ? "fts5-fallback" : undefined),
-        resultCount: response.results.length,
+        resultCount: safety.items.length,
         status: "recalled",
+        safety: {
+          blocked: safety.counts.blocked,
+          omitted: safety.counts.omitted,
+          policyVersion: safety.policyVersion,
+          reasons: safety.reasons,
+        },
       },
       JSON.stringify({
         ...response,
+        results: safety.items,
         searchBackend: outcome.backendName,
+        untrusted: true,
+        safety: {
+          blocked: safety.counts.blocked,
+          omitted: safety.counts.omitted,
+          policyVersion: safety.policyVersion,
+          reasons: safety.reasons,
+        },
       }),
     );
   } catch (error) {
@@ -1484,6 +1513,49 @@ async function countL0T1WriteEvents(dataDir: string): Promise<number> {
   return perSession.reduce((sum, count) => sum + count, 0);
 }
 
+function securityForAudit(entries: readonly AuditEntry[]): MemoryStatus["security"] {
+  let recallBlocked = 0;
+  let recallOmitted = 0;
+  let backendNoHitCount = 0;
+  let backendNotRunCount = 0;
+  let routingRejectionCount = 0;
+  let storageFailureCount = 0;
+  let policyVersion: string | undefined;
+  const count = (value: number | undefined): number =>
+    typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+  for (const entry of entries) {
+    const metadata = entry.metadata;
+    recallBlocked += count(metadata.blockedCount);
+    recallOmitted += count(metadata.omittedCount);
+    if (
+      entry.action === "recall" &&
+      metadata.status === "no-hits" &&
+      !metadata.blockedCount
+    )
+      backendNoHitCount += 1;
+    if (entry.action === "recall" && metadata.status === "no-backend")
+      backendNotRunCount += 1;
+    if (entry.action === "rejection" && metadata.status === "routing_rejected")
+      routingRejectionCount += 1;
+    if (entry.action === "fallback" && metadata.status === "degraded")
+      storageFailureCount += 1;
+    if (metadata.policyVersion) policyVersion = metadata.policyVersion;
+  }
+  return {
+    backendNoHitCount: Math.min(MAX_MEMORY_SAFETY_COUNT, backendNoHitCount),
+    backendNotRunCount: Math.min(MAX_MEMORY_SAFETY_COUNT, backendNotRunCount),
+    ...(policyVersion
+      ? {
+          policyVersion,
+        }
+      : {}),
+    recallBlocked: Math.min(MAX_MEMORY_SAFETY_COUNT, recallBlocked),
+    recallOmitted: Math.min(MAX_MEMORY_SAFETY_COUNT, recallOmitted),
+    routingRejectionCount: Math.min(MAX_MEMORY_SAFETY_COUNT, routingRejectionCount),
+    storageFailureCount: Math.min(MAX_MEMORY_SAFETY_COUNT, storageFailureCount),
+  };
+}
+
 async function statusForContext(
   cwd: string,
   dependencies: XpiMemoDependencies = {},
@@ -1622,6 +1694,7 @@ async function statusForContext(
   if (projectBank && bankExists(config.dataDir, projectBank))
     bankRows[projectBank] = projectStats?.working ?? null;
   const l0T1WriteEvents = await countL0T1WriteEvents(config.dataDir);
+  const security = securityForAudit(auditEntries);
   const doctor: MemoryDoctorReport = buildMemoryDoctorReport(
     {
       auditActions: auditEntries.map((entry) => entry.action),
@@ -1633,6 +1706,7 @@ async function statusForContext(
       bankRows,
       l0T1WriteEvents,
       pendingCandidates,
+      security,
     },
     detectMemoryRootSurfaces(config.dataDir),
   );
@@ -1650,6 +1724,7 @@ async function statusForContext(
       (entry) => entry.action === "fallback" && entry.metadata.status === "degraded",
     ),
     observability: buildObservabilitySnapshot(auditEntries),
+    security,
     offlineExtraction: {
       enabled: config.offlineExtractionEnabled,
       ...(lastExtraction?.metadata.status
@@ -1756,7 +1831,7 @@ function renderMemoryContext(items: readonly RecallItem[]): string | null {
     const kind = item.kind ? ` [${item.kind}]` : "";
     return `${index + 1}. ${content}${kind}`;
   });
-  return `<memories>\n${lines.join("\n")}\n</memories>`;
+  return `<untrusted-memory-data>\n${lines.join("\n")}\n</untrusted-memory-data>`;
 }
 
 /** Maximum characters of automatic-injection memory content (task 5.4). */
@@ -1874,13 +1949,18 @@ async function recallForContext(
       charBudget: AUTO_INJECT_CHAR_BUDGET,
       itemBudget: runtime.config.limit,
     });
-    const injected = ranked
+    const rankedItems = ranked
       ? [
           ...ranked.standing,
           ...ranked.contextual,
         ]
       : [];
-    // Task 5.6 + plan-note-03: one audit entry per executed query distinguishes
+    const safety = filterRecallEntries(rankedItems);
+    const injected = safety.items;
+    const omittedCount = Math.min(
+      999,
+      Math.max(0, response.results.length - rankedItems.length),
+    );
     // "backend queried with no hits" from "no backend executed" and feeds the
     // doctor's recall zero-hit streak.
     for (let index = 0; index < queries.length; index += 1) {
@@ -1889,11 +1969,16 @@ async function recallForContext(
       runtime.audit.record("recall", {
         backend: single.backendName ?? "none",
         reason: queries[index] as string,
-        resultCount: single.results.length,
+        resultCount: safety.items.length,
         status: single.backendName === null ? "no-backend" : "recalled",
-        ...(index === queries.length - 1 && injected.length > 0
+        ...(index === queries.length - 1 &&
+        (injected.length > 0 || safety.counts.blocked > 0 || omittedCount > 0)
           ? {
+              blockedCount: safety.counts.blocked,
               injectedCount: injected.length,
+              omittedCount,
+              policyVersion: safety.policyVersion,
+              safetyReasons: safety.reasons,
             }
           : {}),
       });
@@ -1902,9 +1987,25 @@ async function recallForContext(
     const injectedMemoryIds = injected
       .map((item) => item.id)
       .filter((id): id is string => typeof id === "string");
-    if (l0 && injectedMemoryIds.length > 0)
+    if (
+      l0 &&
+      (injectedMemoryIds.length > 0 || safety.counts.blocked > 0 || omittedCount > 0)
+    )
       l0.recordSafe("memory_injected", {
         injectedMemoryIds,
+        blockedCount: safety.counts.blocked,
+        injectedCount: injected.length,
+        omittedCount,
+        ...(omittedCount > 0
+          ? {
+              omissionReasons: [
+                "recall-budget-or-filter",
+              ],
+            }
+          : {}),
+        lifecycleStage: "automatic-recall",
+        policyVersion: safety.policyVersion,
+        safetyReasons: safety.reasons,
       });
     // plan-note-03 visibility: one status line shared by the TUI widget and the
     const action = policy === "active" ? "inject" : "recall";
@@ -2632,6 +2733,12 @@ export default function xpiMemo(
               {
                 resultCount: 0,
                 status: "recalled",
+                safety: {
+                  blocked: 0,
+                  omitted: 0,
+                  policyVersion: "legacy",
+                  reasons: [],
+                },
               },
               JSON.stringify({
                 injected: [],
@@ -2676,14 +2783,43 @@ export default function xpiMemo(
               }),
             )
           ).filter((memory) => memory !== null);
+          const safety = filterRecallEntries(injected);
+          const payload = latest?.payload ?? {};
+          const boundedPayloadCount = (value: unknown, fallback: number): number =>
+            typeof value === "number" && Number.isFinite(value)
+              ? Math.min(MAX_MEMORY_SAFETY_COUNT, Math.max(0, Math.floor(value)))
+              : fallback;
+          const blocked = boundedPayloadCount(
+            payload.blockedCount,
+            safety.counts.blocked,
+          );
+          const omitted = boundedPayloadCount(payload.omittedCount, 0);
+          const policyVersion =
+            typeof payload.policyVersion === "string"
+              ? payload.policyVersion
+              : "legacy";
+          const reasons = Array.isArray(payload.safetyReasons)
+            ? payload.safetyReasons
+                .filter((reason): reason is string => typeof reason === "string")
+                .slice(0, 4)
+            : safety.reasons;
+          const resultSafety = {
+            blocked,
+            omitted,
+            policyVersion,
+            reasons,
+          };
           return toolResult(
             {
-              resultCount: injected.length,
+              resultCount: safety.items.length,
+              safety: resultSafety,
               status: "recalled",
             },
             JSON.stringify({
               eventPosition: latest?.position ?? null,
-              injected,
+              injected: safety.items,
+              safety: resultSafety,
+              untrusted: true,
               ...(latest
                 ? {}
                 : {

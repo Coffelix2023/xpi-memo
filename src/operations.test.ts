@@ -63,6 +63,38 @@ describe("routing-aware Mnemosyne operations", () => {
     });
   });
 
+  it("redacts Mnemosyne input without mutating the original operation", async () => {
+    const calls: string[][] = [];
+    const sensitive = {
+      ...operation,
+      content: "token=super-secret-value",
+    };
+    const adapter = createMnemosyneAdapter(async (args) => {
+      calls.push(args);
+      return "Stored: memory-123";
+    });
+
+    await adapter.store(sensitive);
+
+    expect(calls[0]?.[1]).toBe("token=[REDACTED]");
+    expect(sensitive.content).toBe("token=super-secret-value");
+  });
+
+  it("refuses an uncertain Mnemosyne payload without calling the runner", async () => {
+    let called = false;
+    const adapter = createMnemosyneAdapter(async () => {
+      called = true;
+      return "Stored: memory-123";
+    });
+
+    await expect(
+      adapter.store({
+        ...operation,
+        content: "-----BEGIN PRIVATE KEY-----\\nmissing end marker",
+      }),
+    ).rejects.toThrow("external-safety-refused:uncertain-credential");
+    expect(called).toBe(false);
+  });
   it("keeps the global bank on Mnemosyne's default database", async () => {
     const calls: Array<{
       args: string[];

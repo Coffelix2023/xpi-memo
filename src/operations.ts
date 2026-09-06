@@ -6,6 +6,7 @@ import {
   type MemoryKind,
   type MemoryScope,
 } from "./kinds.js";
+import { prepareExternalContent } from "./memory-safety.js";
 
 /** Encoded into Mnemosyne `source` as kind=...;ev=...;prov=...;ts=...;src=...[;sid=...][;rev=...]. */
 interface T1SourceMetadata {
@@ -112,10 +113,13 @@ export function createMnemosyneAdapter(
 ): MnemosyneAdapter {
   return {
     async store(operation) {
+      const safety = prepareExternalContent(operation.content);
+      if (safety.status === "refused")
+        throw new Error(`external-safety-refused:${safety.reason}`);
       const output = await run(
         [
           "store",
-          operation.content,
+          safety.content,
           encodeSourceMetadata(operation),
           String(operation.confidence),
         ],

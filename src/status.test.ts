@@ -187,6 +187,26 @@ describe("XpiMemo status", () => {
     expect(rendered).not.toContain("raw output must not appear");
   });
 
+  it("renders bounded security counters without payload text", () => {
+    const rendered = JSON.stringify(
+      renderStatus({
+        ...status,
+        security: {
+          backendNoHitCount: 2,
+          backendNotRunCount: 1,
+          policyVersion: "memory-boundary-v1",
+          recallBlocked: 3,
+          recallOmitted: 4,
+          routingRejectionCount: 5,
+          storageFailureCount: 6,
+        },
+      }),
+    );
+    expect(rendered).toContain('"recallBlocked":3');
+    expect(rendered).toContain('"policyVersion":"memory-boundary-v1"');
+    expect(rendered).not.toContain("memory body");
+  });
+
   it("reports an unrecognized project without inventing a bank", () => {
     const rendered = renderStatus({
       ...status,

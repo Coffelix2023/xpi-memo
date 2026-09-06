@@ -34,6 +34,33 @@ const MODEL_REASONING_PATTERN = /\b(?:chain of thought|hidden reasoning)\b/i;
 // widen the pattern again if false negatives show up in real write governance.
 const SPECULATION_PATTERN = /\b(?:probably|maybe)\b/i;
 
+const PRIVATE_KEY_BLOCK_PATTERN =
+  /-----BEGIN (?:[^\n]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[^\n]+ )?PRIVATE KEY-----/gi;
+const PRIVATE_KEY_BEGIN_PATTERN = /-----BEGIN (?:[^\n]+ )?PRIVATE KEY-----/i;
+const PRIVATE_KEY_END_PATTERN = /-----END (?:[^\n]+ )?PRIVATE KEY-----/i;
+const CREDENTIAL_ASSIGNMENT_PATTERN =
+  /\b(?:api[_-]?key|access[_-]?token|token|secret|password|credential)\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi;
+const BEARER_TOKEN_PATTERN = /\bBearer\s+[\w.-]{8,}/gi;
+const PREFIXED_TOKEN_PATTERN = /\bsk-[\w-]{8,}/gi;
+
+const CREDENTIAL_SEPARATOR_PATTERN = /[=:]/;
+export function hasUnterminatedPrivateKey(content: string): boolean {
+  const begin = content.search(PRIVATE_KEY_BEGIN_PATTERN);
+  return begin >= 0 && !PRIVATE_KEY_END_PATTERN.test(content.slice(begin));
+}
+
+export function redactCredentials(content: string): string {
+  return content
+    .replace(PRIVATE_KEY_BLOCK_PATTERN, "[REDACTED]")
+    .replace(CREDENTIAL_ASSIGNMENT_PATTERN, (match) => {
+      const separator = match.match(CREDENTIAL_SEPARATOR_PATTERN)?.[0] ?? ":";
+      const name = match.slice(0, match.indexOf(separator) + 1);
+      return `${name}[REDACTED]`;
+    })
+    .replace(BEARER_TOKEN_PATTERN, "Bearer [REDACTED]")
+    .replace(PREFIXED_TOKEN_PATTERN, "[REDACTED]");
+}
+
 export function classifyProhibitedContent({
   classification,
   content,

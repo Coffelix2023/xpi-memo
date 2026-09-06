@@ -96,6 +96,50 @@ describe("offline extraction boundary (task 3.1)", () => {
     expect(result.status).toBe("failed");
   });
 
+  it("redacts runner event payloads without mutating L0 events", async () => {
+    const source = createL0Event("user_message", 1, {
+      text: "Authorization: Bearer super-secret-token",
+    });
+    let received: Parameters<OfflineExtractionRunner>[0] | undefined;
+
+    const result = await runOfflineExtraction(
+      options({
+        events: [
+          source,
+        ],
+        runner: async (input) => {
+          received = input;
+          return [];
+        },
+      }),
+    );
+
+    expect(result.status).toBe("completed");
+    expect(received?.events[0]?.payload.text).toBe("Authorization: Bearer [REDACTED]");
+    expect(source.payload.text).toBe("Authorization: Bearer super-secret-token");
+  });
+
+  it("refuses uncertain event payloads without calling the runner", async () => {
+    let called = false;
+    const result = await runOfflineExtraction(
+      options({
+        events: [
+          createL0Event("user_message", 1, {
+            text: "-----BEGIN PRIVATE KEY-----\\nmissing end marker",
+          }),
+        ],
+        runner: async () => {
+          called = true;
+          return [];
+        },
+      }),
+    );
+
+    expect(result.status).toBe("refused");
+    expect(called).toBe(false);
+    expect(JSON.stringify(result)).not.toContain("PRIVATE KEY");
+  });
+
   it("returns failed and never throws when the runner throws synchronously", async () => {
     const runner: OfflineExtractionRunner = () => {
       throw new Error("provider exploded");

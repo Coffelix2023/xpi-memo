@@ -27,6 +27,8 @@ export interface AuditMetadata {
   /** Search backend name that executed the recall (task 5.6). */
   backend?: string;
   bank?: string;
+  /** Bounded recall safety diagnostics; never memory bodies. */
+  blockedCount?: number;
   /** Bounded offline-extraction proposal counters; never memory bodies. */
   budgetRejectedCount?: number;
   candidateCount?: number;
@@ -40,16 +42,18 @@ export interface AuditMetadata {
   injectedCount?: number;
   invalidProposals?: number;
   kind?: string;
-  /** Actual sleep execution mode (task 3.4): dedicated / session-model /
-   * mechanical / none / disabled. */
+  /** Actual sleep execution mode (task 3.4): dedicated / session-model / mechanical / none / disabled. */
   mode?: string;
+  omittedCount?: number;
   /** Bounded outcome of a failed operation (task 3.1): rejected / degraded. */
   outcome?: string;
+  policyVersion?: string;
   proposalsTotal?: number;
   reason?: string;
   rejectedCount?: number;
   /** Number of results the backend returned (task 5.6). */
   resultCount?: number;
+  safetyReasons?: string[];
   /** Canonical semantic scope (task 1.2): global / project / session. */
   scope?: "global" | "project" | "session";
   status?: string;
@@ -90,6 +94,7 @@ const ALLOWED_METADATA_KEYS = new Set([
   "fallback",
   "identity",
   "injectedCount",
+  "blockedCount",
   "invalidProposals",
   "kind",
   "mode",
@@ -97,6 +102,9 @@ const ALLOWED_METADATA_KEYS = new Set([
   "proposalsTotal",
   "reason",
   "rejectedCount",
+  "omittedCount",
+  "policyVersion",
+  "safetyReasons",
   "resultCount",
   "scope",
   "status",

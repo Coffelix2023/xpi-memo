@@ -30,7 +30,11 @@ import {
   duplicateCounts,
   generateMemoryMarkdown,
 } from "./memory-generator.js";
-import { corruptEventLine, type ExportFilters } from "./transformer.js";
+import {
+  corruptEventLine,
+  type ExportFilters,
+  redactSensitive,
+} from "./transformer.js";
 
 export interface ExportOptions {
   configHome?: string;
@@ -237,6 +241,7 @@ export async function exportMarkdown(
   }
   const { dailyFiles, memoryMd } = persistOutputs({
     dailyByDate,
+    filters,
     markdownDir,
     memoryInputs,
     nextPositions,
@@ -338,6 +343,7 @@ function foldSession(
 /** Write accumulated daily logs + MEMORY.md + state. */
 function persistOutputs(into: {
   dailyByDate: Map<string, DailyLog[]>;
+  filters: ExportFilters;
   markdownDir: string;
   memoryInputs: Array<{
     events: L0Event[];
@@ -377,7 +383,9 @@ function persistOutputs(into: {
     if (into.memoryInputs.length > 0) {
       writeFileAtomic(
         join(into.markdownDir, "MEMORY.md"),
-        generateMemoryMarkdown(into.memoryInputs).markdown,
+        into.filters.privacy
+          ? redactSensitive(generateMemoryMarkdown(into.memoryInputs).markdown)
+          : generateMemoryMarkdown(into.memoryInputs).markdown,
       );
       memoryMd = true;
     }

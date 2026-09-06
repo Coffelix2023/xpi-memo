@@ -300,6 +300,37 @@ describe("buildMemoryDoctorReport", () => {
     expect(report.evidence.degraded).toBe(1);
   });
 
+  it("reports bounded security diagnostics separately from backend and storage failures", () => {
+    const report = buildMemoryDoctorReport(
+      {
+        auditActions: [],
+        auditStatuses: [],
+        l0T1WriteEvents: 0,
+        pendingCandidates: 0,
+        bankRows: {
+          default: 0,
+        },
+        security: {
+          backendNoHitCount: 2,
+          backendNotRunCount: 1,
+          policyVersion: "memory-boundary-v1",
+          recallBlocked: 3,
+          recallOmitted: 4,
+          routingRejectionCount: 5,
+          storageFailureCount: 6,
+        },
+      },
+      [],
+    );
+    expect(report.evidence.security).toMatchObject({
+      backendNoHitCount: 2,
+      recallBlocked: 3,
+      routingRejectionCount: 5,
+      storageFailureCount: 6,
+    });
+    expect(JSON.stringify(report)).not.toContain("memory body");
+  });
+
   it("treats null stats for every bank as no visible rows", () => {
     const report = buildMemoryDoctorReport(
       {

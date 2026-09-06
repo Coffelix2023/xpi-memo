@@ -7,6 +7,7 @@
 
 import type { RoutingContext } from "../banks.js";
 import { describeMemoryKind, type MemoryKind } from "../kinds.js";
+import { prepareExternalContent } from "../memory-safety.js";
 import { decodeSourceMetadata } from "../operations.js";
 import type {
   BackendCapabilities,
@@ -157,6 +158,9 @@ export class MnemosyneBackend implements SearchBackend {
     return banks;
   }
   async search(query: SearchQuery): Promise<SearchResult[]> {
+    const safety = prepareExternalContent(query.query);
+    if (safety.status === "refused")
+      throw new Error(`external-safety-refused:${safety.reason}`);
     const offset = query.offset ?? 0;
     const cliLimit = Math.min(50, query.limit + offset);
     // Spec scope mapping (recall.ts parity): project queries both the project
@@ -172,7 +176,7 @@ export class MnemosyneBackend implements SearchBackend {
         const output = await this.run(
           [
             "recall",
-            query.query,
+            safety.content,
             String(cliLimit),
             "--explain",
             "--json",

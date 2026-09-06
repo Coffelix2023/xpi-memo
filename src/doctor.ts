@@ -98,6 +98,15 @@ export interface MemoryDoctorInput {
   l0T1WriteEvents: number;
   /** Candidates waiting in candidates.json. */
   pendingCandidates: number;
+  security?: {
+    backendNoHitCount: number;
+    backendNotRunCount: number;
+    policyVersion?: string;
+    recallBlocked: number;
+    recallOmitted: number;
+    routingRejectionCount: number;
+    storageFailureCount: number;
+  };
 }
 
 export interface MemoryRootSurface {
@@ -119,6 +128,15 @@ export interface MemoryDoctorReport {
     pendingCandidates: number;
     roots: MemoryRootSurface[];
     /** Pre-candidate routing rejection count (task 3.3). */
+    security: {
+      backendNoHitCount: number;
+      backendNotRunCount: number;
+      policyVersion?: string;
+      recallBlocked: number;
+      recallOmitted: number;
+      routingRejectionCount: number;
+      storageFailureCount: number;
+    };
     routingRejections: number;
   };
   /** Consecutive empty recalls + alert state (plan-note-03 RECALL_ZERO_STREAK). */
@@ -222,6 +240,14 @@ export function buildMemoryDoctorReport(
       l0T1WriteEvents: input.l0T1WriteEvents,
       pendingCandidates: input.pendingCandidates,
       roots: surfaces,
+      security: input.security ?? {
+        backendNoHitCount: 0,
+        backendNotRunCount: 0,
+        recallBlocked: 0,
+        recallOmitted: 0,
+        routingRejectionCount: 0,
+        storageFailureCount: 0,
+      },
       routingRejections,
     },
   };

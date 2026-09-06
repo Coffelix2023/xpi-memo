@@ -27,7 +27,15 @@ export type L0EventType = (typeof L0_EVENT_TYPES)[number];
 
 /** Payload for a memory injection trace event; content stays in the T1 bank. */
 export interface L0MemoryInjectedPayload {
+  blockedCount?: number;
+  /** Optional bounded diagnostics added after the initial event schema. */
+  injectedCount?: number;
   injectedMemoryIds: readonly string[];
+  lifecycleStage?: "automatic-recall" | "explicit-recall" | "history-query";
+  omissionReasons?: readonly string[];
+  omittedCount?: number;
+  policyVersion?: string;
+  safetyReasons?: readonly string[];
 }
 
 /** Payload for a memory deletion trace event; deleted content stays out of L0. */
