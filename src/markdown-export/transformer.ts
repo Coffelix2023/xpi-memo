@@ -111,6 +111,8 @@ function prose(event: L0Event, filters: ExportFilters): string {
     }
     case "memory_deleted":
       return `Memory deleted: ${text(payload.memoryId)}`;
+    case "memory_delete_requested":
+      return `Memory deletion requested: ${text(payload.memoryId)}`;
     case "t1_memory_write":
       return `Memory stored [${text(payload.kind)}]: ${text(payload.content)}`;
     case "candidate_created":

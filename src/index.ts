@@ -111,6 +111,7 @@ import {
 } from "./status.ts";
 import { openStatusPanel } from "./status-panel.ts";
 import { createMemorySurface, successText } from "./surface.ts";
+import { runT1Write } from "./t1-lifecycle.ts";
 import { renderCallLine, renderToolLine } from "./tool-rendering.ts";
 
 const SLEEP_COMMAND_PATTERN = /^\s*sleep\s+/m;
@@ -429,22 +430,15 @@ function createRuntime(
   const candidates = createCandidateStore({
     adapter,
     statePath: join(configResult.config.dataDir, "candidates.json"),
-    afterStore(operation, memoryId) {
-      scheduleAutoExport(configResult.config, dependencies.env);
-      l0.recordSafe("t1_memory_write", {
-        bank: operation.targetBank,
-        confidence: operation.confidence,
-        content: operation.content,
-        evidenceType: operation.source.evidenceType,
-        fingerprint: contentFingerprint(operation.content),
-        ...(memoryId
-          ? {
-              memoryId,
-            }
-          : {}),
-        kind: operation.kind,
-        scope: operation.scope,
+    async commit(operation) {
+      const result = await runT1Write({
+        adapter,
+        l0,
+        operation,
       });
+      if (result.status === "stored")
+        scheduleAutoExport(configResult.config, dependencies.env);
+      return result;
     },
   });
   const idempotency =
@@ -956,13 +950,15 @@ async function executeRemember(
         );
       }
       const stored = await runtime.candidates.confirm(candidate.id);
-      runtime.l0.recordSafe("candidate_confirmed", {
-        bank: candidate.targetBank,
-        evidenceType,
-        candidateId: candidate.id,
-        kind: candidate.kind,
-        scope: candidate.targetScope,
-      });
+      if (stored.status === "stored") {
+        runtime.l0.recordSafe("candidate_confirmed", {
+          bank: candidate.targetBank,
+          evidenceType,
+          candidateId: candidate.id,
+          kind: candidate.kind,
+          scope: candidate.targetScope,
+        });
+      }
       runtime.audit.record("confirmation", {
         bank: candidate.targetBank,
         evidenceType,
@@ -1022,43 +1018,36 @@ async function executeRemember(
       );
     }
 
-    runtime.l0.recordSafe("routing_decision", {
-      ...(provenance
-        ? {
-            source: provenance.source,
-            sourceEventPosition: provenance.eventPosition,
-            sourceSessionId: provenance.sessionId,
-          }
-        : {}),
-      fingerprint,
-      bank: operation.targetBank,
-      evidenceType,
-      kind: operation.kind,
-      projectBank: runtime.context.projectBank,
-      scope: operation.scope,
+    const lifecycle = await runT1Write({
+      adapter: runtime.adapter,
+      l0: runtime.l0,
+      operation,
+      requestPayload: {
+        identity: runtime.context.identity,
+        outcome: "degraded",
+        phase: "backend",
+      },
     });
-    const stored = await runtime.adapter.store(operation);
-    runtime.l0.record("t1_memory_write", {
-      ...(provenance
-        ? {
-            source: provenance.source,
-            sourceEventPosition: provenance.eventPosition,
-            sourceSessionId: provenance.sessionId,
-          }
-        : {}),
-      fingerprint,
-      bank: operation.targetBank,
-      evidenceType,
-      confidence: operation.confidence,
-      content: operation.content,
-      ...(stored.id
-        ? {
-            memoryId: stored.id,
-          }
-        : {}),
-      kind: operation.kind,
-      scope: operation.scope,
-    });
+    if (lifecycle.status !== "stored") {
+      recordMemoryFailure(runtime, {
+        bank: operation.targetBank,
+        kind: operation.kind,
+        outcome: "degraded",
+        phase: "backend",
+        reason: lifecycle.reason ?? lifecycle.status,
+        scope: operation.scope,
+      });
+      return toolResult(
+        {
+          bank: operation.targetBank,
+          kind: operation.kind,
+          reason: lifecycle.reason ?? lifecycle.status,
+          scope: operation.scope,
+          status: "error",
+        },
+        `Memory write ${lifecycle.status}: ${lifecycle.reason ?? lifecycle.operationId}. Check the T1 backend (mnemosyne) or xpi_memo configuration.`,
+      );
+    }
     scheduleAutoExport(runtime.config, dependencies.env);
     runtime.audit.record("write", {
       bank: operation.targetBank,
@@ -1071,14 +1060,14 @@ async function executeRemember(
     return toolResult(
       {
         bank: operation.targetBank,
-        id: stored.id,
+        id: lifecycle.memoryId,
         kind: operation.kind,
         scope: operation.scope,
         status: "stored",
       },
       JSON.stringify({
         bank: operation.targetBank,
-        id: stored.id,
+        id: lifecycle.memoryId,
         kind: operation.kind,
         scope: operation.scope,
         status: "stored",

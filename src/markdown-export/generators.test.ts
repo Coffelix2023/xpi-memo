@@ -43,6 +43,10 @@ describe("transformer", () => {
         action: "edited",
         path: "/a/b.ts",
       },
+      memory_delete_requested: {
+        memoryId: "memory-1",
+        operationId: "operation-1",
+      },
       memory_deleted: {
         memoryId: "memory-1",
       },

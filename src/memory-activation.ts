@@ -17,6 +17,7 @@ import {
 import type { MnemosyneAdapter, T1MemoryOperation } from "./operations.js";
 import { generatePendingCandidate } from "./pending-candidate.js";
 import { routeMemoryKind } from "./routing.js";
+import { runT1Write } from "./t1-lifecycle.js";
 
 export type MemoryActivationResult =
   | {
@@ -327,31 +328,23 @@ export async function activateExplicitMemoryIntent(
     };
   }
 
-  runtime.l0.recordSafe("routing_decision", {
-    ...provenancePayload(provenance),
-    bank: operation.targetBank,
-    evidenceType: operation.source.evidenceType,
-    fingerprint: claim.fingerprint,
-    kind: operation.kind,
-    projectBank: runtime.context.projectBank,
-    scope: operation.scope,
+  const lifecycle = await runT1Write({
+    adapter: runtime.adapter,
+    l0: runtime.l0,
+    operation,
+    requestPayload: {
+      ...provenancePayload(provenance),
+      evidenceType: operation.source.evidenceType,
+      fingerprint: claim.fingerprint,
+      projectBank: runtime.context.projectBank,
+    },
   });
-  const stored = await runtime.adapter.store(operation);
-  runtime.l0.recordSafe("t1_memory_write", {
-    ...provenancePayload(provenance),
-    bank: operation.targetBank,
-    confidence: operation.confidence,
-    content: operation.content,
-    evidenceType: operation.source.evidenceType,
-    fingerprint: claim.fingerprint,
-    ...(stored.id
-      ? {
-          memoryId: stored.id,
-        }
-      : {}),
-    kind: operation.kind,
-    scope: operation.scope,
-  });
+  if (lifecycle.status !== "stored") {
+    return {
+      reason: lifecycle.reason ?? lifecycle.status,
+      status: "rejected",
+    };
+  }
   runtime.audit.record("write", {
     bank: operation.targetBank,
     confidence: operation.confidence,

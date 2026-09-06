@@ -12,8 +12,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createCandidateStore } from "./candidate-lifecycle.ts";
 import { createEvidenceRecord } from "./evidence.ts";
+import { createEventLogReader } from "./l0/event-log-reader.js";
+import { createL0Coordinator } from "./l0/l0-runtime.js";
 import type { MnemosyneAdapter, T1MemoryOperation } from "./operations.js";
 import type { PendingCandidate } from "./pending-candidate.js";
+import { runT1Write } from "./t1-lifecycle.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -310,6 +313,79 @@ describe("T1 candidate lifecycle", () => {
     await expect(store.confirm(candidate.id)).rejects.toThrow("adapter failed");
     expect(store.list()).toEqual([
       candidate,
+    ]);
+  });
+
+  it.each([
+    "failed",
+    "unresolved",
+  ] as const)("keeps candidate state when the lifecycle is %s", async (status) => {
+    const dataDir = createTemporaryDirectory();
+    const statePath = join(dataDir, "candidates.json");
+    const store = createCandidateStore({
+      adapter: createAdapter().adapter,
+      async commit() {
+        return {
+          reason: `${status}-lifecycle`,
+          status,
+        };
+      },
+      statePath,
+    });
+    const candidate = createCandidate();
+    store.add(candidate, createOperation());
+
+    await expect(store.confirm(candidate.id)).resolves.toEqual({
+      reason: `${status}-lifecycle`,
+      status: "rejected",
+    });
+    expect(store.list()).toEqual([
+      candidate,
+    ]);
+    expect(readFileSync(statePath, "utf8")).toContain(candidate.id);
+  });
+
+  it("keeps candidates.json entry when a committed backend write lacks its L0 commit event", async () => {
+    const dataDir = createTemporaryDirectory();
+    const statePath = join(dataDir, "candidates.json");
+    const { adapter } = createAdapter();
+    const l0 = createL0Coordinator({
+      dataDir,
+      enabled: true,
+    });
+    const originalRecord = l0.record.bind(l0);
+    l0.record = (type, payload) => {
+      if (type === "t1_memory_write") throw new Error("commit-event-failed");
+      return originalRecord(type, payload);
+    };
+    const store = createCandidateStore({
+      adapter,
+      async commit(operation) {
+        return runT1Write({
+          adapter,
+          l0,
+          operation,
+        });
+      },
+      statePath,
+    });
+    const candidate = createCandidate();
+    store.add(candidate, createOperation());
+
+    await expect(store.confirm(candidate.id)).resolves.toEqual({
+      reason: "commit-event-failed",
+      status: "rejected",
+    });
+    expect(JSON.parse(readFileSync(statePath, "utf8")).candidates).toHaveProperty(
+      candidate.id,
+    );
+    const sessionId = l0.sessionId();
+    if (!sessionId) throw new Error("test L0 session was not created");
+    const events = await createEventLogReader({
+      sessionDir: join(dataDir, "sessions", sessionId),
+    }).readAll();
+    expect(events.map((event) => event.type)).toEqual([
+      "routing_decision",
     ]);
   });
 

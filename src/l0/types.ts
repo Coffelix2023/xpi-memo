@@ -14,6 +14,7 @@ export const L0_EVENT_TYPES = [
   "compaction",
   "memory_injected",
   "memory_deleted",
+  "memory_delete_requested",
   "t1_memory_write",
   "candidate_created",
   "candidate_confirmed",
@@ -38,11 +39,19 @@ export interface L0MemoryInjectedPayload {
   safetyReasons?: readonly string[];
 }
 
-/** Payload for a memory deletion trace event; deleted content stays out of L0. */
+/** Payload for a confirmed memory deletion; deleted content stays out of L0. */
 export interface L0MemoryDeletedPayload {
   memoryId: string;
+  operationId?: string;
 }
 
+/** Bounded request correlation shared by governed write and delete events. */
+export interface L0MemoryLifecyclePayload {
+  bank?: string;
+  kind?: string;
+  operationId: string;
+  scope?: string;
+}
 /** Schema version for forward-compatible evolution. */
 export const L0_SCHEMA_VERSION = 1;
 

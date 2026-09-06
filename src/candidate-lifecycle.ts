@@ -55,8 +55,11 @@ export interface CandidateStore {
 
 interface CreateCandidateStoreOptions {
   adapter: MnemosyneAdapter;
-  afterStore?: (operation: T1MemoryOperation, memoryId: string | null) => void;
   beforeStore?: (operation: T1MemoryOperation) => void;
+  commit?: (operation: T1MemoryOperation) => Promise<{
+    reason?: string;
+    status: "failed" | "stored" | "unresolved";
+  }>;
   statePath: string;
 }
 
@@ -139,7 +142,7 @@ function notFound(): CandidateLifecycleResult {
 export function createCandidateStore({
   adapter,
   beforeStore,
-  afterStore,
+  commit,
   statePath,
 }: CreateCandidateStoreOptions): CandidateStore {
   const state = loadState(statePath);
@@ -190,14 +193,23 @@ export function createCandidateStore({
       };
     }
     beforeStore?.(stored.operation);
-    const storeResult = await adapter.store(stored.operation);
+    const outcome = commit
+      ? await commit(stored.operation)
+      : await adapter.store(stored.operation).then(() => ({
+          status: "stored" as const,
+        }));
+    if (outcome.status !== "stored") {
+      return {
+        ...(outcome.reason
+          ? {
+              reason: outcome.reason,
+            }
+          : {}),
+        status: "rejected",
+      };
+    }
     delete state.candidates[candidateId];
     audit(state, "candidate-confirmed", candidateId);
-    try {
-      afterStore?.(stored.operation, storeResult.id);
-    } catch {
-      // Post-store hooks are best effort and must not undo a confirmed write.
-    }
     saveState(statePath, state);
     return {
       status: "stored",

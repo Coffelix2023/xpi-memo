@@ -21,6 +21,7 @@ import {
   type PendingCandidateReason,
 } from "./pending-candidate.js";
 import { routeMemoryKind } from "./routing.js";
+import { runT1Write } from "./t1-lifecycle.js";
 
 /**
  * Gated offline extraction boundary (task 3.1).
@@ -520,26 +521,18 @@ async function directStore(
   runtime: OfflineExtractionGovernanceRuntime,
   operation: T1MemoryOperation,
 ): Promise<OfflineExtractionGovernanceResult> {
-  runtime.l0.recordSafe("routing_decision", {
-    bank: operation.targetBank,
-    evidenceType: "l0-conclusion",
-    kind: operation.kind,
-    scope: operation.scope,
+  const lifecycle = await runT1Write({
+    adapter: runtime.adapter,
+    l0: runtime.l0,
+    operation,
   });
-  const stored = await runtime.adapter.store(operation);
-  runtime.l0.recordSafe("t1_memory_write", {
-    bank: operation.targetBank,
-    confidence: operation.confidence,
-    content: operation.content,
-    evidenceType: "l0-conclusion",
-    ...(stored.id
-      ? {
-          memoryId: stored.id,
-        }
-      : {}),
-    kind: operation.kind,
-    scope: operation.scope,
-  });
+  if (lifecycle.status !== "stored") {
+    return {
+      kind: operation.kind,
+      reason: lifecycle.reason ?? lifecycle.status,
+      status: "rejected",
+    };
+  }
   runtime.audit.record("write", {
     bank: operation.targetBank,
     confidence: operation.confidence,
