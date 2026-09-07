@@ -35,6 +35,13 @@ Unknown config keys are ignored (fail-closed parsing); sensitive keys (`token`, 
 
 **Rollback.** Downgrading to a pre-observability version is safe: the new files are additive and ignored by older code; explicit activation and recall behavior already existed, and no old file format changes. To disable new capture behavior without uninstalling, set `XPI_MEMO_PAUSED=true` (pauses all T1 writes/recalls) — banks, candidates, audit, and L0 logs stay readable. The project layer is opt-in and reversible: delete `.pi/xpi-memo/project.json` to undo a non-Git init (project memory reverts to rejected-outside-Git), and delete `.pi/memory/` to remove exported Markdown — machine state in the global bank is untouched by either.
 
+## Lifecycle event migration and rollback boundary
+- New lifecycle writes add `operationId` correlation to existing `routing_decision` and `t1_memory_write` records, and may emit `memory_failed` and `memory_delete_requested`; `memory_deleted` remains the confirmed deletion event.
+- The upgraded reader is backward-compatible with historical events that have no `operationId`: legacy committed writes remain readable, while deletion correlation without a verifiable ID stays visible as a bounded diagnostic and is never matched by body text.
+- Before rolling back to a reader that predates these lifecycle events: (1) finish a full Markdown export and save its output, (2) stop emitting new lifecycle events, including `memory_failed` and `memory_delete_requested`, and stop adding new correlation fields, (3) restore the older code, and (4) retain the L0 logs and export backup for manual reconciliation.
+- Do not continue writes after step 2: an older reader may treat the new event types as unknown, so rollback is not a live downgrade while governed operations are still active.
+
+
 **Disabled-by-default extraction.** With `offlineExtractionEnabled` left at its default `false`, no extraction runner is invoked, no budget ledger is consumed, and no proposal is generated. Set `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED=true` to opt in. Extraction runs once at `session_shutdown` for the current session only; `session_before_compact` records L0 context but does not trigger another model call. The runner is host-injected and provider-neutral; missing, failed, or timed-out runners degrade silently, consume the per-session execution budget, and expose only bounded status/counters through status and audit. Proposals always use `l0-conclusion` evidence and pass the existing content, routing, and candidate governance; audit never stores proposal bodies. Disable with `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED=false` or pause T1 writes with `XPI_MEMO_PAUSED=true`. Explicit deterministic capture, candidates, recall, and export remain available according to their existing paused contract.
 ## Feature availability by release
 
@@ -64,3 +71,4 @@ Unknown config keys are ignored (fail-closed parsing); sensitive keys (`token`, 
 - No project identity (non-Git, uninitialized) → project kinds are rejected with `routing_rejected`/`project-identity-required`; global and session memory keep working; `/xpi-memo-init` opts in.
 - No sleep mode configured → `xpi_memo_sleep` returns `SLEEP_DISABLED`; no memory change, no silent fallback.
 - No search backend → recall reports `backend-queried-no-hits` vs `backend-not-run` distinctly.
+- `xpi_memo_forget` 当前需要 adapter 的稳定精确 ID 读取能力；当前 Mnemosyne CLI 不提供该能力，因此返回 `upstream-exact-id-read-unavailable`，不会调用 delete。

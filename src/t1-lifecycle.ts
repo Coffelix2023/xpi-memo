@@ -10,6 +10,7 @@ export interface T1Lifecycle {
   bank?: string;
   kind?: string;
   operationId: string;
+  reason?: string;
   scope?: string;
   status: T1LifecycleStatus;
 }
@@ -40,6 +41,7 @@ function lifecycleFor(event: L0Event): T1Lifecycle | null {
       bank: typeof event.payload.bank === "string" ? event.payload.bank : undefined,
       kind: typeof event.payload.kind === "string" ? event.payload.kind : undefined,
       operationId,
+      reason: "no-terminal-event",
       scope: typeof event.payload.scope === "string" ? event.payload.scope : undefined,
       status: "unresolved",
     };
@@ -47,12 +49,17 @@ function lifecycleFor(event: L0Event): T1Lifecycle | null {
   if (event.type === "t1_memory_write" || event.type === "memory_deleted") {
     return {
       operationId,
+      reason: undefined,
       status: "committed",
     };
   }
   if (event.type === "memory_failed")
     return {
       operationId,
+      reason:
+        typeof event.payload.reason === "string"
+          ? event.payload.reason.slice(0, 200)
+          : "operation-failed",
       status: "failed",
     };
   return null;
@@ -83,6 +90,57 @@ export function foldT1Lifecycles(events: readonly L0Event[]): T1Lifecycle[] {
   ];
 }
 
+export interface T1LifecycleDiagnostic {
+  bank?: string;
+  kind?: string;
+  operationId: string;
+  reason: string;
+  scope?: string;
+  status: "failed" | "unresolved";
+}
+
+/** Return bounded, body-free lifecycle diagnostics for operator status output. */
+export function lifecycleDiagnostics(
+  events: readonly L0Event[],
+  limit = 20,
+): {
+  entries: T1LifecycleDiagnostic[];
+  total: number;
+} {
+  const entries = foldT1Lifecycles(events)
+    .filter(
+      (
+        lifecycle,
+      ): lifecycle is T1Lifecycle & {
+        status: "failed" | "unresolved";
+      } => lifecycle.status === "failed" || lifecycle.status === "unresolved",
+    )
+    .map((lifecycle) => ({
+      ...(lifecycle.bank
+        ? {
+            bank: lifecycle.bank,
+          }
+        : {}),
+      ...(lifecycle.kind
+        ? {
+            kind: lifecycle.kind,
+          }
+        : {}),
+      operationId: lifecycle.operationId,
+      reason: lifecycle.reason ?? "lifecycle-incomplete",
+      ...(lifecycle.scope
+        ? {
+            scope: lifecycle.scope,
+          }
+        : {}),
+      status: lifecycle.status,
+    }));
+  const safeLimit = Number.isInteger(limit) && limit > 0 ? limit : 20;
+  return {
+    entries: entries.slice(0, safeLimit),
+    total: entries.length,
+  };
+}
 /**
  * Coordinate the L0-first write lifecycle. A missing terminal event is
  * explicitly unresolved because T1 and L0 do not share a transaction.

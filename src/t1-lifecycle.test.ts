@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { L0Coordinator } from "./l0/l0-runtime.js";
 import type { L0Event, L0EventType } from "./l0/types.js";
 import type { MnemosyneAdapter, T1MemoryOperation } from "./operations.js";
-import { foldT1Lifecycles, runT1Write } from "./t1-lifecycle.js";
+import { foldT1Lifecycles, lifecycleDiagnostics, runT1Write } from "./t1-lifecycle.js";
 
 function operation(): T1MemoryOperation {
   return {
@@ -158,6 +158,71 @@ describe("T1 lifecycle folding", () => {
         operationId: "legacy:2",
         status: "committed",
       }),
+    ]);
+  });
+
+  it("exposes bounded body-free diagnostics for unresolved operations", () => {
+    const diagnostics = lifecycleDiagnostics([
+      {
+        position: 1,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        type: "routing_decision",
+        version: 1,
+        payload: {
+          bank: "default",
+          content: "secret memory body must not leak",
+          operationId: "op-unresolved",
+          scope: "global",
+        },
+      },
+    ]);
+
+    expect(diagnostics).toEqual({
+      total: 1,
+      entries: [
+        {
+          bank: "default",
+          operationId: "op-unresolved",
+          reason: "no-terminal-event",
+          scope: "global",
+          status: "unresolved",
+        },
+      ],
+    });
+    expect(JSON.stringify(diagnostics)).not.toContain("secret memory body");
+  });
+  it("replays legacy events without inventing lifecycle correlation", () => {
+    const lifecycles = foldT1Lifecycles([
+      {
+        position: 1,
+        timestamp: "2025-01-01T00:00:00.000Z",
+        type: "t1_memory_write",
+        version: 1,
+        payload: {
+          content: "legacy body",
+          kind: "global_preference",
+        },
+      },
+      {
+        position: 2,
+        timestamp: "2025-01-01T00:00:01.000Z",
+        type: "memory_deleted",
+        version: 1,
+        payload: {
+          memoryId: "not-correlated-to-legacy",
+        },
+      },
+    ]);
+
+    expect(lifecycles).toEqual([
+      {
+        operationId: "legacy:1",
+        status: "committed",
+      },
+      {
+        operationId: "legacy:2",
+        status: "committed",
+      },
     ]);
   });
 

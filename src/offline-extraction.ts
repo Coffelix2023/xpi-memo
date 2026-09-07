@@ -408,9 +408,8 @@ export type OfflineExtractionGovernanceResult =
   | {
       kind?: MemoryKind;
       reason: string;
-      status: "rejected";
+      status: "rejected" | "unresolved";
     };
-
 function evidenceRecordFor(
   proposal: OfflineExtractionProposal,
 ): ReturnType<typeof createEvidenceRecord> {
@@ -526,6 +525,15 @@ async function directStore(
     l0: runtime.l0,
     operation,
   });
+  if (lifecycle.status === "unresolved") {
+    // T1 backend wrote but the L0 terminal event could not be recorded:
+    // surface unresolved instead of a policy rejection.
+    return {
+      kind: operation.kind,
+      reason: lifecycle.reason ?? lifecycle.status,
+      status: "unresolved",
+    };
+  }
   if (lifecycle.status !== "stored") {
     return {
       kind: operation.kind,

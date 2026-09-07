@@ -7,6 +7,21 @@ import type { MemoryDoctorReport } from "./doctor.js";
 import { describeMemoryKindOrNull } from "./kinds.js";
 import type { ObservabilitySnapshot } from "./observability.js";
 export interface MemoryStatus {
+  /** Body-free cross-layer consistency diagnostics. */
+  consistency?: {
+    lifecycle: {
+      total: number;
+      entries: Array<{
+        bank?: string;
+        kind?: string;
+        operationId: string;
+        reason: string;
+        scope?: string;
+        status: "failed" | "unresolved";
+      }>;
+    };
+    memoryProjection: "complete" | "failed" | "pending" | "unknown";
+  };
   counts: {
     global: number | null;
     project: number | null;
@@ -185,6 +200,34 @@ export function visibleBankDiskBytes(
 }
 export function renderStatus(status: MemoryStatus): MemoryStatus {
   return {
+    consistency: status.consistency
+      ? {
+          memoryProjection: status.consistency.memoryProjection,
+          lifecycle: {
+            entries: status.consistency.lifecycle.entries.map((entry) => ({
+              ...(entry.bank
+                ? {
+                    bank: entry.bank,
+                  }
+                : {}),
+              ...(entry.kind
+                ? {
+                    kind: entry.kind,
+                  }
+                : {}),
+              operationId: entry.operationId,
+              reason: entry.reason,
+              ...(entry.scope
+                ? {
+                    scope: entry.scope,
+                  }
+                : {}),
+              status: entry.status,
+            })),
+            total: status.consistency.lifecycle.total,
+          },
+        }
+      : undefined,
     currentProject: status.currentProject
       ? {
           bank: status.currentProject.bank,

@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,7 +12,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createEventLogWriter } from "../l0/event-log-writer.js";
 import { sessionDirFor } from "../l0/session-manager.js";
 import { createL0Event, type L0Event, type L0EventType } from "../l0/types.js";
-import { exportMarkdown, markdownDirFor, validateExport } from "./exporter.js";
+import {
+  exportMarkdown,
+  markdownDirFor,
+  memoryProjectionStatusFor,
+  validateExport,
+} from "./exporter.js";
 
 let dataDir: string;
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -87,6 +93,7 @@ describe("markdown export", () => {
     const memory = readFileSync(join(markdownDirFor(dataDir), "MEMORY.md"), "utf8");
     expect(memory).toContain("## Decisions");
     expect(memory).toContain("Use pnpm workspaces");
+    expect(memoryProjectionStatusFor(dataDir)).toBe("complete");
   });
 
   it("uses ISO 8601 date filenames from event timestamps", async () => {
@@ -146,6 +153,45 @@ describe("markdown export", () => {
     expect(daily).toContain(`## Session \`${idB}\``);
   });
 
+  it("rebuilds MEMORY.md from complete history after an incremental export", async () => {
+    writeEvents([
+      {
+        type: "t1_memory_write",
+        payload: {
+          content: "memory A",
+          kind: "global_preference",
+          memoryId: "memory-a",
+        },
+      },
+    ]);
+    await exportMarkdown({
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+
+    writeEvents([
+      {
+        type: "t1_memory_write",
+        payload: {
+          content: "memory B",
+          kind: "global_preference",
+          memoryId: "memory-b",
+        },
+      },
+    ]);
+    const result = await exportMarkdown({
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+
+    expect(result.memoryMd).toBe(true);
+    const memory = readFileSync(join(markdownDirFor(dataDir), "MEMORY.md"), "utf8");
+    expect(memory).toContain("memory A");
+    expect(memory).toContain("memory B");
+  });
+
   it("is incremental: second export processes no events and does not duplicate entries", async () => {
     writeEvents([
       {
@@ -193,6 +239,61 @@ describe("markdown export", () => {
     expect(second.sessions[0]?.exportedEvents).toBe(0);
     expect(second.memoryMd).toBe(false);
     expect(second.dailyFiles).toBe(0);
+  });
+
+  it("keeps projection retryable when MEMORY.md replacement fails", async () => {
+    writeEvents([
+      {
+        type: "t1_memory_write",
+        payload: {
+          content: "retry memory A",
+          kind: "global_preference",
+          memoryId: "retry-a",
+        },
+      },
+    ]);
+    await exportMarkdown({
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+    const memoryPath = join(markdownDirFor(dataDir), "MEMORY.md");
+    rmSync(memoryPath);
+    mkdirSync(memoryPath);
+
+    writeEvents([
+      {
+        type: "t1_memory_write",
+        payload: {
+          content: "retry memory B",
+          kind: "global_preference",
+          memoryId: "retry-b",
+        },
+      },
+    ]);
+    const failed = await exportMarkdown({
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+    expect(failed.dailyFiles).toBe(1);
+    expect(failed.memoryMd).toBe(false);
+    expect(failed.memoryProjection).toBe("failed");
+    expect(failed.warnings.join("\n")).toContain("MEMORY.md");
+
+    rmSync(memoryPath, {
+      recursive: true,
+    });
+    const retried = await exportMarkdown({
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+    expect(retried.memoryMd).toBe(true);
+    expect(retried.memoryProjection).toBe("complete");
+    const memory = readFileSync(memoryPath, "utf8");
+    expect(memory).toContain("retry memory A");
+    expect(memory).toContain("retry memory B");
   });
 
   it("validation reports missing exports, then passes after export", async () => {
@@ -451,4 +552,49 @@ describe("markdown export", () => {
     expect(daily).toContain("only A");
     expect(daily).not.toContain("only B");
   });
+});
+
+it("keeps MEMORY.md projections from all sessions when daily export is filtered to one session", async () => {
+  const idA = "2024-03-15T10-00-00-00000000-aaaa";
+  const idB = "2024-03-15T11-00-00-00000000-bbbb";
+  writeRawEvent(
+    idA,
+    createL0Event(
+      "t1_memory_write",
+      1,
+      {
+        content: "memory from session A",
+        kind: "global_preference",
+        memoryId: "memory-a",
+      },
+      "2024-03-15T10:00:00.000Z",
+    ),
+  );
+  writeRawEvent(
+    idB,
+    createL0Event(
+      "t1_memory_write",
+      1,
+      {
+        content: "memory from session B",
+        kind: "global_preference",
+        memoryId: "memory-b",
+      },
+      "2024-03-15T11:00:00.000Z",
+    ),
+  );
+  const result = await exportMarkdown({
+    sessionId: idA,
+    env: {
+      XPI_MEMO_DATA_DIR: dataDir,
+    },
+  });
+  // Daily output stays restricted to the requested session.
+  const daily = readDaily("2024-03-15");
+  expect(daily).not.toContain("memory from session B");
+  // The global MEMORY projection must retain every session's writes.
+  expect(result.memoryMd).toBe(true);
+  const memory = readFileSync(join(markdownDirFor(dataDir), "MEMORY.md"), "utf8");
+  expect(memory).toContain("memory from session A");
+  expect(memory).toContain("memory from session B");
 });

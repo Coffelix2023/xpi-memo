@@ -316,18 +316,15 @@ describe("T1 candidate lifecycle", () => {
     ]);
   });
 
-  it.each([
-    "failed",
-    "unresolved",
-  ] as const)("keeps candidate state when the lifecycle is %s", async (status) => {
+  it("maps a failed lifecycle to rejected while keeping the candidate", async () => {
     const dataDir = createTemporaryDirectory();
     const statePath = join(dataDir, "candidates.json");
     const store = createCandidateStore({
       adapter: createAdapter().adapter,
       async commit() {
         return {
-          reason: `${status}-lifecycle`,
-          status,
+          reason: "failed-lifecycle",
+          status: "failed",
         };
       },
       statePath,
@@ -336,7 +333,7 @@ describe("T1 candidate lifecycle", () => {
     store.add(candidate, createOperation());
 
     await expect(store.confirm(candidate.id)).resolves.toEqual({
-      reason: `${status}-lifecycle`,
+      reason: "failed-lifecycle",
       status: "rejected",
     });
     expect(store.list()).toEqual([
@@ -345,6 +342,31 @@ describe("T1 candidate lifecycle", () => {
     expect(readFileSync(statePath, "utf8")).toContain(candidate.id);
   });
 
+  it("propagates an unresolved lifecycle and keeps the candidate", async () => {
+    const dataDir = createTemporaryDirectory();
+    const statePath = join(dataDir, "candidates.json");
+    const store = createCandidateStore({
+      adapter: createAdapter().adapter,
+      async commit() {
+        return {
+          reason: "unresolved-lifecycle",
+          status: "unresolved",
+        };
+      },
+      statePath,
+    });
+    const candidate = createCandidate();
+    store.add(candidate, createOperation());
+
+    await expect(store.confirm(candidate.id)).resolves.toEqual({
+      reason: "unresolved-lifecycle",
+      status: "unresolved",
+    });
+    expect(store.list()).toEqual([
+      candidate,
+    ]);
+    expect(readFileSync(statePath, "utf8")).toContain(candidate.id);
+  });
   it("keeps candidates.json entry when a committed backend write lacks its L0 commit event", async () => {
     const dataDir = createTemporaryDirectory();
     const statePath = join(dataDir, "candidates.json");
@@ -374,7 +396,7 @@ describe("T1 candidate lifecycle", () => {
 
     await expect(store.confirm(candidate.id)).resolves.toEqual({
       reason: "commit-event-failed",
-      status: "rejected",
+      status: "unresolved",
     });
     expect(JSON.parse(readFileSync(statePath, "utf8")).candidates).toHaveProperty(
       candidate.id,

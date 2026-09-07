@@ -7,6 +7,7 @@
 
 ## 0. TL;DR(Agent 执行守则)
 
+- 每次对话在头部声明"[@PRJ-AGENTS.md]"
 - 本仓库是一个 **Pi Coding Agent 扩展 (pi-extension)**,即被 Pi 主进程加载的 Node.js 插件。**不是 Web 应用**。
 - **核心栈**:TypeScript (strict) + Node.js + Pi 原生 UI(`ctx.ui.*` / `@earendil-works/pi-tui`)+ Biome + pnpm + Vitest + typebox。
 - **无构建步骤**:Pi 直接加载 `src/index.ts` TypeScript 源码。禁止引入 tsup/esbuild/dist 产物。
@@ -67,10 +68,11 @@ pnpm test             # vitest run
 - 如果用户问合并 / release / 发布, 说明 GitHub UI 里的下一步并停在需要人类确认的位置。
 - 远端不存在、分叉、冲突、ignore 对不上时先说风险, 不猜测.
 
-## 7. 禁止清单
-- ❌ 引入 Web 交付框架(`next`/`react-dom`/路由框架)或浏览器专属 API.
+## 7. 计划与任务执行规范
+- 每当完成一项子任务(`task.md`中以`##`符号开头的任务,不是`1.1`这类次级子任务), 必须以通俗易懂的方式表述该任务的`目的/作用/特点/边界`,并作为 report保存到`docs/task-report/dev-<编号>/repo-task<编号>.md`.
+
+## 8. 禁止清单
 - ❌ 引入 tsup/esbuild 等构建步骤或提交 `dist/`.
 - ❌ 引入 ink/`@inquirer/prompts` 等接管终端的库.
 - ❌ 使用 `any` / 关闭 strict / 绕过 Biome.
 - ❌ 在日志或错误信息中打印 Token、完整用户数据.
-- ❌ 凭记忆调用 Pi API;必须先读 `@earendil-works/*` 类型定义.

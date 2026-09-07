@@ -207,6 +207,33 @@ describe("XpiMemo status", () => {
     expect(rendered).not.toContain("memory body");
   });
 
+  it("keeps consistency diagnostics bounded and body-free", () => {
+    const rendered = JSON.stringify(
+      renderStatus({
+        ...status,
+        consistency: {
+          memoryProjection: "pending",
+          lifecycle: {
+            total: 1,
+            entries: [
+              {
+                bank: "default",
+                operationId: "op-1",
+                reason: "no-terminal-event",
+                scope: "global",
+                status: "unresolved",
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(rendered).toContain('"operationId":"op-1"');
+    expect(rendered).toContain('"memoryProjection":"pending"');
+    expect(rendered).not.toContain("memory body");
+  });
+
   it("reports an unrecognized project without inventing a bank", () => {
     const rendered = renderStatus({
       ...status,

@@ -13,6 +13,7 @@ export const AUDIT_ACTIONS = [
   "write",
   "candidate",
   "confirmation",
+  "deletion",
   "rejection",
   "recall",
   "fallback",
@@ -45,6 +46,8 @@ export interface AuditMetadata {
   /** Actual sleep execution mode (task 3.4): dedicated / session-model / mechanical / none / disabled. */
   mode?: string;
   omittedCount?: number;
+  /** Correlates a bounded lifecycle outcome without storing memory content. */
+  operationId?: string;
   /** Bounded outcome of a failed operation (task 3.1): rejected / degraded. */
   outcome?: string;
   policyVersion?: string;
@@ -86,6 +89,7 @@ interface CreateAuditLogOptions {
 const DEFAULT_MAX_ENTRIES = 200;
 const ALLOWED_METADATA_KEYS = new Set([
   "backend",
+  "operationId",
   "bank",
   "budgetRejectedCount",
   "candidateCount",

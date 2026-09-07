@@ -365,28 +365,10 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
       ),
     );
     expect(forgottenProject).toMatchObject({
-      bank: projectBank,
       id: projectMemory?.id,
-      status: "deleted",
+      reason: "upstream-exact-id-read-unavailable",
+      status: "error",
     });
-    const afterForget = await tool("xpi_memo_recall").execute(
-      "recall-project-after-forget",
-      {
-        limit: 10,
-        query: "Mnemosyne T1 store",
-      },
-      undefined,
-      undefined,
-      ctx,
-    );
-    const afterForgetPayload = JSON.parse(textOf(afterForget)) as {
-      results: Array<{
-        id?: string | null;
-      }>;
-    };
-    expect(
-      afterForgetPayload.results.some((item) => item.id === projectMemory?.id),
-    ).toBe(false);
 
     // recall: returns kind and provenance metadata from the project bank
     const recalled = await tool("xpi_memo_recall").execute(
@@ -459,9 +441,9 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
       ),
     );
     expect(forgotten).toMatchObject({
-      bank: "default",
       id: globalMemory?.id,
-      status: "deleted",
+      reason: "upstream-exact-id-read-unavailable",
+      status: "error",
     });
     // sleep: unauthorized stays rejected; authorized with a dedicated model is
     // capability-blocked instead of silently falling back to the primary model

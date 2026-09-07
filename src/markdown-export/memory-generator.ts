@@ -43,6 +43,12 @@ export interface MemorySource {
   sessionId: string;
 }
 
+export interface MemoryProjectionDiagnostic {
+  code: "legacy-memory-id-unavailable";
+  position: number;
+  sessionId: string;
+}
+
 export interface MemoryDuplicateCounts {
   exact: number;
   near: number;
@@ -68,11 +74,7 @@ function bankOf(payload: { bank?: unknown }): string {
     : "default";
 }
 
-/**
- * Collect confirmed T1 writes. Exact duplicates stay in the export and are
- * marked `supersededBy` later; SQLite is never rewritten.
- */
-// TODO(L2): rebuild MEMORY.md from the current T1 bank instead of projecting L0 history; see fast-fix plan.md.
+/** Collect confirmed T1 writes. Exact duplicates stay in the export and are marked later. */
 export function collectMemoryEntries(sources: MemorySource[]): MemoryEntry[] {
   const deletedIds = new Set<string>();
   for (const source of sources) {
@@ -120,6 +122,24 @@ export function collectMemoryEntries(sources: MemorySource[]): MemoryEntry[] {
     }
   }
   return entries.sort((a, b) => a.position - b.position);
+}
+
+export function memoryProjectionDiagnostics(
+  sources: MemorySource[],
+): MemoryProjectionDiagnostic[] {
+  const diagnostics: MemoryProjectionDiagnostic[] = [];
+  for (const source of sources)
+    for (const event of source.events)
+      if (
+        event.type === "t1_memory_write" &&
+        typeof event.payload.memoryId !== "string"
+      )
+        diagnostics.push({
+          code: "legacy-memory-id-unavailable",
+          position: event.position,
+          sessionId: source.sessionId,
+        });
+  return diagnostics;
 }
 
 export function annotateMemoryDuplicates(entries: MemoryEntry[]): MemoryEntry[] {

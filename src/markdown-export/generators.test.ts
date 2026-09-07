@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { describeMemoryKind, MEMORY_KINDS } from "../kinds.js";
 import { createL0Event, L0_EVENT_TYPES, type L0Event } from "../l0/types.js";
 import { generateDailyLogs } from "./daily-generator.js";
-import { collectMemoryEntries, generateMemoryMarkdown } from "./memory-generator.js";
+import {
+  collectMemoryEntries,
+  generateMemoryMarkdown,
+  memoryProjectionDiagnostics,
+} from "./memory-generator.js";
 import { corruptEventLine, transformEvent } from "./transformer.js";
 
 const SESSION = "session-a";
@@ -250,6 +254,33 @@ describe("memory generator", () => {
     ];
     expect(collectMemoryEntries(sources).map(({ content }) => content)).toEqual([
       "keep this memory",
+    ]);
+  });
+
+  it("keeps legacy writes and reports missing memory IDs without guessing", () => {
+    const sources = [
+      {
+        sessionId: SESSION,
+        events: [
+          event("t1_memory_write", 1, {
+            content: "legacy memory",
+            kind: "global_preference",
+          }),
+          event("memory_deleted", 2, {
+            memoryId: "unrelated-id",
+          }),
+        ],
+      },
+    ];
+    expect(collectMemoryEntries(sources).map(({ content }) => content)).toEqual([
+      "legacy memory",
+    ]);
+    expect(memoryProjectionDiagnostics(sources)).toEqual([
+      {
+        code: "legacy-memory-id-unavailable",
+        position: 1,
+        sessionId: SESSION,
+      },
     ]);
   });
 

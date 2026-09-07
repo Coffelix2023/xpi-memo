@@ -35,7 +35,7 @@ interface CandidateAudit {
 
 export interface CandidateLifecycleResult {
   reason?: string;
-  status: "conflict" | "rejected" | "stored";
+  status: "conflict" | "rejected" | "stored" | "unresolved";
 }
 
 export interface CandidateStore {
@@ -198,6 +198,19 @@ export function createCandidateStore({
       : await adapter.store(stored.operation).then(() => ({
           status: "stored" as const,
         }));
+    if (outcome.status === "unresolved") {
+      // Backend processed the write but L0 could not confirm a terminal
+      // event: the candidate stays pending and the outcome is not a user
+      // rejection.
+      return {
+        ...(outcome.reason
+          ? {
+              reason: outcome.reason,
+            }
+          : {}),
+        status: "unresolved",
+      };
+    }
     if (outcome.status !== "stored") {
       return {
         ...(outcome.reason

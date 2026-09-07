@@ -29,6 +29,8 @@ import {
   collectMemoryEntries,
   duplicateCounts,
   generateMemoryMarkdown,
+  type MemorySource,
+  memoryProjectionDiagnostics,
 } from "./memory-generator.js";
 import {
   corruptEventLine,
@@ -64,6 +66,8 @@ export interface ExportResult {
   exportedPositions: Record<string, number>;
   markdownDir: string;
   memoryMd: boolean;
+  /** Independent MEMORY.md projection outcome. */
+  memoryProjection: "complete" | "pending" | "failed" | "unchanged";
   sessions: SessionExportResult[];
   warnings: string[];
 }
@@ -78,6 +82,7 @@ interface SessionRead {
 }
 
 const STATE_FILE = "export-state.json";
+const MEMORY_PROJECTION_STATE_FILE = "memory-projection-state.json";
 const LEADING_BLANKS = /^\n+/;
 const TRAILING_NEWLINES = /\n*$/;
 
@@ -86,6 +91,12 @@ interface ExportState {
   version: 1;
 }
 
+export type MemoryProjectionStatus = "complete" | "pending" | "failed";
+
+interface MemoryProjectionState {
+  status: MemoryProjectionStatus;
+  version: 1;
+}
 export function markdownDirFor(dataDir: string): string {
   return join(dataDir, "markdown");
 }
@@ -165,6 +176,86 @@ async function readSession(
     };
   }
 }
+async function readAllSession(
+  sessionId: string,
+  dataDir: string,
+  filters?: ExportFilters,
+): Promise<SessionRead> {
+  try {
+    const reader = createEventLogReader({
+      sessionDir: sessionDirFor(dataDir, sessionId),
+    });
+    const events = await reader.readAll();
+    return {
+      corruptLines: reader.corruptLines(),
+      events,
+      filters,
+      fromPosition: 0,
+      sessionId,
+    };
+  } catch (error) {
+    return {
+      corruptLines: [],
+      error: error instanceof Error ? error.message : "export-failed",
+      events: [],
+      filters,
+      fromPosition: 0,
+      sessionId,
+    };
+  }
+}
+
+function readMemoryProjectionState(markdownDir: string): MemoryProjectionState | null {
+  const path = join(markdownDir, MEMORY_PROJECTION_STATE_FILE);
+  if (!existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(
+      readFileSync(path, "utf8"),
+    ) as Partial<MemoryProjectionState>;
+    if (
+      parsed.status !== "complete" &&
+      parsed.status !== "pending" &&
+      parsed.status !== "failed"
+    )
+      return null;
+    return {
+      status: parsed.status,
+      version: 1,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Read only the persisted MEMORY projection state for status diagnostics. */
+export function memoryProjectionStatusFor(
+  dataDir: string,
+): MemoryProjectionStatus | null {
+  return readMemoryProjectionState(markdownDirFor(dataDir))?.status ?? null;
+}
+
+function writeMemoryProjectionState(
+  markdownDir: string,
+  status: MemoryProjectionStatus,
+): void {
+  writeFileAtomic(
+    join(markdownDir, MEMORY_PROJECTION_STATE_FILE),
+    `${JSON.stringify(
+      {
+        status,
+        version: 1,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+function memoryAffecting(events: L0Event[]): boolean {
+  return events.some(
+    (event) => event.type === "t1_memory_write" || event.type === "memory_deleted",
+  );
+}
 
 export async function exportMarkdown(
   options: ExportOptions = {},
@@ -175,28 +266,34 @@ export async function exportMarkdown(
   });
   const dataDir = config.dataDir;
   const markdownDir = markdownDirFor(dataDir);
-  // Config provides filter defaults (Task 9.4); explicit options win when given.
   const filters: ExportFilters = {
     excludeToolResults: config.excludeToolResults,
     privacy: config.privacy,
     ...options.filters,
   };
   const state = readState(markdownDir);
+  const projectionState = readMemoryProjectionState(markdownDir);
   const memoryOnly = options.memoryOnly === true;
 
   const sessionsRoot = sessionsDirFor(dataDir);
   let sessionIds: string[] = [];
+  // MEMORY projection is a global derived view: it must always fold every
+  // session's full history, even when the daily export is filtered to one.
+  const projectionSessionIds = existsSync(sessionsRoot)
+    ? readdirSync(sessionsRoot).sort()
+    : [];
   if (options.sessionId)
     sessionIds = [
       options.sessionId,
     ];
-  else if (existsSync(sessionsRoot)) sessionIds = readdirSync(sessionsRoot).sort();
-
+  else sessionIds = projectionSessionIds;
   const reads = await Promise.all(
     sessionIds.map((sessionId) => {
       const fromPosition =
         memoryOnly || options.force ? 0 : (state.positions[sessionId] ?? 0);
-      return readSession(sessionId, dataDir, fromPosition, filters);
+      return memoryOnly
+        ? readAllSession(sessionId, dataDir, filters)
+        : readSession(sessionId, dataDir, fromPosition, filters);
     }),
   );
 
@@ -206,55 +303,73 @@ export async function exportMarkdown(
   const nextPositions: Record<string, number> = {
     ...state.positions,
   };
-  const memoryInputs: Array<{
-    events: L0Event[];
-    sessionId: string;
-  }> = [];
-  if (memoryOnly) {
-    for (const read of reads) {
+  const incrementalMemoryInputs: MemorySource[] = [];
+  for (const read of reads)
+    foldSession(read, {
+      dailyByDate,
+      memoryInputs: incrementalMemoryInputs,
+      nextPositions,
+      sessions,
+      warnings,
+    });
+
+  const shouldProject =
+    memoryOnly ||
+    options.force === true ||
+    projectionState?.status === "pending" ||
+    projectionState?.status === "failed" ||
+    incrementalMemoryInputs.some(({ events }) => memoryAffecting(events));
+  let projectionInputs = incrementalMemoryInputs;
+  let projectionBlocked = false;
+  if (shouldProject && !memoryOnly) {
+    const fullReads = await Promise.all(
+      projectionSessionIds.map((sessionId) =>
+        readAllSession(sessionId, dataDir, filters),
+      ),
+    );
+    projectionInputs = [];
+    for (const read of fullReads) {
       if (read.error) {
-        sessions.push({
-          error: read.error,
-          exportedEvents: 0,
-          sessionId: read.sessionId,
-        });
+        projectionBlocked = true;
+        warnings.push(
+          `MEMORY.md: session ${read.sessionId} unreadable (${read.error})`,
+        );
         continue;
       }
-      memoryInputs.push({
+      if (read.corruptLines.length > 0)
+        warnings.push(
+          `MEMORY.md: session ${read.sessionId} skipped ${read.corruptLines.length} corrupt event line(s)`,
+        );
+      projectionInputs.push({
         events: read.events,
         sessionId: read.sessionId,
       });
-      sessions.push({
-        exportedEvents: read.events.length,
-        sessionId: read.sessionId,
-      });
     }
-  } else {
-    for (const read of reads)
-      foldSession(read, {
-        dailyByDate,
-        memoryInputs,
-        nextPositions,
-        sessions,
-        warnings,
-      });
   }
-  const { dailyFiles, memoryMd } = persistOutputs({
+  for (const diagnostic of memoryProjectionDiagnostics(projectionInputs))
+    warnings.push(
+      `MEMORY.md: ${diagnostic.code} at session ${diagnostic.sessionId} position ${diagnostic.position}`,
+    );
+
+  const persisted = persistOutputs({
     dailyByDate,
     filters,
     markdownDir,
-    memoryInputs,
+    memoryInputs: projectionInputs,
     nextPositions,
+    projectionBlocked,
+    projectionRequested: shouldProject,
     skipDaily: memoryOnly,
     skipState: memoryOnly,
     warnings,
   });
   return {
-    dailyFiles,
-    duplicates: duplicateCounts(collectMemoryEntries(memoryInputs)),
+    dailyFiles: persisted.dailyFiles,
+    duplicates: duplicateCounts(collectMemoryEntries(projectionInputs)),
     exportedPositions: nextPositions,
     markdownDir,
-    memoryMd,
+    memoryMd: persisted.memoryMd,
+    memoryProjection: persisted.memoryProjection,
     sessions,
     warnings,
   };
@@ -265,10 +380,7 @@ function foldSession(
   read: SessionRead,
   into: {
     dailyByDate: Map<string, DailyLog[]>;
-    memoryInputs: Array<{
-      events: L0Event[];
-      sessionId: string;
-    }>;
+    memoryInputs: MemorySource[];
     nextPositions: Record<string, number>;
     sessions: SessionExportResult[];
     warnings: string[];
@@ -340,36 +452,34 @@ function foldSession(
   });
 }
 
-/** Write accumulated daily logs + MEMORY.md + state. */
+/** Write daily logs, complete MEMORY projection, and independent state. */
 function persistOutputs(into: {
   dailyByDate: Map<string, DailyLog[]>;
   filters: ExportFilters;
   markdownDir: string;
-  memoryInputs: Array<{
-    events: L0Event[];
-    sessionId: string;
-  }>;
+  memoryInputs: MemorySource[];
   nextPositions: Record<string, number>;
+  projectionBlocked: boolean;
+  projectionRequested: boolean;
   skipDaily?: boolean;
   skipState?: boolean;
   warnings: string[];
 }): {
   dailyFiles: number;
   memoryMd: boolean;
+  memoryProjection: "complete" | "failed" | "unchanged";
 } {
   mkdirSync(join(into.markdownDir, "daily"), {
     recursive: true,
   });
   let dailyFiles = 0;
   if (!into.skipDaily) {
-    const dates = [
+    for (const date of [
       ...into.dailyByDate.keys(),
-    ].sort((a, b) => a.localeCompare(b));
-    for (const date of dates) {
+    ].sort()) {
       const logs = into.dailyByDate.get(date) ?? [];
-      const path = join(into.markdownDir, "daily", `${date}.md`);
       try {
-        appendDailyFile(path, logs);
+        appendDailyFile(join(into.markdownDir, "daily", `${date}.md`), logs);
         dailyFiles += 1;
       } catch (error) {
         into.warnings.push(
@@ -378,21 +488,43 @@ function persistOutputs(into: {
       }
     }
   }
+
   let memoryMd = false;
-  try {
-    if (into.memoryInputs.length > 0) {
-      writeFileAtomic(
-        join(into.markdownDir, "MEMORY.md"),
-        into.filters.privacy
-          ? redactSensitive(generateMemoryMarkdown(into.memoryInputs).markdown)
-          : generateMemoryMarkdown(into.memoryInputs).markdown,
+  let memoryProjection: "complete" | "failed" | "unchanged" = "unchanged";
+  if (into.projectionRequested) {
+    if (into.projectionBlocked) {
+      memoryProjection = "failed";
+      into.warnings.push(
+        "MEMORY.md: projection pending because L0 history is incomplete",
       );
-      memoryMd = true;
+      try {
+        writeMemoryProjectionState(into.markdownDir, "pending");
+      } catch {
+        // The returned warning still identifies the retry condition.
+      }
+    } else {
+      try {
+        writeFileAtomic(
+          join(into.markdownDir, "MEMORY.md"),
+          into.filters.privacy
+            ? redactSensitive(generateMemoryMarkdown(into.memoryInputs).markdown)
+            : generateMemoryMarkdown(into.memoryInputs).markdown,
+        );
+        writeMemoryProjectionState(into.markdownDir, "complete");
+        memoryMd = true;
+        memoryProjection = "complete";
+      } catch (error) {
+        memoryProjection = "failed";
+        into.warnings.push(
+          `MEMORY.md: write failed (${error instanceof Error ? error.message : "memory-write-failed"})`,
+        );
+        try {
+          writeMemoryProjectionState(into.markdownDir, "failed");
+        } catch {
+          // Keep the failed projection observable through the returned warning.
+        }
+      }
     }
-  } catch (error) {
-    into.warnings.push(
-      `MEMORY.md: write failed (${error instanceof Error ? error.message : "memory-write-failed"})`,
-    );
   }
   if (!into.skipState) {
     try {
@@ -409,6 +541,7 @@ function persistOutputs(into: {
   return {
     dailyFiles,
     memoryMd,
+    memoryProjection,
   };
 }
 

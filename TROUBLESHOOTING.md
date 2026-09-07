@@ -91,6 +91,11 @@ If that shows rows while a bare `mnemosyne stats` does not, you are looking at t
 - `MEMORY.md` write failure → warning is reported, export continues; check disk space.
 - Exported content shows `[REDACTED]` → privacy mode is on (`XPI_MEMO_PRIVACY=true`).
 - Tool outputs missing → `XPI_MEMO_EXCLUDE_TOOL_RESULTS=true` is set.
+## Forget fails closed
+
+`xpi_memo_forget` 返回 `upstream-exact-id-read-unavailable` 时，当前 Mnemosyne CLI 没有稳定的精确按 ID 读取能力。这是保护性失败：不会调用语义 `recall`、全库 `export`、SQLite 访问或 `delete`，也不会声称 recovery 或删除成功。
+
+如果未来 adapter 提供精确 ID reader，删除顺序必须保持：project bank → default bank，精确读取 → recovery 写入 → delete → `memory_deleted`。recovery 或 delete 失败时保留原记忆，检查带 operation ID 的 L0/audit 诊断；不要按正文猜测目标。
 - Project Markdown (`.pi/memory/`): use `/xpi-memo-export --repo`; without a project identity it tells you to run `/xpi-memo-init` or switch to a Git repository. `--repo --reimport` re-imports discovered files as governed candidates.
 
 ## Migration problems (memoharness → xpi-memo)

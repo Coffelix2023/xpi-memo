@@ -59,7 +59,6 @@ interface TestDependencies {
 
 const temporaryDirectories: string[] = [];
 const SOURCE_SID_PATTERN = /sid=([^;]+)/;
-const RECOVERY_ID_PATTERN = /^memory-1-\d{4}-\d{2}-\d{2}T/;
 const CHINESE_TEMPLATE_HIT = /决策|项目/;
 
 function createTemporaryDirectory(): string {
@@ -175,48 +174,23 @@ afterEach(() => {
   }
 });
 
-describe("xpi_memo_forget bank resolution", () => {
-  async function forget(options: {
-    project?: boolean;
-    responses: Record<string, string | Error>;
-  }) {
+describe("xpi_memo_forget boundary", () => {
+  it("fails closed without exact ID capability and never scans or deletes", async () => {
     const dataDir = createTemporaryDirectory();
-    const calls: Array<{
-      bank: string | undefined;
-      args: string[];
-    }> = [];
-    const run = async (args: string[], cliOptions?: CliOptions): Promise<string> => {
-      calls.push({
-        args,
-        bank: cliOptions?.bank,
-      });
-      if (args[0] === "recall")
-        return JSON.stringify({
-          results: [
-            {
-              content: "recoverable memory content",
-              id: "memory-1",
-              source: "kind=project_decision;src=test",
-              timestamp: "2026-09-04T00:00:00.000Z",
-            },
-          ],
-        });
-      const response = options.responses[cliOptions?.bank ?? "default"];
-      if (response instanceof Error) throw response;
-      return response ?? "";
-    };
+    const calls: string[][] = [];
     const { tools } = loadExtension({
-      resolveProjectIdentity: options.project
-        ? () => ({
-            id: "forget-project",
-            label: "forget-project",
-          })
-        : () => null,
       env: {
         XDG_CONFIG_HOME: dataDir,
         XPI_MEMO_DATA_DIR: dataDir,
       },
-      run,
+      resolveProjectIdentity: () => ({
+        id: "forget-project",
+        label: "forget-project",
+      }),
+      run: async (args) => {
+        calls.push(args);
+        return "unexpected";
+      },
     });
     const result = await toolByName(tools, "xpi_memo_forget").execute(
       "forget",
@@ -227,107 +201,17 @@ describe("xpi_memo_forget bank resolution", () => {
       undefined,
       createToolContext(),
     );
-    return {
-      calls,
-      dataDir,
-      details: result.details as Record<string, unknown>,
-    };
-  }
-
-  it("tries the current project bank first and stops on success", async () => {
-    const result = await forget({
-      project: true,
-      responses: {
-        "forget-project": "ok",
-      },
-    });
-    expect(
-      result.calls.filter(({ args }) => args[0] === "delete").map(({ bank }) => bank),
-    ).toEqual([
-      "project-forget-project",
-    ]);
     expect(result.details).toMatchObject({
-      bank: "project-forget-project",
-      status: "deleted",
-    });
-    const recoveryId = result.details.recoveryId;
-    expect(recoveryId).toEqual(expect.stringMatching(RECOVERY_ID_PATTERN));
-    const recoveryPath = join(result.dataDir, "recovery", `${recoveryId}.json`);
-    expect(existsSync(recoveryPath)).toBe(true);
-    expect(JSON.parse(readFileSync(recoveryPath, "utf8"))).toMatchObject({
-      memory: {
-        content: "recoverable memory content",
-        id: "memory-1",
-      },
-      recoveryId,
-      version: 1,
-    });
-    const sessionId = readdirSync(join(result.dataDir, "sessions"))[0];
-    expect(sessionId).toBeDefined();
-    const events = await createEventLogReader({
-      sessionDir: join(result.dataDir, "sessions", sessionId as string),
-    }).readAll();
-    expect(events.filter((event) => event.type === "memory_deleted")).toEqual([
-      expect.objectContaining({
-        payload: {
-          memoryId: "memory-1",
-        },
-      }),
-    ]);
-  });
-
-  it("falls back from project bank to default", async () => {
-    const result = await forget({
-      project: true,
-      responses: {
-        default: "ok",
-        "project-forget-project": new Error("missing"),
-      },
-    });
-    expect(
-      result.calls.filter(({ args }) => args[0] === "delete").map(({ bank }) => bank),
-    ).toEqual([
-      "project-forget-project",
-      undefined,
-    ]);
-    expect(result.details).toMatchObject({
-      bank: "default",
-      status: "deleted",
-    });
-  });
-
-  it("uses default only without a project", async () => {
-    const result = await forget({
-      project: false,
-      responses: {
-        default: "ok",
-      },
-    });
-    expect(
-      result.calls.filter(({ args }) => args[0] === "delete").map(({ bank }) => bank),
-    ).toEqual([
-      undefined,
-    ]);
-    expect(result.details).toMatchObject({
-      bank: "default",
-      status: "deleted",
-    });
-  });
-
-  it("reports failure without recording a deletion", async () => {
-    const result = await forget({
-      project: true,
-      responses: {
-        default: new Error("missing default"),
-        "project-forget-project": new Error("missing project"),
-      },
-    });
-    expect(result.details).toMatchObject({
+      id: "memory-1",
+      reason: "upstream-exact-id-read-unavailable",
       status: "error",
     });
+    expect(calls).toEqual([]);
+    expect(existsSync(join(dataDir, "recovery"))).toBe(false);
+    expect(existsSync(join(dataDir, "sessions"))).toBe(false);
     expect(
-      existsSync(join(result.dataDir, "audit.json"))
-        ? readFileSync(join(result.dataDir, "audit.json"), "utf8")
+      existsSync(join(dataDir, "audit.json"))
+        ? readFileSync(join(dataDir, "audit.json"), "utf8")
         : "",
     ).not.toContain("memory-deleted-by-user");
   });

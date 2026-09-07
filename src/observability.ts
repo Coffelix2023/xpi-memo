@@ -65,7 +65,12 @@ function boundedText(value: string | undefined): string | undefined {
 }
 
 function isCaptureAction(action: AuditAction): boolean {
-  return action === "candidate" || action === "rejection" || action === "write";
+  return (
+    action === "candidate" ||
+    action === "deletion" ||
+    action === "rejection" ||
+    action === "write"
+  );
 }
 
 function metadataOf(entry: AuditEntry): ObservabilityMetadata {
@@ -141,6 +146,10 @@ export function buildObservabilitySnapshot(
     if (entry.action === "candidate") {
       counts.candidate += 1;
       activation.candidate += 1;
+    }
+    if (entry.action === "deletion") {
+      counts.storage += 1;
+      activation.storage += 1;
     }
     if (entry.action === "write" || entry.action === "confirmation") {
       counts.storage += 1;

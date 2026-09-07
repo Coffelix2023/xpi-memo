@@ -37,8 +37,14 @@ interface T1StoreResult {
 }
 
 export type MnemosyneRunner = (args: string[], options?: CliOptions) => Promise<string>;
+export type ExactMemoryReader = (
+  id: string,
+  dataDir: string,
+  bank?: string,
+) => Promise<GetMemoryByIdResult | null>;
 
 export interface MnemosyneAdapter {
+  readMemoryById?: ExactMemoryReader;
   store(operation: T1MemoryOperation): Promise<T1StoreResult>;
 }
 
@@ -110,8 +116,14 @@ function cliOptionsFor(operation: T1MemoryOperation): CliOptions {
 
 export function createMnemosyneAdapter(
   run: MnemosyneRunner = runMnemosyne,
+  exactMemoryReader?: ExactMemoryReader,
 ): MnemosyneAdapter {
   return {
+    ...(exactMemoryReader
+      ? {
+          readMemoryById: exactMemoryReader,
+        }
+      : {}),
     async store(operation) {
       const safety = prepareExternalContent(operation.content);
       if (safety.status === "refused")
@@ -144,8 +156,8 @@ export interface GetMemoryByIdResult {
   timestamp?: string;
 }
 
-/** Look up one T1 row by exact id using Mnemosyne's JSON recall output. */
-export async function getMemoryById(
+/** Find a row returned by semantic recall; not an exact primary-key read. */
+export async function findMemoryByIdFromRecall(
   id: string,
   dataDir: string,
   bank = "default",

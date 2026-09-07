@@ -29,6 +29,7 @@ describe("bounded T1 audit metadata", () => {
       "write",
       "candidate",
       "confirmation",
+      "deletion",
       "rejection",
       "recall",
       "fallback",

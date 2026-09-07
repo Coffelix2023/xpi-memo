@@ -472,6 +472,39 @@ describe("offline extraction governance (task 3.2)", () => {
     expect(runtime.candidates.list()).toHaveLength(0);
   });
 
+  it("propagates unresolved when the T1 write lacks its L0 terminal event", async () => {
+    const dataDir = temporaryDirectory();
+    const stored: T1MemoryOperation[] = [];
+    const runtime = governanceRuntime(dataDir, stored, "project-demo");
+    const originalRecord = runtime.l0.record.bind(runtime.l0);
+    runtime.l0.record = (type, payload) => {
+      if (type === "t1_memory_write") throw new Error("commit-event-failed");
+      return originalRecord(type, payload);
+    };
+    const results = await governOfflineExtractionOutput(
+      [
+        {
+          confidence: 0.95,
+          content: "Working on the adapter boundary this session.",
+          kind: "session_context",
+          sourceReference: "event 1",
+        },
+      ],
+      runtime,
+    );
+    expect(results).toMatchObject([
+      {
+        kind: "session_context",
+        reason: "commit-event-failed",
+        status: "unresolved",
+      },
+    ]);
+    // The backend already wrote the memory; it must not be re-stored as a
+    // confirmed success, and no candidate is queued.
+    expect(stored).toHaveLength(1);
+    expect(runtime.candidates.list()).toHaveLength(0);
+  });
+
   it("records proposal consumption in the ledger after governing", async () => {
     const dataDir = temporaryDirectory();
     const stored: T1MemoryOperation[] = [];

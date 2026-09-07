@@ -22,6 +22,7 @@ import { l0Status } from "./cli/l0.js";
 import { loadConfig, saveUserConfig } from "./config.ts";
 import { openConsole } from "./console.ts";
 import { classifyProhibitedContent } from "./content-policy.ts";
+import { runT1Delete } from "./deletion-lifecycle.js";
 import {
   buildMemoryDoctorReport,
   detectMemoryRootSurfaces,
@@ -46,7 +47,11 @@ import {
   resolveLocalProjectIdentity,
   revokeLocalProject,
 } from "./local-identity.ts";
-import { exportMarkdown, validateExport } from "./markdown-export/exporter.js";
+import {
+  exportMarkdown,
+  memoryProjectionStatusFor,
+  validateExport,
+} from "./markdown-export/exporter.js";
 import {
   activateExplicitMemoryIntent,
   type MemoryActivationProvenance,
@@ -72,7 +77,8 @@ import {
 } from "./offline-extraction.ts";
 import {
   createMnemosyneAdapter,
-  getMemoryById,
+  type ExactMemoryReader,
+  findMemoryByIdFromRecall,
   type MnemosyneRunner,
   type T1MemoryOperation,
 } from "./operations.ts";
@@ -84,7 +90,6 @@ import {
 import type { RecallItem, RecallResponse } from "./recall.ts";
 import { decideRecall, type RecallPolicy } from "./recall-policy.ts";
 import { rankRecallResults } from "./recall-ranking.ts";
-import { writeMemoryRecovery } from "./recovery.ts";
 import { loadRegistry, registryPath } from "./registry.ts";
 import {
   detectOrphanBanks,
@@ -111,7 +116,7 @@ import {
 } from "./status.ts";
 import { openStatusPanel } from "./status-panel.ts";
 import { createMemorySurface, successText } from "./surface.ts";
-import { runT1Write } from "./t1-lifecycle.ts";
+import { lifecycleDiagnostics, runT1Write } from "./t1-lifecycle.ts";
 import { renderCallLine, renderToolLine } from "./tool-rendering.ts";
 
 const SLEEP_COMMAND_PATTERN = /^\s*sleep\s+/m;
@@ -137,8 +142,10 @@ interface ToolDetails {
   candidateId?: string;
   id?: string | null;
   kind?: MemoryKind;
+  memoryProjection?: "complete" | "failed" | "pending" | "unchanged";
   /** Actual sleep execution mode (task 3.4). */
   mode?: string;
+  operationId?: string;
   queriedBanks?: string[];
   reason?: string;
   recovery?: {
@@ -159,6 +166,7 @@ interface ToolDetails {
 }
 export interface XpiMemoDependencies {
   env?: NodeJS.ProcessEnv;
+  exactMemoryReader?: ExactMemoryReader;
   offlineExtractionRunner?: OfflineExtractionRunner;
   resolveProjectIdentity?: (
     cwd: string,
@@ -239,6 +247,17 @@ function boundedFailureReason(error: unknown): string {
     error instanceof Error ? error.message : String(error ?? "memory-write-failed");
   const singleLine = raw.replace(/[\r\n\t]+/g, " ").trim();
   return singleLine.slice(0, 120) || "memory-write-failed";
+}
+function deletionMessage(result: {
+  operationId: string;
+  reason?: string;
+  status: string;
+}): string {
+  if (result.reason === "upstream-exact-id-read-unavailable")
+    return "Memory deletion unavailable: Mnemosyne has no stable exact-ID read command; no deletion was attempted.";
+  if (result.status === "unresolved")
+    return `Memory deletion unresolved for operation ${result.operationId}; deletion outcome requires diagnosis.`;
+  return "Memory deletion failed; the memory was not confirmed deleted.";
 }
 
 /**
@@ -417,7 +436,7 @@ function createRuntime(
       const { runMnemosyne } = await import("./cli.ts");
       return runMnemosyne(args, options);
     });
-  const adapter = createMnemosyneAdapter(run);
+  const adapter = createMnemosyneAdapter(run, dependencies.exactMemoryReader);
   const audit = createAuditLog({
     statePath: join(configResult.config.dataDir, "audit.json"),
   });
@@ -1502,6 +1521,41 @@ async function countL0T1WriteEvents(dataDir: string): Promise<number> {
   return perSession.reduce((sum, count) => sum + count, 0);
 }
 
+/** Read bounded lifecycle diagnostics without exposing event bodies. */
+async function lifecycleStatusFor(
+  dataDir: string,
+): Promise<NonNullable<MemoryStatus["consistency"]>["lifecycle"]> {
+  const sessionsRoot = sessionsDirFor(dataDir);
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(sessionsRoot);
+  } catch {
+    return {
+      entries: [],
+      total: 0,
+    };
+  }
+  const perSession = await Promise.all(
+    entries.map(async (entry) => {
+      try {
+        const reader = createEventLogReader({
+          sessionDir: join(sessionsRoot, entry),
+        });
+        return lifecycleDiagnostics(await reader.readAll());
+      } catch {
+        return {
+          entries: [],
+          total: 0,
+        };
+      }
+    }),
+  );
+  return {
+    entries: perSession.flatMap(({ entries: diagnostics }) => diagnostics).slice(0, 20),
+    total: perSession.reduce((total, result) => total + result.total, 0),
+  };
+}
+
 function securityForAudit(entries: readonly AuditEntry[]): MemoryStatus["security"] {
   let recallBlocked = 0;
   let recallOmitted = 0;
@@ -1683,6 +1737,8 @@ async function statusForContext(
   if (projectBank && bankExists(config.dataDir, projectBank))
     bankRows[projectBank] = projectStats?.working ?? null;
   const l0T1WriteEvents = await countL0T1WriteEvents(config.dataDir);
+  const lifecycle = await lifecycleStatusFor(config.dataDir);
+  const memoryProjection = memoryProjectionStatusFor(config.dataDir) ?? "unknown";
   const security = securityForAudit(auditEntries);
   const doctor: MemoryDoctorReport = buildMemoryDoctorReport(
     {
@@ -1707,13 +1763,16 @@ async function statusForContext(
           label: project.label,
         }
       : null,
-    doctor,
     diskBytes: visibleBankDiskBytes(config.dataDir, projectBank),
+    consistency: {
+      lifecycle,
+      memoryProjection,
+    },
+    doctor,
     fallback: auditEntries.some(
       (entry) => entry.action === "fallback" && entry.metadata.status === "degraded",
     ),
     observability: buildObservabilitySnapshot(auditEntries),
-    security,
     offlineExtraction: {
       enabled: config.offlineExtractionEnabled,
       ...(lastExtraction?.metadata.status
@@ -1722,6 +1781,7 @@ async function statusForContext(
           }
         : {}),
     },
+    security,
     ...(lastExtraction?.metadata.reason === "near-duplicate"
       ? {
           nearDuplicates: {
@@ -2059,12 +2119,15 @@ export default function xpiMemo(
               return;
             }
             const stored = await runtime.candidates.confirm(candidate.id);
-            runtime.l0.recordSafe("candidate_confirmed", {
-              bank: candidate.targetBank,
-              candidateId: candidate.id,
-              kind: candidate.kind,
-              scope: candidate.targetScope,
-            });
+            // Success confirmation event only; unresolved/rejected outcomes
+            // are expressed by lifecycle and failure events instead.
+            if (stored.status === "stored")
+              runtime.l0.recordSafe("candidate_confirmed", {
+                bank: candidate.targetBank,
+                candidateId: candidate.id,
+                kind: candidate.kind,
+                scope: candidate.targetScope,
+              });
             runtime.audit.record("confirmation", {
               bank: candidate.targetBank,
               kind: candidate.kind,
@@ -2757,7 +2820,7 @@ export default function xpiMemo(
                 const memories = await Promise.all(
                   banks.map(async (bank) => {
                     try {
-                      return await getMemoryById(
+                      return await findMemoryByIdFromRecall(
                         id,
                         runtime.config.dataDir,
                         bank,
@@ -2853,85 +2916,68 @@ export default function xpiMemo(
               GLOBAL_BANK,
             ]),
           ];
-          let lastError: unknown;
-          for (const bank of banks) {
-            try {
-              // biome-ignore lint/performance/noAwaitInLoops: bank probing must remain ordered and stop after the first matching memory.
-              const memory = await getMemoryById(
-                params.memoryId,
-                runtime.config.dataDir,
-                bank,
-                runtime.run,
-              );
-              if (!memory) {
-                lastError = new Error("memory-not-found");
-                continue;
-              }
-              let recovery: ReturnType<typeof writeMemoryRecovery> | undefined;
-              try {
-                recovery = writeMemoryRecovery(runtime.config.dataDir, memory);
-              } catch (error) {
-                return toolResult(
-                  {
-                    bank,
-                    id: params.memoryId,
-                    reason: boundedFailureReason(error),
-                    status: "error",
-                  },
-                  "Memory recovery failed; deletion was not attempted.",
-                );
-              }
-              // Recovery must succeed before the destructive backend call.
-              // The recovery file is the user's manual restore source.
-              await runtime.run(
-                [
-                  "delete",
-                  params.memoryId,
-                ],
-                {
-                  bank: bank === GLOBAL_BANK ? undefined : bank,
-                  dataDir: runtime.config.dataDir,
-                },
-              );
-              l0ForHooks().recordSafe("memory_deleted", {
-                memoryId: params.memoryId,
-              });
-              runtime.audit.record("rejection", {
-                bank,
-                reason: "memory-deleted-by-user",
-                status: "deleted",
-              });
-              return toolResult(
-                {
-                  bank,
-                  id: params.memoryId,
-                  reason: "memory-deleted-by-user",
-                  recoveryId: recovery.recoveryId,
-                  status: "deleted",
-                },
-                `Memory ${params.memoryId} deleted. Recovery: ${recovery.recoveryId}.`,
-              );
-            } catch (error) {
-              lastError = error;
-            }
-          }
-          const reason = boundedFailureReason(lastError ?? "memory-delete-failed");
+          const result = await runT1Delete({
+            adapter: runtime.adapter,
+            audit: runtime.audit,
+            banks,
+            dataDir: runtime.config.dataDir,
+            deleteMemory: runtime.run,
+            l0: l0ForHooks(),
+            memoryId: params.memoryId,
+          });
+          const projection =
+            result.status === "deleted"
+              ? await exportMarkdown({
+                  env: dependencies.env,
+                  memoryOnly: true,
+                }).catch((error: unknown) => ({
+                  memoryProjection: "failed" as const,
+                  warnings: [
+                    boundedFailureReason(error),
+                  ],
+                }))
+              : null;
           return toolResult(
             {
-              id: params.memoryId,
-              reason,
-              status: "error",
+              ...(projection
+                ? {
+                    memoryProjection: projection.memoryProjection,
+                  }
+                : {}),
+              ...(result.bank
+                ? {
+                    bank: result.bank,
+                  }
+                : {}),
+              id: result.id,
+              operationId: result.operationId,
+              ...(result.reason
+                ? {
+                    reason: result.reason,
+                  }
+                : {}),
+              ...(result.recoveryId
+                ? {
+                    recoveryId: result.recoveryId,
+                  }
+                : {}),
+              status: result.status === "deleted" ? "deleted" : "error",
             },
-            "Memory deletion failed.",
+            result.status === "deleted"
+              ? `Memory ${params.memoryId} deleted. Recovery: ${result.recoveryId}.` +
+                  (projection?.memoryProjection === "failed"
+                    ? " MEMORY.md projection failed and remains retryable."
+                    : "")
+              : deletionMessage(result),
           );
         } catch (error) {
           return toolResult(
             {
               id: params.memoryId,
-              reason: error instanceof Error ? error.message : "memory-delete-failed",
+              reason: boundedFailureReason(error),
               status: "error",
             },
-            "Memory deletion failed.",
+            "Memory deletion failed; the memory was not confirmed deleted.",
           );
         }
       },

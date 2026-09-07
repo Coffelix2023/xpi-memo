@@ -5,7 +5,7 @@ import {
   createMnemosyneAdapter,
   decodeSourceMetadata,
   encodeSourceMetadata,
-  getMemoryById,
+  findMemoryByIdFromRecall,
   type T1MemoryOperation,
 } from "./operations.js";
 
@@ -149,7 +149,7 @@ describe("routing-aware Mnemosyne operations", () => {
       args: string[];
       options: CliOptions | undefined;
     }> = [];
-    const result = await getMemoryById(
+    const result = await findMemoryByIdFromRecall(
       "memory-123",
       "/tmp/xpi-memo-data",
       "project-bank",
