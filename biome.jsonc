@@ -63,6 +63,8 @@
       "!**/build",
       "!**/backend",
       "!**/.pi/reports", //生成的报告产物:压缩 CSS 会被 biome 误判并给出破坏性修复
+      "!**/docs/reports", //同上,.pi/reports 迁移到 docs/reports 后仍需排除
+      "!**/evaluation-reports/t2/*-run.json", //t2-eval.ts 生成的原始记录,键序由 runner 决定
       "!**/__fixtures__",
       "!src/components/ui", //排除 shadcn-ui
       "!src/components/assistant-ui", //排除 assistant-ui
@@ -217,10 +219,12 @@
       ]
     },
     {
-      // 测试文件的中文话术被误判为高熵字符串,非真实密钥
+      // 测试文件与评测脚本的中文话术被误判为高熵字符串,非真实密钥
       "includes": [
         "**/*.test.ts",
-        "**/*.test.tsx"
+        "**/*.test.tsx",
+        "scripts/t2-eval.ts",
+        "scripts/t2-contract-check.ts"
       ],
       "linter": {
         "rules": {
