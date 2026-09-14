@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Pi 初始上下文 Token 分析</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#181b22; --panel2:#1e222b; --border:#2a2f3a;
+    --text:#dde2ea; --muted:#8a93a5; --accent:#5d8de0;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,"PingFang SC","Noto Sans SC",sans-serif;padding:32px;max-width:1200px;margin:0 auto}
+  h1{font-size:22px;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:28px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:32px}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+  .kpi .v{font-size:26px;font-weight:700;color:var(--accent)}
+  .kpi .l{font-size:12px;color:var(--muted);margin-top:2px}
+  h2{font-size:16px;margin:28px 0 14px;color:var(--text)}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:24px}
+  /* stacked bar */
+  .stack{display:flex;height:44px;border-radius:8px;overflow:hidden;margin:8px 0 6px}
+  .seg{display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;min-width:0;white-space:nowrap;overflow:hidden;transition:filter .15s;cursor:default}
+  .seg:hover{filter:brightness(1.25)}
+  .legend{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:6px 18px;font-size:13px;margin-top:12px}
+  .legend .row{display:flex;align-items:center;gap:8px}
+  .dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+  .pct{color:var(--muted);margin-left:auto;font-variant-numeric:tabular-nums}
+  /* horizontal bars for extensions */
+  .extbar{margin-bottom:14px}
+  .extbar .head{display:flex;align-items:baseline;gap:10px;font-size:13.5px;margin-bottom:4px}
+  .extbar .name{font-weight:600}
+  .extbar .tok{color:var(--muted);font-variant-numeric:tabular-nums;font-size:12px}
+  .track{height:18px;background:var(--panel2);border-radius:5px;overflow:hidden;display:flex}
+  .fill{height:100%;transition:width .6s ease}
+  .tools{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.7}
+  .tools code{background:var(--panel2);padding:1px 5px;border-radius:4px;margin-right:4px;font-size:10.5px;color:#aab6cc}
+  .note{font-size:12px;color:var(--muted);line-height:1.8;margin-top:8px}
+  .note b{color:var(--text)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:500;font-size:12px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .barcell{width:40%}
+  .mini{height:12px;background:var(--panel2);border-radius:4px;overflow:hidden}
+  .mini>div{height:100%}
+  footer{margin-top:32px;color:var(--muted);font-size:11.5px;line-height:1.8}
+</style>
+</head>
+<body>
+<h1>Pi 初始状态注入 Token 分析</h1>
+<div class="sub">会话起点(无对话、无文件读取)· 项目 xpi-memo · 模型底座成本估算</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="v">~36.6k</div><div class="l">初始注入 tokens(估算)</div></div>
+  <div class="kpi"><div class="v">67%</div><div class="l">工具定义占比</div></div>
+  <div class="kpi"><div class="v">119</div><div class="l">技能条目索引</div></div>
+  <div class="kpi"><div class="v">22+4</div><div class="l">扩展 + MCP Server</div></div>
+  <div class="kpi"><div class="v">6%</div><div class="l">项目指令占比</div></div>
+</div>
+
+<h2>① 六大类构成(堆叠图)</h2>
+<div class="panel">
+  <div class="stack" id="stack"></div>
+  <div class="legend" id="legend"></div>
+</div>
+
+<h2>② 工具定义按扩展排名(约 24.6k tokens,占总量 67%)</h2>
+<div class="panel" id="extbars"></div>
+
+<h2>③ 单工具 description 长度 Top 12</h2>
+<div class="panel">
+  <table>
+    <thead><tr><th>工具</th><th class="barcell">相对长度</th><td class="num" style="border:none">估算 tokens</td></tr></thead>
+    <tbody id="toptools"></tbody>
+  </table>
+</div>
+
+<h2>④ 技能索引构成(119 个 SKILL.md)</h2>
+<div class="panel">
+  <table>
+    <thead><tr><th>技能组</th><th>数量</th><td class="num" style="border:none">估算 tokens</td></tr></thead>
+    <tbody id="skillgroups"></tbody>
+  </table>
+  <div class="note">⚠ 发现重复注册:<b>caveman</b> 在 <code>~/.agents/skills/</code> 与扩展目录各一份,建议删一处。</div>
+</div>
+
+<h2>⑤ 优化建议(按杠杆排序)</h2>
+<div class="panel note">
+  <b>1. context-mode 按需化(省 ~2.4k tok,7%)</b> — 它的 11 个工具 description 全部极长(ctx_execute/ctx_search/ctx_purge 单个 600+ tok),且与 pi-lens 的 sandbox/索引能力重叠。可迁移到 pi-lens 式「默认 inactive、调用时激活」模式。<br>
+  <b>2. 清理技能索引(省 ~1k+ tok,3%)</b> — 119 个技能里含重复 caveman、以及一批低频技能(installer/creator/upgrader 系)。删除不用的技能目录是零代码动作。<br>
+  <b>3. MCP Server 裁剪(省 ~1.2k tok,3%)</b> — kaneo(看板)与 skill-seekers 两个 stdio/http server 常驻注入约 30 个远端工具 schema,不用的会话可临时注释掉。<br>
+  <b>4. compaction 仍关闭</b> — settings.json 显示 <code>"compaction":{"enabled":false}</code>,长会话无自动压缩,36.6k 底座 + 对话增量会一路膨胀。长任务建议开启或手动 /compact。<br>
+  <span style="color:var(--muted)">全做合计约省 ~4.6k tok(13%),底座降到 ~32k。</span>
+</div>
+
+<footer>
+  估算方法:实测文件字节数(AGENTS.md ×2、119 个 SKILL.md frontmatter、pi 源码 system-prompt.js) + 工具 description 与 schema 按本会话实际注入定义归类统计。换算率:ASCII ≈ 3.7 chars/token,中文 ≈ 1 token/char。MCP 远端工具 schema 为抽样估算。数据快照:<span id="gen"></span>
+</footer>
+
+<script>
+const DATA = {"meta":{"generated":"2026-09-05T06:03:56.500Z","cwd":"/Users/felix/c6x_local/app-prd/xpi-memo","est":"ASCII≈3.7 chars/tok, CJK≈1 tok/char"},"categories":[{"id":"tools","name":"工具定义 (tool schemas)","tokens":24600},{"id":"skills","name":"技能索引 (119 个 skill 块)","tokens":6800},{"id":"context","name":"项目指令 (2×AGENTS.md)","tokens":2200},{"id":"core","name":"核心 system prompt","tokens":1400},{"id":"ponytail","name":"Ponytail mode (append)","tokens":1400},{"id":"caveman","name":"Caveman mode (lite-zh)","tokens":200}],"toolsByExt":[{"ext":"context-mode","color":"#e05d5d","tools":[{"n":"ctx_execute","d":2600},{"n":"ctx_execute_file","d":1100},{"n":"ctx_search","d":2400},{"n":"ctx_fetch_and_index","d":1500},{"n":"ctx_batch_execute","d":1500},{"n":"ctx_index","d":1000},{"n":"ctx_purge","d":1300},{"n":"ctx_stats","d":300},{"n":"ctx_doctor","d":150},{"n":"ctx_upgrade","d":400},{"n":"ctx_insight","d":400}]},{"ext":"pi-lens","color":"#5d8de0","tools":[{"n":"lens_diagnostics","d":2800},{"n":"module_report","d":2000},{"n":"project_report","d":1700},{"n":"symbol_search","d":900},{"n":"read_symbol","d":900},{"n":"read_enclosing","d":700},{"n":"lsp_diagnostics","d":700},{"n":"pi_lens_activate_tools","d":500}]},{"ext":"pi 内置 (read/bash/write/replace/insert/undo)","color":"#6aa84f","tools":[{"n":"read","d":1900},{"n":"bash","d":1200},{"n":"replace","d":1200},{"n":"insert","d":900},{"n":"undo_last_change","d":600},{"n":"write","d":600}]},{"ext":"pi-web-access","color":"#b8860b","tools":[{"n":"web_search","d":1900},{"n":"fetch_content","d":1100},{"n":"source_check","d":700},{"n":"get_search_content","d":500}]},{"ext":"@juicesharp/* (ask/todo/advisor)","color":"#8e5de0","tools":[{"n":"ask_user_question","d":2100},{"n":"todo","d":1300},{"n":"advisor","d":800}]},{"ext":"pi-interactive-shell","color":"#e08e5d","tools":[{"n":"interactive_shell","d":3500}]},{"ext":"pi-interview","color":"#5de0c8","tools":[{"n":"interview","d":1900}]},{"ext":"pi-mcp-adapter","color":"#5d6de0","tools":[{"n":"mcpScript","d":1800},{"n":"mcp","d":1500}]},{"ext":"MCP servers (kaneo/skill-seekers/context7/deepwiki)","color":"#e05da8","tools":[{"n":"约 30 个远端工具 schema","d":8800}]},{"ext":"pi-design-deck","color":"#a8c85d","tools":[{"n":"design_deck","d":1500},{"n":"deck_generate","d":200}]},{"ext":"xpi-memo","color":"#7db8a8","tools":[{"n":"remember/recall/forget/sleep/init (5个)","d":2000}]},{"ext":"@narumitw/pi-plan-mode","color":"#c8a85d","tools":[{"n":"plan_mode_question","d":250},{"n":"plan_mode_complete","d":200}]},{"ext":"xpi-superplan","color":"#a87de0","tools":[{"n":"xpi_superplan_finalize","d":150}]}],"skills":[{"g":"openspec-* (项目 .pi/skills)","n":6,"t":750},{"g":"Rigor 系列 (research/analyze/explore/run/debug)","n":8,"t":950},{"g":"pi-lens skills","n":4,"t":400},{"g":"ponytail 系列","n":6,"t":750},{"g":"context-mode skills","n":7,"t":450},{"g":"其余 88 个 (含重复 caveman×2)","n":88,"t":3500}]};
+
+// helpers
+const C = {tools:'#e05d5d', skills:'#e0a85d', context:'#6aa84f', core:'#5d8de0', ponytail:'#8e5de0', caveman:'#5de0c8'};
+
+// ① stacked
+const total = DATA.categories.reduce((a,c)=>a+c.tokens,0);
+const stack=document.getElementById('stack');
+const legend=document.getElementById('legend');
+DATA.categories.forEach(c=>{
+  const w=(c.tokens/total*100);
+  const seg=document.createElement('div');
+  seg.className='seg'; seg.style.width=w+'%'; seg.style.background=C[c.id];
+  seg.textContent=w>4?Math.round(w)+'%':'';
+  seg.title=`${c.name}: ${c.tokens.toLocaleString()} tok (${w.toFixed(1)}%)`;
+  stack.appendChild(seg);
+  const row=document.createElement('div'); row.className='row';
+  row.innerHTML=`<span class="dot" style="background:${C[c.id]}"></span>${c.name}<span class="pct">${c.tokens.toLocaleString()} tok · ${w.toFixed(1)}%</span>`;
+  legend.appendChild(row);
+});
+
+// ② extension bars
+const exts=DATA.toolsByExt.map(g=>({...g, sum:g.tools.reduce((a,t)=>a+t.d,0)}))
+  .sort((a,b)=>b.sum-a.sum);
+const maxTok=Math.max(...exts.map(g=>g.sum))/3.7;
+const wrap=document.getElementById('extbars');
+exts.forEach(g=>{
+  const tok=Math.round(g.sum/3.7);
+  const div=document.createElement('div'); div.className='extbar';
+  div.innerHTML=`
+    <div class="head"><span class="name" style="color:${g.color}">${g.ext}</span><span class="tok">${tok.toLocaleString()} tok · ${g.tools.length} 个工具</span></div>
+    <div class="track"><div class="fill" style="width:${g.sum/3.7/maxTok*100}%;background:${g.color}"></div></div>
+    <div class="tools">${g.tools.map(t=>`<code title="${(t.d/3.7).toFixed(0)} tok">${t.n}</code>`).join('')}</div>`;
+  wrap.appendChild(div);
+});
+
+// ③ top tools
+const all=exts.flatMap(g=>g.tools.map(t=>({...t, color:g.color, ext:g.ext}))).sort((a,b)=>b.d-a.d).slice(0,12);
+const tb=document.getElementById('toptools');
+const maxd=all[0].d;
+all.forEach(t=>{
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td><code>${t.n}</code> <span style="color:var(--muted);font-size:11px">· ${t.ext.split(' ')[0]}</span></td>
+    <td class="barcell"><div class="mini"><div style="width:${t.d/maxd*100}%;background:${t.color}"></div></div></td>
+    <td class="num">${Math.round(t.d/3.7)}</td>`;
+  tb.appendChild(tr);
+});
+
+// ④ skills
+const sb=document.getElementById('skillgroups');
+const skmax=Math.max(...DATA.skills.map(s=>s.t));
+DATA.skills.forEach(s=>{
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td>${s.g}</td><td>${s.n}</td>
+    <td class="barcell"><div class="mini"><div style="width:${s.t/skmax*100}%;background:#e0a85d"></div></div></td>
+    <td class="num">${s.t.toLocaleString()}</td>`;
+  sb.appendChild(tr);
+});
+
+document.getElementById('gen').textContent=DATA.meta.generated;
+</script>
+</body>
+</html>
