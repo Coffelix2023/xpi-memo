@@ -1,0 +1,198 @@
+{
+  "purpose": "记忆动作状态可见性模型示例：6 类动作 × 3 档呈现，以及交互边界用例。断言由 scripts/t2-contract-check.ts 执行（V1-V4）。",
+  "version": "1.0.0",
+  "boundaryCases": [
+    {
+      "case": "B1",
+      "description": "普通捕获完成",
+      "evidence": "捕获路径只调 setFooterStatus（src/index.ts:417），不触碰 ui.select/confirm/custom",
+      "mayOpenPrompt": false,
+      "path": "capture"
+    },
+    {
+      "case": "B2",
+      "description": "T2 adapter 失败或降级",
+      "evidence": "失败路径写 audit(fallback) 与 L0 事件；对话框调用点仅 index.ts:681、console.ts:588、status-panel.ts:458",
+      "mayOpenPrompt": false,
+      "path": "t2-failure"
+    },
+    {
+      "case": "B3",
+      "description": "后端整体不可用，recall 返回空 + warning",
+      "evidence": "src/search/selector.ts：无后端时返回 warning 与空结果，不抛异常",
+      "mayOpenPrompt": false,
+      "path": "backend-unavailable"
+    },
+    {
+      "case": "B4",
+      "description": "非 TUI 模式（print / json）下候选生成",
+      "evidence": "chooseCandidateAction 首行 if (ctx.mode !== \"tui\") return \"later\"（src/index.ts:672）",
+      "mayOpenPrompt": false,
+      "path": "non-tui-candidate"
+    },
+    {
+      "case": "B5",
+      "description": "用户在控制台 Pending 复核里处理候选",
+      "evidence": "chooseCandidateAction force=true（src/index.ts:2144-2148）→ ctx.ui.select（src/index.ts:681）",
+      "mayOpenPrompt": true,
+      "path": "candidate-confirm"
+    }
+  ],
+  "forbiddenKeys": [
+    "content",
+    "text",
+    "body",
+    "memory",
+    "memoryContent",
+    "preview",
+    "snippet",
+    "query",
+    "prompt",
+    "transcript",
+    "toolResult",
+    "raw",
+    "secret",
+    "token",
+    "apiKey",
+    "credential"
+  ],
+  "levels": [
+    "stream",
+    "dim",
+    "hidden"
+  ],
+  "payloadAllowlist": [
+    "actionState",
+    "level",
+    "status",
+    "outcome",
+    "reason",
+    "kind",
+    "scope",
+    "bank",
+    "backend",
+    "fallback",
+    "evidenceType",
+    "operationId",
+    "identity",
+    "confidence",
+    "resultCount",
+    "injectedCount",
+    "omittedCount",
+    "blockedCount",
+    "candidateCount"
+  ],
+  "states": [
+    {
+      "actionState": "captured",
+      "auditAction": "write",
+      "mayOpenPrompt": false,
+      "trigger": "直接写入 T1（xpi_memo_remember / 激活循环）",
+      "payloadKeys": [
+        "actionState",
+        "level",
+        "kind",
+        "scope",
+        "bank",
+        "status"
+      ],
+      "render": {
+        "dim": "● memo on",
+        "hidden": "不动 footer",
+        "stream": "✦ memo on（脉冲 1s 后回落）"
+      }
+    },
+    {
+      "actionState": "candidate-created",
+      "auditAction": "candidate",
+      "mayOpenPrompt": false,
+      "trigger": "生成待审候选",
+      "payloadKeys": [
+        "actionState",
+        "level",
+        "kind",
+        "scope",
+        "bank",
+        "reason",
+        "evidenceType"
+      ],
+      "render": {
+        "dim": "● memo pending",
+        "hidden": "不动 footer",
+        "stream": "✦ memo pending（脉冲 1s）"
+      }
+    },
+    {
+      "actionState": "candidate-confirmed",
+      "auditAction": "confirmation",
+      "mayOpenPrompt": false,
+      "trigger": "用户确认并成功落库",
+      "payloadKeys": [
+        "actionState",
+        "level",
+        "kind",
+        "scope",
+        "bank",
+        "operationId"
+      ],
+      "render": {
+        "dim": "● memo on",
+        "hidden": "不动 footer",
+        "stream": "✦ memo stored（脉冲 1s）"
+      }
+    },
+    {
+      "actionState": "candidate-rejected",
+      "auditAction": "rejection",
+      "mayOpenPrompt": false,
+      "trigger": "用户拒绝或冲突上报",
+      "payloadKeys": [
+        "actionState",
+        "level",
+        "kind",
+        "reason"
+      ],
+      "render": {
+        "dim": "● memo on",
+        "hidden": "不动 footer",
+        "stream": "✦ memo skipped（脉冲 1s）"
+      }
+    },
+    {
+      "actionState": "failed",
+      "auditAction": "write",
+      "mayOpenPrompt": false,
+      "trigger": "写入失败 / unresolved / 抽取出错",
+      "payloadKeys": [
+        "actionState",
+        "level",
+        "reason",
+        "operationId",
+        "identity"
+      ],
+      "render": {
+        "dim": "● memo error（常驻到下次成功动作）",
+        "hidden": "不动 footer",
+        "stream": "✦ memo error（脉冲 1s）"
+      }
+    },
+    {
+      "actionState": "degraded",
+      "auditAction": "fallback",
+      "mayOpenPrompt": false,
+      "trigger": "后端回退 / embedding 无贡献 / 图谱降级 / T2 不可用",
+      "payloadKeys": [
+        "actionState",
+        "level",
+        "backend",
+        "fallback",
+        "reason"
+      ],
+      "render": {
+        "dim": "● memo degraded（常驻到恢复）",
+        "hidden": "不动 footer",
+        "stream": "✦ memo degraded（脉冲 1s）"
+      }
+    }
+  ]
+}

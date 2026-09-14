@@ -1,0 +1,148 @@
+{
+  "datasetId": "t2-zh-eval",
+  "purpose": "证据图示例：正向用例证明图谱只做有界重排且保留原始证据引用；负向用例证明「只有图谱、没有原文」的结果会被丢弃。由 scripts/t2-contract-check.ts 校验。",
+  "version": "1.0.0",
+  "edges": [
+    {
+      "evidence": "m-hop-04 说明删除能力依赖上游精确 ID 读取；m-hop-03 说明遗忘流程先写 recovery 快照。后者以前者为前提。",
+      "id": "edge-1",
+      "type": "supports",
+      "from": {
+        "layer": "T1",
+        "ref": "m-hop-04"
+      },
+      "to": {
+        "layer": "T1",
+        "ref": "m-hop-03"
+      }
+    },
+    {
+      "evidence": "两条同属性同一子系统（项目代号与默认档位）。",
+      "id": "edge-2",
+      "type": "related",
+      "from": {
+        "layer": "T1",
+        "ref": "m-hop-01"
+      },
+      "to": {
+        "layer": "T1",
+        "ref": "m-hop-02"
+      }
+    },
+    {
+      "evidence": "同一 session 内的相邻事件。",
+      "id": "edge-3",
+      "type": "temporal-next",
+      "from": {
+        "layer": "L0",
+        "position": 12,
+        "sessionId": "t2eval-session"
+      },
+      "to": {
+        "layer": "L0",
+        "position": 13,
+        "sessionId": "t2eval-session"
+      }
+    }
+  ],
+  "negativeCases": [
+    {
+      "case": "N1",
+      "description": "一条只有图谱边 id、没有任何原始证据引用的结果",
+      "expect": "drop",
+      "reason": "graph-only-result-dropped",
+      "result": {
+        "bench": "graph",
+        "content": "（图谱推导出的结论，原文里不存在这条记忆）",
+        "graphEdgeId": "edge-1",
+        "score": 0.9
+      }
+    },
+    {
+      "case": "N2",
+      "description": "端点层为 T2（派生内容不能引用派生内容）",
+      "expect": "reject",
+      "reason": "invalid-endpoint-layer",
+      "edge": {
+        "evidence": "派生自另一条边",
+        "id": "bad-1",
+        "type": "supports",
+        "from": {
+          "layer": "T2",
+          "ref": "graph:other-edge"
+        },
+        "to": {
+          "layer": "T1",
+          "ref": "m-hop-03"
+        }
+      }
+    },
+    {
+      "case": "N3",
+      "description": "边类型不在封闭集合内",
+      "expect": "reject",
+      "reason": "unknown-edge-type",
+      "edge": {
+        "evidence": "因果推断（需要 LLM，本层不引入）",
+        "id": "bad-2",
+        "type": "caused-by",
+        "from": {
+          "layer": "T1",
+          "ref": "m-hop-04"
+        },
+        "to": {
+          "layer": "T1",
+          "ref": "m-hop-03"
+        }
+      }
+    },
+    {
+      "case": "N4",
+      "description": "端点引用的记忆不在原文集里（悬空端点）",
+      "expect": "reject",
+      "reason": "dangling-endpoint",
+      "edge": {
+        "evidence": "来源不明",
+        "id": "bad-3",
+        "type": "supports",
+        "from": {
+          "layer": "T1",
+          "ref": "m-hop-999"
+        },
+        "to": {
+          "layer": "T1",
+          "ref": "m-hop-03"
+        }
+      }
+    }
+  ],
+  "rawEvidenceIds": [
+    "m-hop-01",
+    "m-hop-02",
+    "m-hop-03",
+    "m-hop-04",
+    "m-proj-01"
+  ],
+  "rerank": {
+    "baseResults": [
+      {
+        "baseScore": 0.392,
+        "memoryId": "m-hop-04",
+        "provenance": "t2eval/1.0.0#m-hop-04"
+      },
+      {
+        "baseScore": 0.33,
+        "memoryId": "m-hop-03",
+        "provenance": "t2eval/1.0.0#m-hop-03"
+      }
+    ],
+    "expectedBonus": {
+      "m-hop-03": 0.1,
+      "m-hop-04": 0
+    },
+    "expectedOrder": [
+      "m-hop-03",
+      "m-hop-04"
+    ]
+  }
+}

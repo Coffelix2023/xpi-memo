@@ -1,0 +1,69 @@
+{
+  "finishedAt": "2026-09-14T08:47:12.849Z",
+  "mode": "embedding-probe",
+  "runId": "baseline-cloud-probe-2026-09-14T08-47-12-849Z",
+  "startedAt": "2026-09-14T08:47:05.822Z",
+  "dataset": {
+    "datasetId": "t2-zh-eval",
+    "path": "docs/evaluation-reports/t2/scenarios.zh.json",
+    "version": "1.0.0"
+  },
+  "environment": {
+    "backendProbes": [
+      {
+        "backend": "mnemosyne",
+        "command": "mnemosyne",
+        "ok": true
+      },
+      {
+        "backend": "ripgrep",
+        "command": "rg",
+        "ok": true
+      },
+      {
+        "backend": "qmd",
+        "command": "qmd",
+        "ok": false
+      }
+    ],
+    "embeddingMode": "cloud",
+    "label": "baseline-cloud-probe",
+    "node": "v24.20.0",
+    "platform": "darwin/arm64",
+    "embeddingProfile": {
+      "endpoint": "http://127.0.0.1:51712/v1/embeddings",
+      "env": [
+        "MNEMOSYNE_EMBEDDINGS_VIA_API",
+        "MNEMOSYNE_EMBEDDING_API_KEY",
+        "MNEMOSYNE_EMBEDDING_API_URL"
+      ],
+      "mode": "cloud"
+    }
+  },
+  "privacy": {
+    "contentLeftMachine": false,
+    "embeddingMode": "cloud",
+    "note": "endpoint 指向本机 sink；只记录外发尝试，内容未向真实第三方发送",
+    "outboundAttempts": 9,
+    "outboundEndpoint": "http://127.0.0.1:51712/v1/embeddings"
+  },
+  "probe": {
+    "recall": {
+      "denseScore": 0,
+      "embeddingAvailable": true,
+      "fallbackStages": [
+        "em_fallback"
+      ],
+      "ftsScore": 0.375,
+      "latencyMs": 2168,
+      "ok": true,
+      "resultCount": 1,
+      "vecScore": 0
+    },
+    "store": {
+      "latencyMs": 4663,
+      "observed": "stored:d8f825a3a2b9e8d2",
+      "outboundAttempts": 6
+    }
+  }
+}

@@ -1,0 +1,388 @@
+{
+  "datasetId": "t2-zh-eval",
+  "locale": "zh-CN",
+  "purpose": "T2 派生记忆增强层的可复现中文评测场景集：固定语料 + 固定 query + 固定标准答案与证据来源，供 baseline 与候选系统使用同一输入比较。",
+  "repeatability": "runner 使用独立的 MNEMOSYNE_DATA_DIR 临时目录，清空后从本文件重建语料；同一 machine + 同一模型版本应产生同一批命中。",
+  "sanitization": "全部内容为凭空的虚构项目与偏好，不含真实用户数据、真实路径、真实密钥或真实仓库内容。",
+  "version": "1.0.0",
+  "banks": {
+    "global": "default",
+    "project": "project-t2eval"
+  },
+  "memories": [
+    {
+      "bank": "global",
+      "confidence": 0.9,
+      "content": "回答偏好：先给结论，再给理由，不要客套开场白。",
+      "evidence": "user-stated",
+      "id": "m-pref-01",
+      "kind": "global_preference",
+      "provenance": "t2eval/1.0.0#m-pref-01"
+    },
+    {
+      "bank": "global",
+      "confidence": 0.85,
+      "content": "代码评审偏好：只报告问题与风险，不写鼓励性评语。",
+      "evidence": "user-stated",
+      "id": "m-pref-02",
+      "kind": "global_preference",
+      "provenance": "t2eval/1.0.0#m-pref-02"
+    },
+    {
+      "bank": "global",
+      "confidence": 0.9,
+      "content": "提交前固定跑 typecheck、lint、test 三条命令，全绿才允许提交。",
+      "evidence": "user-stated",
+      "id": "m-pref-03",
+      "kind": "global_workflow",
+      "provenance": "t2eval/1.0.0#m-pref-03"
+    },
+    {
+      "bank": "global",
+      "confidence": 0.7,
+      "content": "文档偏好：正文用中文书写，专业术语保留英文原词。",
+      "evidence": "user-stated",
+      "id": "d-pref-01",
+      "kind": "global_preference",
+      "provenance": "t2eval/1.0.0#d-pref-01"
+    },
+    {
+      "bank": "global",
+      "confidence": 0.6,
+      "content": "周报在每周五下班前提交到共享目录。",
+      "evidence": "user-stated",
+      "id": "d-pref-02",
+      "kind": "global_workflow",
+      "provenance": "t2eval/1.0.0#d-pref-02"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.9,
+      "content": "petrel 的检索层放弃自研向量库，改用现成 CLI，只保留可回滚的派生索引。",
+      "evidence": "verified-tool-result",
+      "id": "m-proj-01",
+      "kind": "project_decision",
+      "provenance": "t2eval/1.0.0#m-proj-01"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.95,
+      "content": "petrel 不允许把记忆正文发送到云端 embedding 服务。",
+      "evidence": "user-stated",
+      "id": "m-proj-02",
+      "kind": "project_constraint",
+      "provenance": "t2eval/1.0.0#m-proj-02"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.8,
+      "content": "petrel 的运行时数据目录固定在仓库之外，仓库内不存放运行时数据。",
+      "evidence": "verified-tool-result",
+      "id": "m-proj-03",
+      "kind": "project_gene",
+      "provenance": "t2eval/1.0.0#m-proj-03"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.85,
+      "content": "petrel 的日志层选择追加写入 JSONL，不引入数据库。",
+      "evidence": "verified-tool-result",
+      "id": "d-proj-01",
+      "kind": "project_decision",
+      "provenance": "t2eval/1.0.0#d-proj-01"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.6,
+      "content": "petrel 的时区处理曾导致导出日期整体偏移一天。",
+      "evidence": "verified-tool-result",
+      "id": "d-proj-02",
+      "kind": "project_gotcha",
+      "provenance": "t2eval/1.0.0#d-proj-02"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.85,
+      "content": "XPI_MEMO_PAUSED=1 时捕获与召回同时停止，只保留只读的状态查询。",
+      "evidence": "verified-tool-result",
+      "id": "m-mix-01",
+      "kind": "project_gene",
+      "provenance": "t2eval/1.0.0#m-mix-01"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.8,
+      "content": "mnemosyne 的 recall 必须带 --json --explain，否则读不到 embedding.available 字段。",
+      "evidence": "verified-tool-result",
+      "id": "m-mix-02",
+      "kind": "project_gotcha",
+      "provenance": "t2eval/1.0.0#m-mix-02"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.8,
+      "content": "候选队列超过 extraction budget 时只做截断，不允许自动确认。",
+      "evidence": "verified-tool-result",
+      "id": "m-mix-03",
+      "kind": "project_constraint",
+      "provenance": "t2eval/1.0.0#m-mix-03"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.6,
+      "content": "ripgrep 后端在中文路径下需要加 --no-messages 才不会中断。",
+      "evidence": "verified-tool-result",
+      "id": "d-mix-01",
+      "kind": "project_gotcha",
+      "provenance": "t2eval/1.0.0#d-mix-01"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.7,
+      "content": "audit 记录通过 operationId 关联对应的 L0 事件。",
+      "evidence": "verified-tool-result",
+      "id": "d-mix-02",
+      "kind": "project_gene",
+      "provenance": "t2eval/1.0.0#d-mix-02"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.8,
+      "content": "本仓库 xpi-memo 的项目代号是 petrel。",
+      "evidence": "repo-file",
+      "id": "m-hop-01",
+      "kind": "project_gene",
+      "provenance": "t2eval/1.0.0#m-hop-01"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.9,
+      "content": "petrel 的默认 embedding 档位是本地模型，云端档位默认关闭。",
+      "evidence": "user-stated",
+      "id": "m-hop-02",
+      "kind": "project_decision",
+      "provenance": "t2eval/1.0.0#m-hop-02"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.85,
+      "content": "petrel 的遗忘流程先写 recovery 快照，再执行 delete。",
+      "evidence": "verified-tool-result",
+      "id": "m-hop-03",
+      "kind": "project_decision",
+      "provenance": "t2eval/1.0.0#m-hop-03"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.85,
+      "content": "petrel 的删除能力依赖上游 mnemosyne 提供的精确 ID 读取命令。",
+      "evidence": "verified-tool-result",
+      "id": "m-hop-04",
+      "kind": "project_gene",
+      "provenance": "t2eval/1.0.0#m-hop-04"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.75,
+      "content": "界面层的状态提示走流光通道，默认显示等级是灰度。",
+      "evidence": "repo-file",
+      "id": "m-hop-05",
+      "kind": "project_gene",
+      "provenance": "t2eval/1.0.0#m-hop-05"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.9,
+      "content": "流光通道在任何情况下都不携带记忆正文。",
+      "evidence": "user-stated",
+      "id": "m-hop-06",
+      "kind": "project_constraint",
+      "provenance": "t2eval/1.0.0#m-hop-06"
+    },
+    {
+      "bank": "project",
+      "confidence": 0.6,
+      "content": "petrel 的命令行参数解析集中在 src/cli.ts。",
+      "evidence": "repo-file",
+      "id": "d-hop-01",
+      "kind": "project_gene",
+      "provenance": "t2eval/1.0.0#d-hop-01"
+    }
+  ],
+  "scenarios": [
+    {
+      "answer": "先给结论再给理由，不要客套开场白。",
+      "bridge": [],
+      "category": "user_preference",
+      "expectation": "hit",
+      "falseRecallRisk": "d-pref-01（同为偏好类，但讲文档语言）",
+      "id": "s-pref-01",
+      "query": "我平时希望你怎么组织回答？",
+      "scope": "global",
+      "topK": 5,
+      "groundTruth": [
+        "m-pref-01"
+      ]
+    },
+    {
+      "answer": "只报告问题与风险，不写鼓励性评语。",
+      "bridge": [],
+      "category": "user_preference",
+      "expectation": "hit",
+      "falseRecallRisk": "d-pref-02（同为 workflow 类，但讲周报）",
+      "id": "s-pref-02",
+      "query": "代码评审的时候我要什么样的话术？",
+      "scope": "global",
+      "topK": 5,
+      "groundTruth": [
+        "m-pref-02"
+      ]
+    },
+    {
+      "answer": "typecheck、lint、test 三条命令全绿。",
+      "bridge": [],
+      "category": "user_preference",
+      "expectation": "hit",
+      "falseRecallRisk": "无同义词干扰项",
+      "id": "s-pref-03",
+      "query": "提交之前我一般要走哪些检查？",
+      "scope": "global",
+      "topK": 5,
+      "groundTruth": [
+        "m-pref-03"
+      ]
+    },
+    {
+      "answer": "放弃自研向量库，改用现成 CLI，只保留可回滚的派生索引。",
+      "bridge": [],
+      "category": "project_continuity",
+      "expectation": "hit",
+      "falseRecallRisk": "d-proj-01（同为决策类，但讲日志层）",
+      "id": "s-proj-01",
+      "query": "我们之前定过检索层怎么选吗？",
+      "scope": "project",
+      "topK": 5,
+      "groundTruth": [
+        "m-proj-01"
+      ]
+    },
+    {
+      "answer": "不允许把记忆正文发送到云端 embedding 服务。",
+      "bridge": [],
+      "category": "project_continuity",
+      "expectation": "hit",
+      "falseRecallRisk": "m-proj-01（整句含「云端」语义相近但不回答限制）",
+      "id": "s-proj-02",
+      "query": "这个项目对云端服务有什么限制？",
+      "scope": "project",
+      "topK": 5,
+      "groundTruth": [
+        "m-proj-02"
+      ]
+    },
+    {
+      "answer": "固定在仓库之外的运行时数据目录，仓库内不放。",
+      "bridge": [],
+      "category": "project_continuity",
+      "expectation": "hit",
+      "falseRecallRisk": "d-proj-02（同为环境类，但讲时区）",
+      "id": "s-proj-03",
+      "query": "运行时数据放在哪？",
+      "scope": "project",
+      "topK": 5,
+      "groundTruth": [
+        "m-proj-03"
+      ]
+    },
+    {
+      "answer": "捕获与召回同时停止，只保留只读状态查询。",
+      "bridge": [],
+      "category": "mixed_tech",
+      "expectation": "hit",
+      "falseRecallRisk": "d-mix-02（同为环境变量/标识符类文本）",
+      "id": "s-mix-01",
+      "query": "XPI_MEMO_PAUSED 打开后会发生什么？",
+      "scope": "project",
+      "topK": 5,
+      "groundTruth": [
+        "m-mix-01"
+      ]
+    },
+    {
+      "answer": "否则读不到 embedding.available 字段。",
+      "bridge": [],
+      "category": "mixed_tech",
+      "expectation": "hit",
+      "falseRecallRisk": "d-mix-01（同为 CLI 参数类 gotcha）",
+      "id": "s-mix-02",
+      "query": "为什么 recall 一定要加 --explain？",
+      "scope": "project",
+      "topK": 5,
+      "groundTruth": [
+        "m-mix-02"
+      ]
+    },
+    {
+      "answer": "只做截断，不允许自动确认。",
+      "bridge": [],
+      "category": "mixed_tech",
+      "expectation": "hit",
+      "falseRecallRisk": "d-mix-02（同为治理流程类）",
+      "id": "s-mix-03",
+      "query": "候选队列超预算怎么处理？",
+      "scope": "project",
+      "topK": 5,
+      "groundTruth": [
+        "m-mix-03"
+      ]
+    },
+    {
+      "answer": "默认本地模型档位，云端默认关闭（query 只给仓库名，需先经项目代号跳到 petrel）。",
+      "category": "multi_hop_zh",
+      "expectation": "observe",
+      "falseRecallRisk": "m-hop-01 与 d-hop-01 含「xpi-memo / petrel」字面命中但不回答档位",
+      "id": "s-hop-01",
+      "query": "xpi-memo 默认走哪档 embedding？",
+      "scope": "project",
+      "topK": 5,
+      "bridge": [
+        "m-hop-01"
+      ],
+      "groundTruth": [
+        "m-hop-02"
+      ]
+    },
+    {
+      "answer": "影响遗忘流程：删除能力依赖上游精确 ID 读取，缺失时不能保证先写 recovery 快照再 delete。",
+      "category": "multi_hop_zh",
+      "expectation": "observe",
+      "falseRecallRisk": "m-hop-04 含「精确 ID 读取」字面命中但不回答受影响流程",
+      "id": "s-hop-02",
+      "query": "上游没有精确 ID 读取命令会影响哪个流程？",
+      "scope": "project",
+      "topK": 5,
+      "bridge": [
+        "m-hop-04"
+      ],
+      "groundTruth": [
+        "m-hop-03"
+      ]
+    },
+    {
+      "answer": "不能：状态提示走流光通道，流光通道在任何情况下都不携带记忆正文。",
+      "category": "multi_hop_zh",
+      "expectation": "observe",
+      "falseRecallRisk": "m-hop-05 描述流光通道但未回答是否带正文",
+      "id": "s-hop-03",
+      "query": "我在跟你说话的时候，屏幕上那行提示能带原文吗？",
+      "scope": "project",
+      "topK": 5,
+      "bridge": [
+        "m-hop-05"
+      ],
+      "groundTruth": [
+        "m-hop-06"
+      ]
+    }
+  ]
+}

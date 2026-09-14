@@ -1,0 +1,999 @@
+{
+  "corpus": {
+    "memoryCount": 22,
+    "projectBank": "project-t2eval",
+    "storedCount": 22,
+    "storeFailures": []
+  },
+  "dataset": {
+    "datasetId": "t2-zh-eval",
+    "locale": "zh-CN",
+    "path": "docs/evaluation-reports/t2/scenarios.zh.json",
+    "version": "1.0.0"
+  },
+  "privacy": {
+    "contentLeftMachine": false,
+    "embeddingMode": "none",
+    "note": "无外发 embedding 调用",
+    "outboundAttempts": 0,
+    "outboundEndpoint": null
+  },
+  "degradationProbes": [
+    {
+      "backendName": null,
+      "label": "backend-missing",
+      "observed": "backend-failed:spawnSync mnemosyne ENOENT",
+      "resultCount": 0,
+      "expectedWarning": "no search backend available — recall returned empty; install mnemosyne (uv tool install mnemosyne-memory) or ripgrep, or configure xpi_memo.searchBackend"
+    },
+    {
+      "backendName": null,
+      "label": "backend-error",
+      "observed": "backend-failed:FileExistsError: [Errno 17] File exists: '<tmp>/t2eval-92kxyx/mnemosyne.db'",
+      "resultCount": 0,
+      "expectedWarning": "no search backend available — recall returned empty; install mnemosyne (uv tool install mnemosyne-memory) or ripgrep, or configure xpi_memo.searchBackend"
+    }
+  ],
+  "finishedAt": "2026-09-14T08:46:48.845Z",
+  "runId": "baseline-none-2026-09-14T08-46-48-845Z",
+  "scenarios": [
+    {
+      "results": [
+        {
+          "bank": "default",
+          "content": "回答偏好：先给结论，再给理由，不要客套开场白。",
+          "datasetId": "m-pref-01",
+          "datasetRank": 1,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.30688000000000004
+        }
+      ],
+      "degradation": {
+        "activeBackend": "mnemosyne",
+        "attempts": [
+          {
+            "backend": "mnemosyne",
+            "command": "mnemosyne",
+            "ok": true
+          },
+          {
+            "backend": "ripgrep",
+            "command": "rg",
+            "ok": true
+          },
+          {
+            "backend": "qmd",
+            "command": "qmd",
+            "ok": false
+          }
+        ],
+        "embeddingAvailable": false,
+        "embeddingContributed": false,
+        "fallback": true,
+        "fallbackStages": [
+          "em_fallback"
+        ]
+      },
+      "metrics": {
+        "bridgeHitRank": null,
+        "evidenceCompleteRate": 1,
+        "falseRecallCount": 0,
+        "falseRecallRate": 0,
+        "hit": true,
+        "hitRank": 1,
+        "latencyMs": 281,
+        "mrr": 1,
+        "precision": 1,
+        "returned": 1
+      },
+      "scenario": {
+        "answer": "先给结论再给理由，不要客套开场白。",
+        "bridge": [],
+        "category": "user_preference",
+        "expectation": "hit",
+        "falseRecallRisk": "d-pref-01（同为偏好类，但讲文档语言）",
+        "id": "s-pref-01",
+        "query": "我平时希望你怎么组织回答？",
+        "scope": "global",
+        "topK": 5,
+        "groundTruth": [
+          "m-pref-01"
+        ]
+      }
+    },
+    {
+      "results": [
+        {
+          "bank": "default",
+          "content": "代码评审偏好：只报告问题与风险，不写鼓励性评语。",
+          "datasetId": "m-pref-02",
+          "datasetRank": 1,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.33896000000000004
+        }
+      ],
+      "degradation": {
+        "activeBackend": "mnemosyne",
+        "attempts": [
+          {
+            "backend": "mnemosyne",
+            "command": "mnemosyne",
+            "ok": true
+          },
+          {
+            "backend": "ripgrep",
+            "command": "rg",
+            "ok": true
+          },
+          {
+            "backend": "qmd",
+            "command": "qmd",
+            "ok": false
+          }
+        ],
+        "embeddingAvailable": false,
+        "embeddingContributed": false,
+        "fallback": true,
+        "fallbackStages": [
+          "em_fallback"
+        ]
+      },
+      "metrics": {
+        "bridgeHitRank": null,
+        "evidenceCompleteRate": 1,
+        "falseRecallCount": 0,
+        "falseRecallRate": 0,
+        "hit": true,
+        "hitRank": 1,
+        "latencyMs": 281,
+        "mrr": 1,
+        "precision": 1,
+        "returned": 1
+      },
+      "scenario": {
+        "answer": "只报告问题与风险，不写鼓励性评语。",
+        "bridge": [],
+        "category": "user_preference",
+        "expectation": "hit",
+        "falseRecallRisk": "d-pref-02（同为 workflow 类，但讲周报）",
+        "id": "s-pref-02",
+        "query": "代码评审的时候我要什么样的话术？",
+        "scope": "global",
+        "topK": 5,
+        "groundTruth": [
+          "m-pref-02"
+        ]
+      }
+    },
+    {
+      "results": [
+        {
+          "bank": "default",
+          "content": "提交前固定跑 typecheck、lint、test 三条命令，全绿才允许提交。",
+          "datasetId": "m-pref-03",
+          "datasetRank": 1,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.32848000000000005
+        },
+        {
+          "bank": "default",
+          "content": "周报在每周五下班前提交到共享目录。",
+          "datasetId": "d-pref-02",
+          "datasetRank": 2,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.27888
+        }
+      ],
+      "degradation": {
+        "activeBackend": "mnemosyne",
+        "attempts": [
+          {
+            "backend": "mnemosyne",
+            "command": "mnemosyne",
+            "ok": true
+          },
+          {
+            "backend": "ripgrep",
+            "command": "rg",
+            "ok": true
+          },
+          {
+            "backend": "qmd",
+            "command": "qmd",
+            "ok": false
+          }
+        ],
+        "embeddingAvailable": false,
+        "embeddingContributed": false,
+        "fallback": true,
+        "fallbackStages": [
+          "em_fallback"
+        ]
+      },
+      "metrics": {
+        "bridgeHitRank": null,
+        "evidenceCompleteRate": 1,
+        "falseRecallCount": 1,
+        "falseRecallRate": 0.5,
+        "hit": true,
+        "hitRank": 1,
+        "latencyMs": 285,
+        "mrr": 1,
+        "precision": 0.5,
+        "returned": 2
+      },
+      "scenario": {
+        "answer": "typecheck、lint、test 三条命令全绿。",
+        "bridge": [],
+        "category": "user_preference",
+        "expectation": "hit",
+        "falseRecallRisk": "无同义词干扰项",
+        "id": "s-pref-03",
+        "query": "提交之前我一般要走哪些检查？",
+        "scope": "global",
+        "topK": 5,
+        "groundTruth": [
+          "m-pref-03"
+        ]
+      }
+    },
+    {
+      "results": [
+        {
+          "bank": "project-t2eval",
+          "content": "petrel 的检索层放弃自研向量库，改用现成 CLI，只保留可回滚的派生索引。",
+          "datasetId": "m-proj-01",
+          "datasetRank": 1,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.32848000000000005
+        },
+        {
+          "bank": "default",
+          "content": "提交前固定跑 typecheck、lint、test 三条命令，全绿才允许提交。",
+          "datasetId": "m-pref-03",
+          "datasetRank": 2,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.30256
+        },
+        {
+          "bank": "project-t2eval",
+          "content": "petrel 的日志层选择追加写入 JSONL，不引入数据库。",
+          "datasetId": "d-proj-01",
+          "datasetRank": 3,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.23968
+        },
+        {
+          "bank": "project-t2eval",
+          "content": "petrel 的运行时数据目录固定在仓库之外，仓库内不存放运行时数据。",
+          "datasetId": "m-proj-03",
+          "datasetRank": 4,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.23144
+        },
+        {
+          "bank": "project-t2eval",
+          "content": "候选队列超过 extraction budget 时只做截断，不允许自动确认。",
+          "datasetId": "m-mix-03",
+          "datasetRank": 5,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.23144
+        }
+      ],
+      "degradation": {
+        "activeBackend": "mnemosyne",
+        "attempts": [
+          {
+            "backend": "mnemosyne",
+            "command": "mnemosyne",
+            "ok": true
+          },
+          {
+            "backend": "ripgrep",
+            "command": "rg",
+            "ok": true
+          },
+          {
+            "backend": "qmd",
+            "command": "qmd",
+            "ok": false
+          }
+        ],
+        "embeddingAvailable": false,
+        "embeddingContributed": false,
+        "fallback": true,
+        "fallbackStages": [
+          "em_fallback",
+          "em_fallback"
+        ]
+      },
+      "metrics": {
+        "bridgeHitRank": null,
+        "evidenceCompleteRate": 1,
+        "falseRecallCount": 4,
+        "falseRecallRate": 0.8,
+        "hit": true,
+        "hitRank": 1,
+        "latencyMs": 568,
+        "mrr": 1,
+        "precision": 0.2,
+        "returned": 5
+      },
+      "scenario": {
+        "answer": "放弃自研向量库，改用现成 CLI，只保留可回滚的派生索引。",
+        "bridge": [],
+        "category": "project_continuity",
+        "expectation": "hit",
+        "falseRecallRisk": "d-proj-01（同为决策类，但讲日志层）",
+        "id": "s-proj-01",
+        "query": "我们之前定过检索层怎么选吗？",
+        "scope": "project",
+        "topK": 5,
+        "groundTruth": [
+          "m-proj-01"
+        ]
+      }
+    },
+    {
+      "results": [
+        {
+          "bank": "project-t2eval",
+          "content": "petrel 不允许把记忆正文发送到云端 embedding 服务。",
+          "datasetId": "m-proj-02",
+          "datasetRank": 1,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.35552000000000006
+        }
+      ],
+      "degradation": {
+        "activeBackend": "mnemosyne",
+        "attempts": [
+          {
+            "backend": "mnemosyne",
+            "command": "mnemosyne",
+            "ok": true
+          },
+          {
+            "backend": "ripgrep",
+            "command": "rg",
+            "ok": true
+          },
+          {
+            "backend": "qmd",
+            "command": "qmd",
+            "ok": false
+          }
+        ],
+        "embeddingAvailable": false,
+        "embeddingContributed": false,
+        "fallback": true,
+        "fallbackStages": [
+          "em_fallback",
+          "em_fallback"
+        ]
+      },
+      "metrics": {
+        "bridgeHitRank": null,
+        "evidenceCompleteRate": 1,
+        "falseRecallCount": 0,
+        "falseRecallRate": 0,
+        "hit": true,
+        "hitRank": 1,
+        "latencyMs": 568,
+        "mrr": 1,
+        "precision": 1,
+        "returned": 1
+      },
+      "scenario": {
+        "answer": "不允许把记忆正文发送到云端 embedding 服务。",
+        "bridge": [],
+        "category": "project_continuity",
+        "expectation": "hit",
+        "falseRecallRisk": "m-proj-01（整句含「云端」语义相近但不回答限制）",
+        "id": "s-proj-02",
+        "query": "这个项目对云端服务有什么限制？",
+        "scope": "project",
+        "topK": 5,
+        "groundTruth": [
+          "m-proj-02"
+        ]
+      }
+    },
+    {
+      "results": [
+        {
+          "bank": "project-t2eval",
+          "content": "petrel 的运行时数据目录固定在仓库之外，仓库内不存放运行时数据。",
+          "datasetId": "m-proj-03",
+          "datasetRank": 1,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.54608
+        },
+        {
+          "bank": "project-t2eval",
+          "content": "petrel 的命令行参数解析集中在 src/cli.ts。",
+          "datasetId": "d-hop-01",
+          "datasetRank": 2,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.25728
+        },
+        {
+          "bank": "project-t2eval",
+          "content": "petrel 的日志层选择追加写入 JSONL，不引入数据库。",
+          "datasetId": "d-proj-01",
+          "datasetRank": 3,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.24384000000000003
+        }
+      ],
+      "degradation": {
+        "activeBackend": "mnemosyne",
+        "attempts": [
+          {
+            "backend": "mnemosyne",
+            "command": "mnemosyne",
+            "ok": true
+          },
+          {
+            "backend": "ripgrep",
+            "command": "rg",
+            "ok": true
+          },
+          {
+            "backend": "qmd",
+            "command": "qmd",
+            "ok": false
+          }
+        ],
+        "embeddingAvailable": false,
+        "embeddingContributed": false,
+        "fallback": true,
+        "fallbackStages": [
+          "em_fallback",
+          "em_fallback"
+        ]
+      },
+      "metrics": {
+        "bridgeHitRank": null,
+        "evidenceCompleteRate": 1,
+        "falseRecallCount": 2,
+        "falseRecallRate": 0.6666666666666666,
+        "hit": true,
+        "hitRank": 1,
+        "latencyMs": 567,
+        "mrr": 1,
+        "precision": 0.3333333333333333,
+        "returned": 3
+      },
+      "scenario": {
+        "answer": "固定在仓库之外的运行时数据目录，仓库内不放。",
+        "bridge": [],
+        "category": "project_continuity",
+        "expectation": "hit",
+        "falseRecallRisk": "d-proj-02（同为环境类，但讲时区）",
+        "id": "s-proj-03",
+        "query": "运行时数据放在哪？",
+        "scope": "project",
+        "topK": 5,
+        "groundTruth": [
+          "m-proj-03"
+        ]
+      }
+    },
+    {
+      "results": [
+        {
+          "bank": "project-t2eval",
+          "content": "XPI_MEMO_PAUSED=1 时捕获与召回同时停止，只保留只读的状态查询。",
+          "datasetId": "m-mix-01",
+          "datasetRank": 1,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.41432
+        }
+      ],
+      "degradation": {
+        "activeBackend": "mnemosyne",
+        "attempts": [
+          {
+            "backend": "mnemosyne",
+            "command": "mnemosyne",
+            "ok": true
+          },
+          {
+            "backend": "ripgrep",
+            "command": "rg",
+            "ok": true
+          },
+          {
+            "backend": "qmd",
+            "command": "qmd",
+            "ok": false
+          }
+        ],
+        "embeddingAvailable": false,
+        "embeddingContributed": false,
+        "fallback": true,
+        "fallbackStages": [
+          "em_fallback",
+          "em_fallback"
+        ]
+      },
+      "metrics": {
+        "bridgeHitRank": null,
+        "evidenceCompleteRate": 1,
+        "falseRecallCount": 0,
+        "falseRecallRate": 0,
+        "hit": true,
+        "hitRank": 1,
+        "latencyMs": 567,
+        "mrr": 1,
+        "precision": 1,
+        "returned": 1
+      },
+      "scenario": {
+        "answer": "捕获与召回同时停止，只保留只读状态查询。",
+        "bridge": [],
+        "category": "mixed_tech",
+        "expectation": "hit",
+        "falseRecallRisk": "d-mix-02（同为环境变量/标识符类文本）",
+        "id": "s-mix-01",
+        "query": "XPI_MEMO_PAUSED 打开后会发生什么？",
+        "scope": "project",
+        "topK": 5,
+        "groundTruth": [
+          "m-mix-01"
+        ]
+      }
+    },
+    {
+      "results": [],
+      "degradation": {
+        "activeBackend": "mnemosyne",
+        "attempts": [
+          {
+            "backend": "mnemosyne",
+            "command": "mnemosyne",
+            "ok": true
+          },
+          {
+            "backend": "ripgrep",
+            "command": "rg",
+            "ok": true
+          },
+          {
+            "backend": "qmd",
+            "command": "qmd",
+            "ok": false
+          }
+        ],
+        "embeddingAvailable": false,
+        "embeddingContributed": false,
+        "fallback": true,
+        "fallbackStages": [
+          "em_fallback",
+          "em_fallback"
+        ]
+      },
+      "metrics": {
+        "bridgeHitRank": null,
+        "evidenceCompleteRate": null,
+        "falseRecallCount": 0,
+        "falseRecallRate": 0,
+        "hit": false,
+        "hitRank": null,
+        "latencyMs": 566,
+        "mrr": 0,
+        "precision": 0,
+        "returned": 0
+      },
+      "scenario": {
+        "answer": "否则读不到 embedding.available 字段。",
+        "bridge": [],
+        "category": "mixed_tech",
+        "expectation": "hit",
+        "falseRecallRisk": "d-mix-01（同为 CLI 参数类 gotcha）",
+        "id": "s-mix-02",
+        "query": "为什么 recall 一定要加 --explain？",
+        "scope": "project",
+        "topK": 5,
+        "groundTruth": [
+          "m-mix-02"
+        ]
+      }
+    },
+    {
+      "results": [
+        {
+          "bank": "project-t2eval",
+          "content": "候选队列超过 extraction budget 时只做截断，不允许自动确认。",
+          "datasetId": "m-mix-03",
+          "datasetRank": 1,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.38976000000000005
+        },
+        {
+          "bank": "project-t2eval",
+          "content": "petrel 的时区处理曾导致导出日期整体偏移一天。",
+          "datasetId": "d-proj-02",
+          "datasetRank": 2,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.18072
+        }
+      ],
+      "degradation": {
+        "activeBackend": "mnemosyne",
+        "attempts": [
+          {
+            "backend": "mnemosyne",
+            "command": "mnemosyne",
+            "ok": true
+          },
+          {
+            "backend": "ripgrep",
+            "command": "rg",
+            "ok": true
+          },
+          {
+            "backend": "qmd",
+            "command": "qmd",
+            "ok": false
+          }
+        ],
+        "embeddingAvailable": false,
+        "embeddingContributed": false,
+        "fallback": true,
+        "fallbackStages": [
+          "em_fallback",
+          "em_fallback"
+        ]
+      },
+      "metrics": {
+        "bridgeHitRank": null,
+        "evidenceCompleteRate": 1,
+        "falseRecallCount": 1,
+        "falseRecallRate": 0.5,
+        "hit": true,
+        "hitRank": 1,
+        "latencyMs": 569,
+        "mrr": 1,
+        "precision": 0.5,
+        "returned": 2
+      },
+      "scenario": {
+        "answer": "只做截断，不允许自动确认。",
+        "bridge": [],
+        "category": "mixed_tech",
+        "expectation": "hit",
+        "falseRecallRisk": "d-mix-02（同为治理流程类）",
+        "id": "s-mix-03",
+        "query": "候选队列超预算怎么处理？",
+        "scope": "project",
+        "topK": 5,
+        "groundTruth": [
+          "m-mix-03"
+        ]
+      }
+    },
+    {
+      "results": [
+        {
+          "bank": "project-t2eval",
+          "content": "本仓库 xpi-memo 的项目代号是 petrel。",
+          "datasetId": "m-hop-01",
+          "datasetRank": 1,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.40599999999999997
+        },
+        {
+          "bank": "project-t2eval",
+          "content": "XPI_MEMO_PAUSED=1 时捕获与召回同时停止，只保留只读的状态查询。",
+          "datasetId": "m-mix-01",
+          "datasetRank": 2,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.40288000000000007
+        }
+      ],
+      "degradation": {
+        "activeBackend": "mnemosyne",
+        "attempts": [
+          {
+            "backend": "mnemosyne",
+            "command": "mnemosyne",
+            "ok": true
+          },
+          {
+            "backend": "ripgrep",
+            "command": "rg",
+            "ok": true
+          },
+          {
+            "backend": "qmd",
+            "command": "qmd",
+            "ok": false
+          }
+        ],
+        "embeddingAvailable": false,
+        "embeddingContributed": false,
+        "fallback": true,
+        "fallbackStages": [
+          "em_fallback",
+          "em_fallback"
+        ]
+      },
+      "metrics": {
+        "bridgeHitRank": 1,
+        "evidenceCompleteRate": 1,
+        "falseRecallCount": 1,
+        "falseRecallRate": 0.5,
+        "hit": false,
+        "hitRank": null,
+        "latencyMs": 571,
+        "mrr": 0,
+        "precision": 0.5,
+        "returned": 2
+      },
+      "scenario": {
+        "answer": "默认本地模型档位，云端默认关闭（query 只给仓库名，需先经项目代号跳到 petrel）。",
+        "category": "multi_hop_zh",
+        "expectation": "observe",
+        "falseRecallRisk": "m-hop-01 与 d-hop-01 含「xpi-memo / petrel」字面命中但不回答档位",
+        "id": "s-hop-01",
+        "query": "xpi-memo 默认走哪档 embedding？",
+        "scope": "project",
+        "topK": 5,
+        "bridge": [
+          "m-hop-01"
+        ],
+        "groundTruth": [
+          "m-hop-02"
+        ]
+      }
+    },
+    {
+      "results": [
+        {
+          "bank": "project-t2eval",
+          "content": "petrel 的删除能力依赖上游 mnemosyne 提供的精确 ID 读取命令。",
+          "datasetId": "m-hop-04",
+          "datasetRank": 1,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.30976000000000004
+        }
+      ],
+      "degradation": {
+        "activeBackend": "mnemosyne",
+        "attempts": [
+          {
+            "backend": "mnemosyne",
+            "command": "mnemosyne",
+            "ok": true
+          },
+          {
+            "backend": "ripgrep",
+            "command": "rg",
+            "ok": true
+          },
+          {
+            "backend": "qmd",
+            "command": "qmd",
+            "ok": false
+          }
+        ],
+        "embeddingAvailable": false,
+        "embeddingContributed": false,
+        "fallback": true,
+        "fallbackStages": [
+          "em_fallback",
+          "em_fallback"
+        ]
+      },
+      "metrics": {
+        "bridgeHitRank": 1,
+        "evidenceCompleteRate": 1,
+        "falseRecallCount": 0,
+        "falseRecallRate": 0,
+        "hit": false,
+        "hitRank": null,
+        "latencyMs": 568,
+        "mrr": 0,
+        "precision": 1,
+        "returned": 1
+      },
+      "scenario": {
+        "answer": "影响遗忘流程：删除能力依赖上游精确 ID 读取，缺失时不能保证先写 recovery 快照再 delete。",
+        "category": "multi_hop_zh",
+        "expectation": "observe",
+        "falseRecallRisk": "m-hop-04 含「精确 ID 读取」字面命中但不回答受影响流程",
+        "id": "s-hop-02",
+        "query": "上游没有精确 ID 读取命令会影响哪个流程？",
+        "scope": "project",
+        "topK": 5,
+        "bridge": [
+          "m-hop-04"
+        ],
+        "groundTruth": [
+          "m-hop-03"
+        ]
+      }
+    },
+    {
+      "results": [
+        {
+          "bank": "project-t2eval",
+          "content": "petrel 的删除能力依赖上游 mnemosyne 提供的精确 ID 读取命令。",
+          "datasetId": "m-hop-04",
+          "datasetRank": 1,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.30656
+        },
+        {
+          "bank": "project-t2eval",
+          "content": "petrel 的运行时数据目录固定在仓库之外，仓库内不存放运行时数据。",
+          "datasetId": "m-proj-03",
+          "datasetRank": 2,
+          "hasKind": true,
+          "hasProvenance": true,
+          "score": 0.29832000000000003
+        }
+      ],
+      "degradation": {
+        "activeBackend": "mnemosyne",
+        "attempts": [
+          {
+            "backend": "mnemosyne",
+            "command": "mnemosyne",
+            "ok": true
+          },
+          {
+            "backend": "ripgrep",
+            "command": "rg",
+            "ok": true
+          },
+          {
+            "backend": "qmd",
+            "command": "qmd",
+            "ok": false
+          }
+        ],
+        "embeddingAvailable": false,
+        "embeddingContributed": false,
+        "fallback": true,
+        "fallbackStages": [
+          "em_fallback",
+          "em_fallback"
+        ]
+      },
+      "metrics": {
+        "bridgeHitRank": null,
+        "evidenceCompleteRate": 1,
+        "falseRecallCount": 2,
+        "falseRecallRate": 1,
+        "hit": false,
+        "hitRank": null,
+        "latencyMs": 572,
+        "mrr": 0,
+        "precision": 0,
+        "returned": 2
+      },
+      "scenario": {
+        "answer": "不能：状态提示走流光通道，流光通道在任何情况下都不携带记忆正文。",
+        "category": "multi_hop_zh",
+        "expectation": "observe",
+        "falseRecallRisk": "m-hop-05 描述流光通道但未回答是否带正文",
+        "id": "s-hop-03",
+        "query": "我在跟你说话的时候，屏幕上那行提示能带原文吗？",
+        "scope": "project",
+        "topK": 5,
+        "bridge": [
+          "m-hop-05"
+        ],
+        "groundTruth": [
+          "m-hop-06"
+        ]
+      }
+    }
+  ],
+  "startedAt": "2026-09-14T08:46:36.229Z",
+  "environment": {
+    "backendProbes": [
+      {
+        "backend": "mnemosyne",
+        "command": "mnemosyne",
+        "ok": true
+      },
+      {
+        "backend": "ripgrep",
+        "command": "rg",
+        "ok": true
+      },
+      {
+        "backend": "qmd",
+        "command": "qmd",
+        "ok": false
+      }
+    ],
+    "embeddingMode": "none",
+    "embeddingModel": "BAAI/bge-small-en-v1.5 (config.yaml)",
+    "label": "baseline-none",
+    "node": "v24.20.0",
+    "platform": "darwin/arm64",
+    "embeddingProfile": {
+      "endpoint": null,
+      "env": [
+        "MNEMOSYNE_EMBEDDINGS_OFF"
+      ],
+      "mode": "none"
+    }
+  },
+  "resources": {
+    "dataDirBytes": 1182432,
+    "rssAfterBytes": 92782592,
+    "rssBeforeBytes": 88735744,
+    "rssDeltaBytes": 4046848
+  },
+  "summary": {
+    "byCategory": [
+      {
+        "category": "user_preference",
+        "evidenceCompleteRate": 1,
+        "falseRecallRate": 0.16666666666666666,
+        "hitRate": 1,
+        "scenarios": 3
+      },
+      {
+        "category": "project_continuity",
+        "evidenceCompleteRate": 1,
+        "falseRecallRate": 0.48888888888888893,
+        "hitRate": 1,
+        "scenarios": 3
+      },
+      {
+        "category": "mixed_tech",
+        "evidenceCompleteRate": 1,
+        "falseRecallRate": 0.16666666666666666,
+        "hitRate": 0.6666666666666666,
+        "scenarios": 3
+      },
+      {
+        "category": "multi_hop_zh",
+        "evidenceCompleteRate": 1,
+        "falseRecallRate": 0.5,
+        "hitRate": 0,
+        "scenarios": 3
+      }
+    ],
+    "evidenceCompleteRate": 1,
+    "expectedHitRate": 0.8888888888888888,
+    "falseRecallRate": 0.33055555555555555,
+    "hitRate": 0.6666666666666666,
+    "mrr": 0.6666666666666666,
+    "scenarios": 12,
+    "totalDurationMs": 12624,
+    "latencyMs": {
+      "max": 572,
+      "min": 281,
+      "p50": 567,
+      "p95": 572
+    }
+  }
+}

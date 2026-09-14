@@ -1,0 +1,248 @@
+{
+  "purpose": "T2 派生提案到候选生命周期的字段映射示例。valid 命令覆盖一封合法提案及其三个落点；negativeCases 各带一份完整的变异记录，用于证明缺证据引用 / 错证据类型 / 缺回滚引用 / 未经确认都会被拒。由 scripts/t2-contract-check.ts 校验。",
+  "version": "1.0.0",
+  "negativeCases": [
+    {
+      "case": "N1",
+      "description": "缺 sourceRefs：没有任何原始证据引用",
+      "expect": "reject",
+      "reason": "provenance-required",
+      "promotionRequest": {
+        "content": "无来源引用的派生结论",
+        "explicitPromotion": true,
+        "kind": "project_decision",
+        "reviewedConclusion": true,
+        "sourceLayer": "T2",
+        "targetLayer": "T1",
+        "targetScope": "project",
+        "userConfirmed": true,
+        "evidence": {
+          "confidence": 0.5,
+          "provenance": "t2:graph:edge-1",
+          "revision": "idx-1",
+          "source": "graph-edge-edge-1",
+          "timestamp": "2026-09-14T00:00:00.000Z",
+          "type": "t2-handoff"
+        }
+      },
+      "proposal": {
+        "confidence": 0.5,
+        "content": "无来源引用的派生结论",
+        "evidenceType": "t2-handoff",
+        "kind": "project_decision",
+        "proposalId": "p-n1",
+        "rationale": "无来源",
+        "revision": "idx-1",
+        "sourceRefs": [],
+        "derivedFrom": {
+          "edgeId": "edge-1",
+          "kind": "graph-edge"
+        }
+      }
+    },
+    {
+      "case": "N2",
+      "description": "证据类型写成 l0-conclusion（冒充 L0 抽取）",
+      "expect": "reject",
+      "reason": "evidence-source-mismatch",
+      "promotionRequest": {
+        "content": "把 T2 派生标成 L0 结论",
+        "explicitPromotion": true,
+        "kind": "project_decision",
+        "reviewedConclusion": true,
+        "sourceLayer": "T2",
+        "targetLayer": "T1",
+        "targetScope": "project",
+        "userConfirmed": true,
+        "evidence": {
+          "confidence": 0.5,
+          "provenance": "t2:graph:edge-1",
+          "revision": "idx-1",
+          "source": "graph-edge-edge-1",
+          "timestamp": "2026-09-14T00:00:00.000Z",
+          "type": "l0-conclusion"
+        }
+      },
+      "proposal": {
+        "confidence": 0.5,
+        "content": "把 T2 派生标成 L0 结论",
+        "evidenceType": "l0-conclusion",
+        "kind": "project_decision",
+        "proposalId": "p-n2",
+        "rationale": "冒充 L0",
+        "revision": "idx-1",
+        "derivedFrom": {
+          "edgeId": "edge-1",
+          "kind": "graph-edge"
+        },
+        "sourceRefs": [
+          {
+            "layer": "T1",
+            "ref": "m-hop-04"
+          }
+        ]
+      }
+    },
+    {
+      "case": "N3",
+      "description": "缺 revision：无法定位/回滚派生索引代次",
+      "expect": "reject",
+      "reason": "invalid-evidence",
+      "promotionRequest": {
+        "content": "没有 revision 的派生结论",
+        "explicitPromotion": true,
+        "kind": "project_decision",
+        "reviewedConclusion": true,
+        "sourceLayer": "T2",
+        "targetLayer": "T1",
+        "targetScope": "project",
+        "userConfirmed": true,
+        "evidence": {
+          "confidence": 0.5,
+          "provenance": "t2:graph:edge-1",
+          "source": "graph-edge-edge-1",
+          "timestamp": "2026-09-14T00:00:00.000Z",
+          "type": "t2-handoff"
+        }
+      },
+      "proposal": {
+        "confidence": 0.5,
+        "content": "没有 revision 的派生结论",
+        "evidenceType": "t2-handoff",
+        "kind": "project_decision",
+        "proposalId": "p-n3",
+        "rationale": "缺回滚定位",
+        "derivedFrom": {
+          "edgeId": "edge-1",
+          "kind": "graph-edge"
+        },
+        "sourceRefs": [
+          {
+            "layer": "T1",
+            "ref": "m-hop-04"
+          }
+        ]
+      }
+    },
+    {
+      "case": "N4",
+      "description": "未经用户确认（T2 自确认）",
+      "expect": "reject",
+      "reason": "explicit-promotion-required",
+      "promotionRequest": {
+        "content": "T2 自己确认的派生结论",
+        "explicitPromotion": true,
+        "kind": "project_decision",
+        "reviewedConclusion": true,
+        "sourceLayer": "T2",
+        "targetLayer": "T1",
+        "targetScope": "project",
+        "userConfirmed": false,
+        "evidence": {
+          "confidence": 0.5,
+          "provenance": "t2:graph:edge-1",
+          "revision": "idx-1",
+          "source": "graph-edge-edge-1",
+          "timestamp": "2026-09-14T00:00:00.000Z",
+          "type": "t2-handoff"
+        }
+      },
+      "proposal": {
+        "confidence": 0.5,
+        "content": "T2 自己确认的派生结论",
+        "evidenceType": "t2-handoff",
+        "kind": "project_decision",
+        "proposalId": "p-n4",
+        "rationale": "跳过用户确认",
+        "revision": "idx-1",
+        "derivedFrom": {
+          "edgeId": "edge-1",
+          "kind": "graph-edge"
+        },
+        "sourceRefs": [
+          {
+            "layer": "T1",
+            "ref": "m-hop-04"
+          }
+        ]
+      }
+    }
+  ],
+  "valid": {
+    "l0Payload": {
+      "bank": "project-t2eval",
+      "candidateId": "b3f1c0de-0000-4000-8000-000000000001",
+      "evidenceType": "t2-handoff",
+      "fingerprint": "<sha256 of content>",
+      "kind": "project_decision",
+      "reason": "project-decision",
+      "scope": "project",
+      "source": "graph-edge-edge-1",
+      "sourceEventPosition": 12,
+      "sourceSessionId": "t2eval-session"
+    },
+    "pendingCandidate": {
+      "conflictState": "none",
+      "content": "petrel 的遗忘流程依赖上游精确 ID 读取，缺少该命令时不能保证先写 recovery 快照再 delete。",
+      "createdAt": "2026-09-14T00:00:00.000Z",
+      "evidenceSummary": "t2-handoff from graph-edge-edge-1 (t2:graph:edge-1)",
+      "id": "b3f1c0de-0000-4000-8000-000000000001",
+      "kind": "project_decision",
+      "rationale": "两跳关系补出的结论：上游能力缺失会影响遗忘流程",
+      "reason": "project-decision",
+      "status": "pending",
+      "targetBank": "project-t2eval",
+      "targetScope": "project",
+      "evidence": {
+        "confidence": 0.72,
+        "provenance": "t2:graph:edge-1",
+        "revision": "idx-1",
+        "source": "graph-edge-edge-1",
+        "timestamp": "2026-09-14T00:00:00.000Z",
+        "type": "t2-handoff"
+      }
+    },
+    "promotionRequest": {
+      "content": "petrel 的遗忘流程依赖上游精确 ID 读取，缺少该命令时不能保证先写 recovery 快照再 delete。",
+      "explicitPromotion": true,
+      "kind": "project_decision",
+      "reviewedConclusion": true,
+      "sourceLayer": "T2",
+      "targetLayer": "T1",
+      "targetScope": "project",
+      "userConfirmed": true,
+      "evidence": {
+        "confidence": 0.72,
+        "provenance": "t2:graph:edge-1",
+        "revision": "idx-1",
+        "source": "graph-edge-edge-1",
+        "timestamp": "2026-09-14T00:00:00.000Z",
+        "type": "t2-handoff"
+      }
+    },
+    "proposal": {
+      "confidence": 0.72,
+      "content": "petrel 的遗忘流程依赖上游精确 ID 读取，缺少该命令时不能保证先写 recovery 快照再 delete。",
+      "evidenceType": "t2-handoff",
+      "kind": "project_decision",
+      "proposalId": "p-001",
+      "rationale": "两跳关系补出的结论：上游能力缺失会影响遗忘流程",
+      "revision": "idx-1",
+      "derivedFrom": {
+        "edgeId": "edge-1",
+        "kind": "graph-edge"
+      },
+      "sourceRefs": [
+        {
+          "layer": "T1",
+          "ref": "m-hop-04"
+        },
+        {
+          "layer": "L0",
+          "position": 12,
+          "sessionId": "t2eval-session"
+        }
+      ]
+    }
+  }
+}

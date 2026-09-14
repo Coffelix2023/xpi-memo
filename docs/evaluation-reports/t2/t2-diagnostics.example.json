@@ -1,0 +1,222 @@
+{
+  "purpose": "T2 不可用时的回退诊断字段示例：7 类不可用状态，每类声明其 t2State / t2Reason / 诊断字段集合。核心断言是「任何非 ok 状态下 baselineBacked 必须为 true，且基线字段必须齐备」。由 scripts/t2-contract-check.ts 执行（D1-D4）。",
+  "version": "1.0.0",
+  "cases": [
+    {
+      "baselineBacked": true,
+      "baselineBehavior": "不调用 T2，现有 configured→mnemosyne→ripgrep→qmd 链原样运行，零额外开销",
+      "reason": "t2-disabled-by-config",
+      "scenario": "T2 adapter 默认关闭",
+      "t2Attempted": false,
+      "t2Reason": "t2-disabled-by-config",
+      "t2State": "disabled",
+      "fields": [
+        "backendState",
+        "searchBackend",
+        "queriedBanks",
+        "resultCount",
+        "warning",
+        "retrievalFallback",
+        "attempts",
+        "t2State",
+        "t2Reason",
+        "t2Attempted",
+        "baselineBacked",
+        "embeddingContributed",
+        "graphDegraded"
+      ]
+    },
+    {
+      "baselineBacked": true,
+      "baselineBehavior": "回退链继续；attempts 记一条 ok:false，recall 照常返回",
+      "reason": "t2-adapter-missing",
+      "scenario": "adapter 可执行文件/包不存在",
+      "t2Attempted": true,
+      "t2Reason": "t2-adapter-missing",
+      "t2State": "unavailable",
+      "fields": [
+        "backendState",
+        "searchBackend",
+        "queriedBanks",
+        "resultCount",
+        "warning",
+        "retrievalFallback",
+        "attempts",
+        "t2State",
+        "t2Reason",
+        "t2Attempted",
+        "baselineBacked",
+        "embeddingContributed",
+        "graphDegraded"
+      ]
+    },
+    {
+      "baselineBacked": true,
+      "baselineBehavior": "同上；warning 记有界原因，不暴露上游异常原文",
+      "reason": "t2-adapter-error",
+      "scenario": "adapter 进程启动即失败或崩溃",
+      "t2Attempted": true,
+      "t2Reason": "t2-adapter-error",
+      "t2State": "error",
+      "fields": [
+        "backendState",
+        "searchBackend",
+        "queriedBanks",
+        "resultCount",
+        "warning",
+        "retrievalFallback",
+        "attempts",
+        "t2State",
+        "t2Reason",
+        "t2Attempted",
+        "baselineBacked",
+        "embeddingContributed",
+        "graphDegraded"
+      ]
+    },
+    {
+      "baselineBacked": true,
+      "baselineBehavior": "超时不阻塞会话；本次不合并 T2 结果，其余结果照常返回",
+      "reason": "t2-adapter-timeout",
+      "scenario": "adapter 超过预算未返回",
+      "t2Attempted": true,
+      "t2Reason": "t2-adapter-timeout",
+      "t2State": "error",
+      "fields": [
+        "backendState",
+        "searchBackend",
+        "queriedBanks",
+        "resultCount",
+        "warning",
+        "retrievalFallback",
+        "attempts",
+        "t2State",
+        "t2Reason",
+        "t2Attempted",
+        "baselineBacked",
+        "embeddingContributed",
+        "graphDegraded"
+      ]
+    },
+    {
+      "baselineBacked": true,
+      "baselineBehavior": "丢弃该条结果，其余结果照常返回",
+      "reason": "t2-adapter-invalid-result",
+      "scenario": "返回无法解析或字段缺失的结果",
+      "t2Attempted": true,
+      "t2Reason": "t2-adapter-invalid-result",
+      "t2State": "invalid",
+      "fields": [
+        "backendState",
+        "searchBackend",
+        "queriedBanks",
+        "resultCount",
+        "warning",
+        "retrievalFallback",
+        "attempts",
+        "t2State",
+        "t2Reason",
+        "t2Attempted",
+        "baselineBacked",
+        "embeddingContributed",
+        "graphDegraded"
+      ]
+    },
+    {
+      "baselineBacked": true,
+      "baselineBehavior": "派生索引不参与重排，baseScore 原样使用",
+      "reason": "t2-index-stale",
+      "scenario": "派生索引早于 T1/L0 最新写入",
+      "t2Attempted": false,
+      "t2Reason": "t2-index-stale",
+      "t2State": "stale",
+      "fields": [
+        "backendState",
+        "searchBackend",
+        "queriedBanks",
+        "resultCount",
+        "warning",
+        "retrievalFallback",
+        "attempts",
+        "t2State",
+        "t2Reason",
+        "t2Attempted",
+        "baselineBacked",
+        "embeddingContributed",
+        "graphDegraded"
+      ]
+    },
+    {
+      "baselineBacked": true,
+      "baselineBehavior": "退回 baseScore，graphBonus 置 0",
+      "reason": "t2-graph-degraded",
+      "scenario": "图谱遍历异常",
+      "t2Attempted": true,
+      "t2Reason": "t2-graph-degraded",
+      "t2State": "degraded",
+      "fields": [
+        "backendState",
+        "searchBackend",
+        "queriedBanks",
+        "resultCount",
+        "warning",
+        "retrievalFallback",
+        "attempts",
+        "t2State",
+        "t2Reason",
+        "t2Attempted",
+        "baselineBacked",
+        "embeddingContributed",
+        "graphDegraded"
+      ]
+    }
+  ],
+  "fieldAllowlist": [
+    "attempts",
+    "backendState",
+    "baselineBacked",
+    "blockedCount",
+    "embeddingContributed",
+    "graphDegraded",
+    "injectedCount",
+    "omittedCount",
+    "queriedBanks",
+    "resultCount",
+    "retrievalFallback",
+    "searchBackend",
+    "t2Attempted",
+    "t2Reason",
+    "t2State",
+    "warning"
+  ],
+  "forbiddenCombinations": [
+    {
+      "description": "T2 挂了但基线也没跑：静默失败，明确禁止",
+      "rule": "t2State != \"ok\" && baselineBacked == false"
+    }
+  ],
+  "requiredFields": [
+    "backendState",
+    "searchBackend",
+    "queriedBanks",
+    "resultCount",
+    "warning",
+    "retrievalFallback",
+    "attempts",
+    "t2State",
+    "t2Reason",
+    "t2Attempted",
+    "baselineBacked",
+    "embeddingContributed",
+    "graphDegraded"
+  ],
+  "t2States": [
+    "ok",
+    "disabled",
+    "unavailable",
+    "error",
+    "invalid",
+    "stale",
+    "degraded"
+  ]
+}
