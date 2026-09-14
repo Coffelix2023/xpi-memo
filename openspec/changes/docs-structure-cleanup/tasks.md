@@ -29,4 +29,4 @@
 - [x] 5.1 Resolve every live reference to a `docs/` path from the repository root, `src/`, `openspec/specs/` and `openspec/changes/` (excluding the archived changes) and verify each target file exists; record the list and the result
 - [x] 5.2 Run `pnpm typecheck`, `pnpm -w run lint` and `pnpm test`, and record the results; verify all three exit 0
 - [x] 5.3 Write the per-task-group report required by `AGENTS.md` section 7 into `docs/task-report/dev-<next-id>/`, stating purpose, effect, characteristics and boundaries for each `##` group; verify the file exists and covers all four elements
-- [ ] 5.4 Record the complete move manifest in the change commit message so `git log --follow` users can trace a moved file without opening the index; verify the message lists every source-to-target mapping
+- [x] 5.4 Record the complete move manifest in the change commit message so `git log --follow` users can trace a moved file without opening the index; verify the message lists every source-to-target mapping
