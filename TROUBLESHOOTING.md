@@ -107,7 +107,7 @@ If that shows rows while a bare `mnemosyne stats` does not, you are looking at t
 - 结果为 `status: error` 且 `reason: memory-not-found` → 所有可尝试的 bank 都没有该 ID；先确认 ID 来源（recall 结果里的 `id`），不要按正文猜测目标。
 - 结果为 `status: error` 且 reason 是 backend 报错（例如 `database is locked`）→ 这是真实故障，记忆未被确认删除。
 - 结果为 `status: unresolved` → 拿 operation ID 去看 L0 / `audit.json` 的 `memory_delete_requested` / `memory_failed` 事件。
-- 想恢复已删除的记忆 → 只有 `recoverySnapshot: written` 才有 `<dataDir>/recovery/` 快照；`none` 时请参考 `docs/GUIDE.md`。
+- 想恢复已删除的记忆 → 只有 `recoverySnapshot: written` 才有 `<dataDir>/recovery/` 快照；`none` 时请参考 `docs/RECOVERY.md`。
 
 上游缺少精确 ID 读取命令的现状与跟进请求见 `docs/UPSTREAM-FOLLOWUPS.md`。
 
