@@ -66,14 +66,35 @@ function createTemporaryDirectory(): string {
   temporaryDirectories.push(directory);
   return directory;
 }
+/**
+ * Fake session context. `model` / `modelRegistry` are optional so tests can
+ * reproduce "no active model" (task 2.3) and drive the default runner with a
+ * fake registry whose `complete` is counted.
+ */
 function createToolContext(
-  options: { confirm?: boolean; cwd?: string; mode?: string; select?: string } = {},
+  options: {
+    confirm?: boolean;
+    cwd?: string;
+    mode?: string;
+    model?: unknown;
+    modelRegistry?: unknown;
+    select?: string;
+  } = {},
 ) {
-  const { confirm = false, cwd = "/tmp", mode = "rpc", select = undefined } = options;
+  const {
+    confirm = false,
+    cwd = "/tmp",
+    mode = "rpc",
+    model = undefined,
+    modelRegistry = undefined,
+    select = undefined,
+  } = options;
   return {
     cwd,
     isError: false,
     mode,
+    model,
+    modelRegistry,
     ui: {
       confirm: async () => confirm,
       notify: () => undefined,
@@ -175,7 +196,69 @@ afterEach(() => {
 });
 
 describe("xpi_memo_forget boundary", () => {
-  it("fails closed without exact ID capability and never scans or deletes", async () => {
+  it("deletes in the project bank without a recovery snapshot when exact ID read is unavailable", async () => {
+    const dataDir = createTemporaryDirectory();
+    const calls: string[][] = [];
+    const banksTouched: Array<string | undefined> = [];
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => ({
+        id: "forget-project",
+        label: "forget-project",
+      }),
+      run: async (args, options) => {
+        calls.push(args);
+        if (args[0] === "get") throw new Error("Unknown command: get");
+        banksTouched.push(options?.bank);
+        return "Deleted: memory-1";
+      },
+    });
+    const result = await toolByName(tools, "xpi_memo_forget").execute(
+      "forget",
+      {
+        memoryId: "memory-1",
+      },
+      undefined,
+      undefined,
+      createToolContext(),
+    );
+
+    expect(result.details).toMatchObject({
+      bank: "project-forget-project",
+      id: "memory-1",
+      reason: "memory-deleted-by-user",
+      recoverySnapshot: "none",
+      status: "deleted",
+    });
+    expect(calls).toEqual([
+      [
+        "get",
+        "0".repeat(32),
+      ],
+      [
+        "delete",
+        "memory-1",
+      ],
+    ]);
+    expect(banksTouched).toEqual([
+      "project-forget-project",
+    ]);
+    // The unavailability of an exact read must never become a library scan.
+    expect(calls.some((args) => args[0] === "recall" || args[0] === "export")).toBe(
+      false,
+    );
+    expect(existsSync(join(dataDir, "recovery"))).toBe(false);
+    // Task 3.1: the "no recovery written" state is stated, not implied.
+    const text = result.content[0];
+    expect(text && "text" in text ? text.text : "").toContain(
+      "No recovery snapshot was written.",
+    );
+  });
+
+  it("writes a recovery snapshot first when the exact-ID read capability is available", async () => {
     const dataDir = createTemporaryDirectory();
     const calls: string[][] = [];
     const { tools } = loadExtension({
@@ -189,7 +272,15 @@ describe("xpi_memo_forget boundary", () => {
       }),
       run: async (args) => {
         calls.push(args);
-        return "unexpected";
+        if (args[0] === "get")
+          return JSON.stringify({
+            content: "Keep the existing adapter boundary.",
+            id: args[1],
+            source:
+              "kind=project_decision;ev=explicit-user-statement;prov=pi;ts=2026-01-01T00%3A00%3A00.000Z;src=user",
+            timestamp: "2026-01-01T00:00:00.000Z",
+          });
+        return "Deleted: memory-1";
       },
     });
     const result = await toolByName(tools, "xpi_memo_forget").execute(
@@ -201,14 +292,189 @@ describe("xpi_memo_forget boundary", () => {
       undefined,
       createToolContext(),
     );
+
+    expect(result.details).toMatchObject({
+      bank: "project-forget-project",
+      id: "memory-1",
+      reason: "memory-deleted-by-user",
+      recoverySnapshot: "written",
+      status: "deleted",
+    });
+    // The read happens before the destructive call, and a snapshot exists.
+    expect(calls).toEqual([
+      [
+        "get",
+        "0".repeat(32),
+      ],
+      [
+        "get",
+        "memory-1",
+      ],
+      [
+        "delete",
+        "memory-1",
+      ],
+    ]);
+    const recoveryFiles = readdirSync(join(dataDir, "recovery"));
+    expect(recoveryFiles).toHaveLength(1);
+    const recovery = readFileSync(
+      join(dataDir, "recovery", recoveryFiles[0] as string),
+      "utf8",
+    );
+    expect(recovery).toContain("Keep the existing adapter boundary.");
+    expect(
+      (
+        result.details as {
+          recoveryId?: string;
+        }
+      ).recoveryId,
+    ).toBe((recoveryFiles[0] as string).slice(0, -5));
+  });
+
+  it("records the deletion audit set only for a bank that really deleted", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => ({
+        id: "forget-project",
+        label: "forget-project",
+      }),
+      run: async (args) => {
+        if (args[0] === "get") throw new Error("Unknown command: get");
+        if (args[1] === "memory-present") return "Deleted: memory-present";
+        throw new Error("Memory not found: memory-absent");
+      },
+    });
+    const forget = async (memoryId: string) => {
+      const execution = await toolByName(tools, "xpi_memo_forget").execute(
+        "forget",
+        {
+          memoryId,
+        },
+        undefined,
+        undefined,
+        createToolContext(),
+      );
+      return execution.details as {
+        operationId: string;
+        status: string;
+      };
+    };
+
+    const deleted = await forget("memory-present");
+    const absent = await forget("memory-absent");
+    expect(deleted.status).toBe("deleted");
+    expect(absent.status).toBe("error");
+
+    const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8")) as {
+      entries: Array<{
+        action: string;
+        metadata: Record<string, unknown>;
+      }>;
+    };
+    const deletions = audit.entries.filter(
+      (entry) => entry.metadata.reason === "memory-deleted-by-user",
+    );
+    expect(deletions).toHaveLength(1);
+    expect(deletions[0]).toMatchObject({
+      action: "deletion",
+      metadata: {
+        bank: "project-forget-project",
+        operationId: deleted.operationId,
+        status: "deleted",
+      },
+    });
+    // The failure path is recorded as a bounded rejection, never as a success.
+    const rejections = audit.entries.filter(
+      (entry) =>
+        entry.action === "rejection" && entry.metadata.reason === "memory-not-found",
+    );
+    expect(rejections).toHaveLength(1);
+    expect(rejections[0]?.metadata).toMatchObject({
+      capability: "upstream-exact-id-read-unavailable",
+      operationId: absent.operationId,
+      outcome: "rejected",
+      status: "failed",
+    });
+    expect(JSON.stringify(deletions)).not.toContain("memory-absent");
+  });
+
+  it("falls back to the default bank after a project-bank not-found", async () => {
+    const dataDir = createTemporaryDirectory();
+    const banksTouched: Array<string | undefined> = [];
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => ({
+        id: "forget-project",
+        label: "forget-project",
+      }),
+      run: async (args, options) => {
+        if (args[0] === "get") throw new Error("Unknown command: get");
+        banksTouched.push(options?.bank);
+        if ((options?.bank ?? "default") === "default") return "Deleted: memory-1";
+        throw new Error("Memory not found: memory-1");
+      },
+    });
+    const result = await toolByName(tools, "xpi_memo_forget").execute(
+      "forget",
+      {
+        memoryId: "memory-1",
+      },
+      undefined,
+      undefined,
+      createToolContext(),
+    );
+
+    expect(result.details).toMatchObject({
+      bank: "default",
+      recoverySnapshot: "none",
+      status: "deleted",
+    });
+    // Default bank is expressed as "no MNEMOSYNE_BANK override".
+    expect(banksTouched).toEqual([
+      "project-forget-project",
+      undefined,
+    ]);
+  });
+
+  it("reports an error without a success record when no bank holds the target", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => ({
+        id: "forget-project",
+        label: "forget-project",
+      }),
+      run: async (args) => {
+        if (args[0] === "get") throw new Error("Unknown command: get");
+        throw new Error("Memory not found: memory-1");
+      },
+    });
+    const result = await toolByName(tools, "xpi_memo_forget").execute(
+      "forget",
+      {
+        memoryId: "memory-1",
+      },
+      undefined,
+      undefined,
+      createToolContext(),
+    );
+
     expect(result.details).toMatchObject({
       id: "memory-1",
-      reason: "upstream-exact-id-read-unavailable",
+      reason: "memory-not-found",
+      recoverySnapshot: "none",
       status: "error",
     });
-    expect(calls).toEqual([]);
-    expect(existsSync(join(dataDir, "recovery"))).toBe(false);
-    expect(existsSync(join(dataDir, "sessions"))).toBe(false);
     expect(
       existsSync(join(dataDir, "audit.json"))
         ? readFileSync(join(dataDir, "audit.json"), "utf8")
@@ -2343,6 +2609,89 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(calls).toEqual([]);
     expect(existsSync(join(dataDir, "audit.json"))).toBe(false);
   });
+  it("reports the exact-ID read capability verdict in status (task 3.3)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      if (args[0] === "get") throw new Error("Unknown command: get");
+      return "";
+    };
+    const { commands } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => null,
+      run,
+    });
+    const notifications: string[] = [];
+    const command = commands.find(({ name }) => name === "xpi-memo-status");
+    if (!command) throw new Error("status command was not registered");
+    await command.options.handler("", {
+      cwd: "/tmp",
+      ui: {
+        confirm: async () => false,
+        notify(message) {
+          notifications.push(message);
+        },
+      },
+    });
+    const status = JSON.parse(notifications[0] ?? "{}") as {
+      exactIdRead?: Record<string, unknown>;
+    };
+    expect(status.exactIdRead).toEqual({
+      available: false,
+      reason: "upstream-exact-id-read-unavailable",
+    });
+    expect(calls).toContainEqual([
+      "get",
+      "0".repeat(32),
+    ]);
+  });
+
+  it("reports an available exact-ID read without leaking the probe body", async () => {
+    const dataDir = createTemporaryDirectory();
+    const body = "probe-body-must-not-appear";
+    const run = async (args: string[]): Promise<string> => {
+      if (args[0] === "get")
+        return JSON.stringify({
+          content: body,
+          id: args[1],
+          source: "kind=global_preference;src=test",
+        });
+      return "";
+    };
+    const { commands } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => null,
+      run,
+    });
+    const notifications: string[] = [];
+    const command = commands.find(({ name }) => name === "xpi-memo-status");
+    if (!command) throw new Error("status command was not registered");
+    await command.options.handler("", {
+      cwd: "/tmp",
+      ui: {
+        confirm: async () => false,
+        notify(message) {
+          notifications.push(message);
+        },
+      },
+    });
+    const raw = notifications[0] ?? "{}";
+    expect(JSON.parse(raw)).toMatchObject({
+      exactIdRead: {
+        available: true,
+        command: "get",
+      },
+    });
+    expect(raw).not.toContain(body);
+  });
+
   it("reports real stats and pending candidates without creating a project bank", async () => {
     const dataDir = createTemporaryDirectory();
     const run = async (args: string[]): Promise<string> => {
@@ -3192,6 +3541,570 @@ describe("xpi-memo bootstrap entrypoint", () => {
     });
     expect(auditText).not.toContain("runner-secret");
     expect(auditText).not.toContain("complete runner output");
+  });
+
+  it("prefers an injected runner over the default session-model runner", async () => {
+    const dataDir = createTemporaryDirectory();
+    let injectedCalls = 0;
+    let modelCalls = 0;
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      offlineExtractionRunner: async () => {
+        injectedCalls += 1;
+        return [];
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext({
+      model: {
+        id: "fake-model",
+      },
+      modelRegistry: {
+        complete: async () => {
+          modelCalls += 1;
+          return {
+            content: [],
+          };
+        },
+      },
+    });
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    expect(injectedCalls).toBe(1);
+    expect(modelCalls).toBe(0);
+  });
+
+  it("uses the default session-model runner only when nothing was injected", async () => {
+    const dataDir = createTemporaryDirectory();
+    const prompts: string[] = [];
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext({
+      model: {
+        id: "fake-model",
+      },
+      modelRegistry: {
+        complete: async (
+          _model: unknown,
+          prompt: {
+            messages: Array<{
+              content: string;
+            }>;
+          },
+        ) => {
+          prompts.push(prompt.messages[0]?.content ?? "");
+          return {
+            content: [
+              {
+                text: '{"proposals":[]}',
+                type: "text",
+              },
+            ],
+          };
+        },
+      },
+    });
+    await input.handler(
+      {
+        source: "interactive",
+        text: "remember the deploy order",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    expect(prompts).toHaveLength(1);
+    // The transcript reaches the model; the raw output never reaches audit.
+    expect(prompts[0]).toContain("remember the deploy order");
+    const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"));
+    const extraction = audit.entries.find(
+      (entry: { action: string }) => entry.action === "extraction",
+    );
+    expect(extraction?.metadata?.status).toBe("completed");
+  });
+
+  it("makes no model call when the flag is off, even with an active model", async () => {
+    const dataDir = createTemporaryDirectory();
+    let modelCalls = 0;
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext({
+      model: {
+        id: "fake-model",
+      },
+      modelRegistry: {
+        complete: async () => {
+          modelCalls += 1;
+          return {
+            content: [],
+          };
+        },
+      },
+    });
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    expect(modelCalls).toBe(0);
+  });
+
+  it("makes no model call when the session has no active model", async () => {
+    const dataDir = createTemporaryDirectory();
+    let modelCalls = 0;
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext({
+      modelRegistry: {
+        complete: async () => {
+          modelCalls += 1;
+          return {
+            content: [],
+          };
+        },
+      },
+    });
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    expect(modelCalls).toBe(0);
+    const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"));
+    const extraction = audit.entries.find(
+      (entry: { action: string }) => entry.action === "extraction",
+    );
+    expect(extraction?.metadata).toMatchObject({
+      reason: "unavailable",
+      status: "unavailable",
+    });
+  });
+
+  it("issues no further model request once the session extraction budget is used", async () => {
+    const dataDir = createTemporaryDirectory();
+    let modelCalls = 0;
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext({
+      model: {
+        id: "fake-model",
+      },
+      modelRegistry: {
+        complete: async () => {
+          modelCalls += 1;
+          return {
+            content: [
+              {
+                text: '{"proposals":[]}',
+                type: "text",
+              },
+            ],
+          };
+        },
+      },
+    });
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    expect(modelCalls).toBe(1);
+    const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"));
+    const statuses = audit.entries
+      .filter((entry: { action: string }) => entry.action === "extraction")
+      .map(
+        (entry: {
+          metadata: {
+            status: string;
+          };
+        }) => entry.metadata.status,
+      );
+    expect(statuses).toEqual([
+      "completed",
+      "budget-exhausted",
+    ]);
+  });
+
+  it("redacts credentials before the outbound extraction payload reaches the model", async () => {
+    const dataDir = createTemporaryDirectory();
+    const prompts: string[] = [];
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext({
+      model: {
+        id: "fake-model",
+      },
+      modelRegistry: {
+        complete: async (
+          _model: unknown,
+          prompt: {
+            messages: Array<{
+              content: string;
+            }>;
+          },
+        ) => {
+          prompts.push(prompt.messages[0]?.content ?? "");
+          return {
+            content: [
+              {
+                text: '{"proposals":[]}',
+                type: "text",
+              },
+            ],
+          };
+        },
+      },
+    });
+    await input.handler(
+      {
+        source: "interactive",
+        text: "remember the deploy key api_key=sk-live-abc1234567890 for staging",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("[REDACTED]");
+    expect(prompts[0]).not.toContain("sk-live-abc1234567890");
+  });
+
+  it("refuses to send the extraction payload when safety cannot be confirmed", async () => {
+    const dataDir = createTemporaryDirectory();
+    let modelCalls = 0;
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext({
+      model: {
+        id: "fake-model",
+      },
+      modelRegistry: {
+        complete: async () => {
+          modelCalls += 1;
+          return {
+            content: [],
+          };
+        },
+      },
+    });
+    await input.handler(
+      {
+        source: "interactive",
+        text: "the key file starts with -----BEGIN RSA PRIVATE KEY-----MIIEowIBAAKCAQEA",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+
+    expect(modelCalls).toBe(0);
+    const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"));
+    const extraction = audit.entries.find(
+      (entry: { action: string }) => entry.action === "extraction",
+    );
+    expect(extraction?.metadata).toMatchObject({
+      outcome: "refused",
+      status: "refused",
+    });
+  });
+
+  it("reports the extraction outcome in status without any proposal body", async () => {
+    const dataDir = createTemporaryDirectory();
+    const body = "MODEL-BODY prefer staged rollouts over big-bang releases";
+    const { commands, events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      resolveProjectIdentity: () => null,
+      run: async (args: string[]) =>
+        args[0] === "stats"
+          ? "Episodic memory: 0\nTotal memories: 0\nWorking memory: 0\n"
+          : "",
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext({
+      model: {
+        id: "fake-model",
+      },
+      modelRegistry: {
+        complete: async () => ({
+          content: [
+            {
+              text: JSON.stringify({
+                proposals: [
+                  {
+                    confidence: 0.95,
+                    content: body,
+                    kind: "global_preference",
+                    sourceEvent: 1,
+                  },
+                ],
+              }),
+              type: "text",
+            },
+          ],
+        }),
+      },
+    });
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+
+    const command = commands.find(({ name }) => name === "xpi-memo-status");
+    if (!command) throw new Error("status command was not registered");
+    const notifications: string[] = [];
+    await command.options.handler("", {
+      cwd: "/tmp",
+      mode: "rpc",
+      ui: {
+        notify(message: string) {
+          notifications.push(message);
+        },
+      },
+    } as never);
+
+    const status = JSON.parse(notifications[0] ?? "{}\n") as {
+      observability?: {
+        activation: {
+          extraction: number;
+          extractionOutcome: {
+            unavailable: number;
+            withProposals: number;
+            withoutProposals: number;
+          };
+        };
+      };
+      offlineExtraction?: {
+        enabled: boolean;
+        lastOutcome?: string;
+        lastStatus?: string;
+      };
+    };
+    expect(status.offlineExtraction).toMatchObject({
+      enabled: true,
+      lastOutcome: "executed-with-proposals",
+      lastStatus: "completed",
+    });
+    expect(status.observability?.activation.extractionOutcome).toEqual({
+      unavailable: 0,
+      withoutProposals: 0,
+      withProposals: 1,
+    });
+    expect(notifications[0]).not.toContain("MODEL-BODY");
+  });
+
+  it("stops issuing model requests after the flag is turned back off in the same session", async () => {
+    const dataDir = createTemporaryDirectory();
+    const budgetPath = join(dataDir, "extraction-budget.json");
+    const env: NodeJS.ProcessEnv = {
+      XDG_CONFIG_HOME: dataDir,
+      XPI_MEMO_DATA_DIR: dataDir,
+      XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+    };
+    let modelCalls = 0;
+    const { events } = loadExtension({
+      env,
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext({
+      model: {
+        id: "fake-model",
+      },
+      modelRegistry: {
+        complete: async () => {
+          modelCalls += 1;
+          return {
+            content: [
+              {
+                text: '{"proposals":[]}',
+                type: "text",
+              },
+            ],
+          };
+        },
+      },
+    });
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    const runShutdown = () =>
+      shutdown.handler(
+        {
+          type: "session_shutdown",
+        },
+        context,
+      );
+
+    await runShutdown();
+    expect(modelCalls).toBe(1);
+
+    // Control: dropping the budget ledger removes the budget guard, so the
+    // flag is the only thing left that can stop the next request.
+    rmSync(budgetPath, {
+      force: true,
+    });
+    await runShutdown();
+    expect(modelCalls).toBe(2);
+
+    env.XPI_MEMO_OFFLINE_EXTRACTION_ENABLED = "false";
+    rmSync(budgetPath, {
+      force: true,
+    });
+    await runShutdown();
+    expect(modelCalls).toBe(2);
+
+    // "Unset" is the second rollback form; for a read it is equivalent to a
+    // missing key, and it keeps the linter's no-delete rule satisfied.
+    env.XPI_MEMO_OFFLINE_EXTRACTION_ENABLED = undefined;
+    rmSync(budgetPath, {
+      force: true,
+    });
+    await runShutdown();
+    expect(modelCalls).toBe(2);
   });
 });
 

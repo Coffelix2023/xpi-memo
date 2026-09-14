@@ -18,6 +18,17 @@ export interface ObservabilitySnapshot {
   activation: {
     candidate: number;
     extraction: number;
+    /**
+     * Gated offline-extraction outcomes (task 3.3), counted from the audit
+     * outcome code. "unavailable" (no model call at all) stays distinct from
+     * "withoutProposals" (the model ran and found nothing). Codes only — never
+     * proposal text or model output.
+     */
+    extractionOutcome: {
+      unavailable: number;
+      withProposals: number;
+      withoutProposals: number;
+    };
     fallback: number;
     recall: number;
     recalledHits: number;
@@ -138,6 +149,11 @@ export function buildObservabilitySnapshot(
     recalledHits: 0,
     rejection: 0,
     storage: 0,
+    extractionOutcome: {
+      unavailable: 0,
+      withoutProposals: 0,
+      withProposals: 0,
+    },
   };
   const taxonomyCounts: Partial<Record<MemoryKind, number>> = {};
 
@@ -177,7 +193,16 @@ export function buildObservabilitySnapshot(
       activation.fallback += 1;
       if (entry.metadata.status === "degraded") counts.degraded += 1;
     }
-    if (entry.action === "extraction") activation.extraction += 1;
+    if (entry.action === "extraction") {
+      activation.extraction += 1;
+      const outcome = entry.metadata.outcome;
+      if (outcome === "runner-unavailable")
+        activation.extractionOutcome.unavailable += 1;
+      else if (outcome === "executed-with-proposals")
+        activation.extractionOutcome.withProposals += 1;
+      else if (outcome === "executed-without-proposals")
+        activation.extractionOutcome.withoutProposals += 1;
+    }
   }
 
   return {

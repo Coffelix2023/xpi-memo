@@ -139,12 +139,24 @@ function loadExtension(dependencies: TestDependencies = {}): {
 }
 
 function createToolContext(
-  options: { cwd?: string; mode?: string } = {},
+  options: {
+    cwd?: string;
+    mode?: string;
+    model?: unknown;
+    modelRegistry?: unknown;
+  } = {},
 ): ExtensionContext {
-  const { cwd = "/tmp", mode = "rpc" } = options;
+  const {
+    cwd = "/tmp",
+    mode = "rpc",
+    model = undefined,
+    modelRegistry = undefined,
+  } = options;
   return {
     cwd,
     mode,
+    model,
+    modelRegistry,
     ui: {
       confirm: async () => false,
       notify: () => undefined,
@@ -601,6 +613,125 @@ describe("activation-loop non-TUI acceptance (tasks 4.1-4.2)", () => {
         }),
       }),
     ]);
+  });
+
+  it("governs default-runner proposals with model-derived evidence (task 3.1)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { run, storedByBank } = backend(dataDir);
+    const modelOutput = {
+      proposals: [
+        {
+          confidence: 0.95,
+          content:
+            "MODEL-BODY decision: injected visibility is resolved through L0 ids",
+          kind: "project_decision",
+          sourceEvent: 1,
+        },
+        {
+          confidence: 0.99,
+          content: "MODEL-BODY constraint: interaction uses ctx.ui only",
+          kind: "project_constraint",
+          sourceEvent: 1,
+        },
+      ],
+    };
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      run,
+      resolveProjectIdentity: () => ({
+        id: "proj",
+        label: "Project",
+      }),
+    });
+    const ctx = createToolContext({
+      model: {
+        id: "fake-model",
+      },
+      modelRegistry: {
+        complete: async () => ({
+          content: [
+            {
+              text: JSON.stringify(modelOutput),
+              type: "text",
+            },
+          ],
+        }),
+      },
+    });
+
+    await captureThroughHooks("Please remember: prefer concise answers.", ctx, events);
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!shutdown) throw new Error("session_shutdown hook not registered");
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      ctx,
+    );
+
+    // Review-required kinds never auto-store: both proposals become candidates.
+    expect(storedByBank.get("project-proj") ?? []).toHaveLength(0);
+    const candidateState = JSON.parse(
+      readFileSync(join(dataDir, "candidates.json"), "utf8"),
+    ) as {
+      candidates: Record<
+        string,
+        {
+          candidate: {
+            evidence?: {
+              type?: string;
+            };
+            kind: string;
+          };
+        }
+      >;
+    };
+    const candidates = Object.values(candidateState.candidates).map(
+      (stored) => stored.candidate,
+    );
+    expect(candidates.map((candidate) => candidate.kind).toSorted()).toEqual([
+      "project_constraint",
+      "project_decision",
+    ]);
+    for (const candidate of candidates) {
+      // Model-derived evidence can never claim to be a user statement.
+      expect(candidate.evidence?.type).toBe("l0-conclusion");
+    }
+
+    const auditText = readFileSync(join(dataDir, "audit.json"), "utf8");
+    const audit = JSON.parse(auditText) as {
+      entries: Array<{
+        action: string;
+        metadata: Record<string, unknown>;
+      }>;
+    };
+    const extraction = audit.entries.find((entry) => entry.action === "extraction");
+    expect(extraction?.metadata).toMatchObject({
+      candidateCount: 2,
+      outcome: "executed-with-proposals",
+      storedCount: 0,
+      validProposals: 2,
+    });
+    expect(
+      audit.entries.find((entry) => entry.action === "candidate")?.metadata,
+    ).toMatchObject({
+      evidenceType: "l0-conclusion",
+      kind: "project_decision",
+      status: "stored",
+    });
+    // The only explicit-user-statement row is the explicit capture itself; no
+    // model-derived proposal is ever labelled as a user statement.
+    const explicitEntries = audit.entries.filter(
+      (entry) => entry.metadata.evidenceType === "explicit-user-statement",
+    );
+    expect(explicitEntries.map((entry) => entry.metadata.kind)).toEqual([
+      "global_preference",
+    ]);
+    expect(auditText).not.toContain("MODEL-BODY");
   });
 
   it("keeps explicit capture working when offline extraction is disabled and never runs the runner (task 4.4)", async () => {

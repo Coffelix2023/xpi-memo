@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { EXACT_ID_READ_UNAVAILABLE } from "./banks.ts";
 import {
   type MemoryStatus,
   renderStatus,
@@ -172,6 +173,41 @@ describe("XpiMemo status", () => {
       role: "contextual",
       trustState: "Review required",
     });
+  });
+
+  it("renders the exact-ID read capability verdict without bodies (task 3.3)", () => {
+    const unavailable = renderStatus({
+      ...status,
+      exactIdRead: {
+        available: false,
+        reason: EXACT_ID_READ_UNAVAILABLE,
+      },
+    });
+    expect(unavailable.exactIdRead).toEqual({
+      available: false,
+      reason: "upstream-exact-id-read-unavailable",
+    });
+    expect(Object.keys(unavailable.exactIdRead ?? {})).toEqual([
+      "available",
+      "reason",
+    ]);
+
+    const available = renderStatus({
+      ...status,
+      exactIdRead: {
+        available: true,
+        command: "get",
+      },
+    });
+    // The verdict carries a command name, never memory content.
+    expect(available.exactIdRead).toEqual({
+      available: true,
+      command: "get",
+    });
+    expect(Object.keys(available.exactIdRead ?? {})).toEqual([
+      "available",
+      "command",
+    ]);
   });
 
   it("does not expose secrets or raw payload fields", () => {

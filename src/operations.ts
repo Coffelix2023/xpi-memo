@@ -1,3 +1,9 @@
+import {
+  type ExactIdReadCapability,
+  GLOBAL_BANK,
+  parseExactIdReadOutcome,
+  probeExactIdReadCapability,
+} from "./banks.js";
 import { type CliOptions, parseStoredId, runMnemosyne } from "./cli.ts";
 import type { EvidenceType } from "./evidence.js";
 import {
@@ -44,6 +50,12 @@ export type ExactMemoryReader = (
 ) => Promise<GetMemoryByIdResult | null>;
 
 export interface MnemosyneAdapter {
+  /**
+   * Exact-ID read capability verdict for this adapter (design D2). Optional
+   * so hand-built test adapters stay minimal: when absent, having
+   * `readMemoryById` is taken as "available".
+   */
+  exactIdReadCapability?: (dataDir: string) => Promise<ExactIdReadCapability>;
   readMemoryById?: ExactMemoryReader;
   store(operation: T1MemoryOperation): Promise<T1StoreResult>;
 }
@@ -118,12 +130,17 @@ export function createMnemosyneAdapter(
   run: MnemosyneRunner = runMnemosyne,
   exactMemoryReader?: ExactMemoryReader,
 ): MnemosyneAdapter {
+  const readMemoryById = exactMemoryReader ?? createExactIdReader(run);
   return {
-    ...(exactMemoryReader
-      ? {
-          readMemoryById: exactMemoryReader,
-        }
-      : {}),
+    // An injected reader is capability evidence by itself; otherwise the CLI
+    // is probed (cached per process) so an upstream upgrade needs no caller change.
+    exactIdReadCapability: (dataDir) =>
+      exactMemoryReader
+        ? Promise.resolve({
+            available: true,
+          })
+        : probeExactIdReadCapability(run, dataDir),
+    readMemoryById,
     async store(operation) {
       const safety = prepareExternalContent(operation.content);
       if (safety.status === "refused")
@@ -154,6 +171,56 @@ export interface GetMemoryByIdResult {
   scope: MemoryScope | null;
   source?: string;
   timestamp?: string;
+}
+
+/**
+ * Exact-ID reader over the CLI's exact-ID subcommand (design D2). Only used
+ * when the capability probe reports the subcommand available; an unparseable
+ * response is thrown, not silently treated as "missing".
+ */
+export function createExactIdReader(
+  run: MnemosyneRunner = runMnemosyne,
+): ExactMemoryReader {
+  return async (id, dataDir, bank = GLOBAL_BANK) => {
+    const output = await run(
+      [
+        "get",
+        id,
+      ],
+      {
+        ...(bank === GLOBAL_BANK
+          ? {}
+          : {
+              bank,
+            }),
+        dataDir,
+      },
+    );
+    const outcome = parseExactIdReadOutcome(output);
+    if (outcome.kind === "not-found") return null;
+    if (outcome.kind === "unparseable") throw new Error("exact-id-read-unparseable");
+    const decoded = outcome.memory.source
+      ? decodeSourceMetadata(outcome.memory.source)
+      : null;
+    const kind = decoded?.kind ?? null;
+    return {
+      bank,
+      content: outcome.memory.content,
+      id: outcome.memory.id,
+      kind,
+      scope: kind ? describeMemoryKind(kind).scope : null,
+      ...(decoded?.source
+        ? {
+            source: decoded.source,
+          }
+        : {}),
+      ...(outcome.memory.timestamp
+        ? {
+            timestamp: outcome.memory.timestamp,
+          }
+        : {}),
+    };
+  };
 }
 
 /** Find a row returned by semantic recall; not an exact primary-key read. */

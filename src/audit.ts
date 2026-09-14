@@ -33,6 +33,9 @@ export interface AuditMetadata {
   /** Bounded offline-extraction proposal counters; never memory bodies. */
   budgetRejectedCount?: number;
   candidateCount?: number;
+  /** Bounded exact-ID read capability verdict (change memory-forget-exact-id):
+   * a reason code, never a memory body. */
+  capability?: string;
   confidence?: number;
   evidenceType?: EvidenceType;
   fallback?: boolean;
@@ -109,6 +112,7 @@ const ALLOWED_METADATA_KEYS = new Set([
   "omittedCount",
   "policyVersion",
   "safetyReasons",
+  "capability",
   "resultCount",
   "scope",
   "status",

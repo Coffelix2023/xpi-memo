@@ -364,10 +364,14 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
         ctx,
       ),
     );
+    // The exact-ID read is unavailable, so deletion proceeds directly and
+    // states that no recovery snapshot was written (change memory-forget-exact-id).
     expect(forgottenProject).toMatchObject({
+      bank: projectBank,
       id: projectMemory?.id,
-      reason: "upstream-exact-id-read-unavailable",
-      status: "error",
+      reason: "memory-deleted-by-user",
+      recoverySnapshot: "none",
+      status: "deleted",
     });
 
     // recall: returns kind and provenance metadata from the project bank
@@ -441,9 +445,11 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
       ),
     );
     expect(forgotten).toMatchObject({
+      bank: "default",
       id: globalMemory?.id,
-      reason: "upstream-exact-id-read-unavailable",
-      status: "error",
+      reason: "memory-deleted-by-user",
+      recoverySnapshot: "none",
+      status: "deleted",
     });
     // sleep: unauthorized stays rejected; authorized with a dedicated model is
     // capability-blocked instead of silently falling back to the primary model
@@ -481,6 +487,7 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
     expect(actions).toEqual(
       expect.arrayContaining([
         "confirmation",
+        "deletion",
         "recall",
         "sleep-authorization",
         "write",

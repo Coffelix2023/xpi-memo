@@ -72,18 +72,19 @@ If that shows rows while a bare `mnemosyne stats` does not, you are looking at t
 - **Nothing injected** — check `recallPolicy`: `assist` never injects automatically; `high-value-auto` (default) injects only on continuity/history triggers (e.g. "继续上次", "resume where we left off"). Switch to `active` for recall on every prompt.
 - **Stale or duplicate results** — ranking filters superseded memories and deduplicates content; results you expect may be filtered. Diagnostics in `/xpi-memo-status` (`observability.activation.recall` vs `recalledHits`) distinguish "backend queried with no hits" from "no backend executed".
 - **Memory block missing entirely** — when no result survives the budgets, the block is omitted by design rather than injecting an empty trace.
+
 ## L0 looks wrong
 
 - L0 session-trace summary (sessions, events, disk usage) is part of `/xpi-memo-status` under `l0.*`.
 - Corrupt lines are skipped and surfaced in export warnings — they are never rewritten in place.
 - Large sessions rotate at 10 MB into `events.001.jsonl`…; rotation is normal, not data loss.
 
-
 ## Project memory rejected outside Git
 
 - Check identity: `/xpi-memo-status` shows `currentProject` (bank/id/label) and `recall.scope` (`current-project-plus-global` vs `global-only`).
 - No identity? Run `/xpi-memo-init` in the directory you want as the project root — it writes `.pi/xpi-memo/project.json` (metadata only, no SQLite in the repo) and descendants inherit the identity.
 - Inside Git but still rejected? Make sure the current directory is inside a worktree, not a bare or unrelated directory; project identity comes from the Git common directory.
+
 ## Export issues
 
 - Nothing exported? Events are only picked up when their L0 position is above the last export mark. Use `--force` for a full re-export.
@@ -91,11 +92,25 @@ If that shows rows while a bare `mnemosyne stats` does not, you are looking at t
 - `MEMORY.md` write failure → warning is reported, export continues; check disk space.
 - Exported content shows `[REDACTED]` → privacy mode is on (`XPI_MEMO_PRIVACY=true`).
 - Tool outputs missing → `XPI_MEMO_EXCLUDE_TOOL_RESULTS=true` is set.
-## Forget fails closed
 
-`xpi_memo_forget` 返回 `upstream-exact-id-read-unavailable` 时，当前 Mnemosyne CLI 没有稳定的精确按 ID 读取能力。这是保护性失败：不会调用语义 `recall`、全库 `export`、SQLite 访问或 `delete`，也不会声称 recovery 或删除成功。
+## Forget: deletion is capability-gated, not fail-closed
 
-如果未来 adapter 提供精确 ID reader，删除顺序必须保持：project bank → default bank，精确读取 → recovery 写入 → delete → `memory_deleted`。recovery 或 delete 失败时保留原记忆，检查带 operation ID 的 L0/audit 诊断；不要按正文猜测目标。
+`xpi_memo_forget` 的删除不再因“无法精确读取”而拒绝执行。adapter 是否具备稳定的精确 ID 读取能力是一条运行时判定（`/xpi-memo-status` 的 `exactIdRead` 字段，只含结论与 reason code，不含正文）：
+
+- `exactIdRead.available: false`（当前 Mnemosyne CLI 3.15.1 就是这样）：直接调用 backend `delete`，由 backend 的 `Memory not found: <id>` 判定该 bank 没有目标；工具返回 `recoverySnapshot: none`——**这只说明没写 recovery 快照，不是删除失败**。
+- `exactIdRead.available: true`：保持原顺序，project bank → default bank，精确读取 → 写 recovery → `delete` → `memory_deleted`。
+
+无论哪条路径，都不会用语义 `recall`、全库 `export` 扫描或 SQLite 直接访问来替代精确读取。
+
+排查建议：
+
+- 结果为 `status: error` 且 `reason: memory-not-found` → 所有可尝试的 bank 都没有该 ID；先确认 ID 来源（recall 结果里的 `id`），不要按正文猜测目标。
+- 结果为 `status: error` 且 reason 是 backend 报错（例如 `database is locked`）→ 这是真实故障，记忆未被确认删除。
+- 结果为 `status: unresolved` → 拿 operation ID 去看 L0 / `audit.json` 的 `memory_delete_requested` / `memory_failed` 事件。
+- 想恢复已删除的记忆 → 只有 `recoverySnapshot: written` 才有 `<dataDir>/recovery/` 快照；`none` 时请参考 `docs/GUIDE.md`。
+
+上游缺少精确 ID 读取命令的现状与跟进请求见 `docs/UPSTREAM-FOLLOWUPS.md`。
+
 - Project Markdown (`.pi/memory/`): use `/xpi-memo-export --repo`; without a project identity it tells you to run `/xpi-memo-init` or switch to a Git repository. `--repo --reimport` re-imports discovered files as governed candidates.
 
 ## Migration problems (memoharness → xpi-memo)

@@ -1,11 +1,20 @@
 # xpi-memo Recovery Guide
 
+## `forget` 的能力分流
 
-## 当前 `forget` 能力边界
+`xpi_memo_forget` 只接受真实 T1 memory ID。adapter 是否具备**稳定的精确 ID 读取能力**决定删除走哪条路；判定结果是运行时事实，可用 `/xpi-memo-status` 的 `exactIdRead` 字段查看：
 
-`xpi_memo_forget` 只接受真实 T1 memory ID。删除前必须由 adapter 提供稳定的精确 ID 读取能力，以核对完整条目并写入 recovery；语义 `recall` 不能证明主键对应关系。
+| `exactIdRead.available` | 删除路径 | 工具结果 |
+| --- | --- | --- |
+| `true` | 精确读取 → 写 recovery 快照 → `delete` | `status: deleted` + `recoverySnapshot: written` + `recoveryId` + 实际 `bank` |
+| `false` | 直接 `delete`（由 backend 的 not-found 结果判定目标是否存在） | `status: deleted` + `recoverySnapshot: none` + 实际 `bank`，或 `status: error` |
 
-当前 Mnemosyne CLI 没有稳定的按 ID 读取命令，因此当前 CLI adapter 会返回 `upstream-exact-id-read-unavailable`，并且不会调用 `recall`、全库 `export`、SQLite 访问或 `delete`。这不是删除成功，也不会生成 recovery 文件。
+两种情况下都不使用语义 `recall`、全库 `export` 扫描或 SQLite 直接访问来代替精确读取；删除顺序始终是 project bank → default bank，首次成功后停止。
+
+当前 Mnemosyne CLI（3.15.1）没有按 ID 读取的子命令，所以 `exactIdRead.available` 为 `false`：**删除照常执行，但不会生成 recovery 文件**。上游接出精确读取命令后，能力探测会自动转为可用，删除自动回到“先快照再删除”，无需改配置。
+
+为什么删除动作的精度可以交给 backend：`mnemosyne delete <id>` 自身不做预读，并对不存在的 ID 返回 `Memory not found: <id>`，因此“该 bank 没有目标”由 backend 判定，xpi-memo 不额外发明一项前置条件。
+
 ## 恢复已删除的记忆
 
 `xpi_memo_forget` 会在删除前把完整 T1 条目写入：
@@ -36,6 +45,8 @@ mnemosyne store "$(jq -r '.memory.content' "$RECOVERY")" \
 ```
 
 `XPI_MEMO_DATA_DIR` 未设置时使用默认目录 `~/.pi/agent/xpi-memo`。如果原记忆属于全局 bank，省略 `--bank`；如果属于项目 bank，保留 recovery 文件中的 bank 名称。恢复命令需要 `jq` 和 `mnemosyne` CLI。
+
+`recoverySnapshot: none`（能力不可用）时没有快照可读：此时没有自动恢复路径，只能依赖你自己的备份、仓库 Markdown 导出（`/xpi-memo-export`）或重新提供该记忆。这是显式代价，不是静默降级——工具结果与审计都写明未写快照。
 
 ## 手工恢复与删除边界
 

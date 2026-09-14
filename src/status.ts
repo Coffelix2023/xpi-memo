@@ -2,6 +2,7 @@ import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AuditEntry } from "./audit.js";
+import type { ExactIdReadCapability } from "./banks.ts";
 import type { L0Status } from "./cli/l0.js";
 import type { MemoryDoctorReport } from "./doctor.js";
 import { describeMemoryKindOrNull } from "./kinds.js";
@@ -35,6 +36,10 @@ export interface MemoryStatus {
   diskBytes: number | null;
   /** Empty-memory diagnosis + evidence bundle (task 4.2/4.3). */
   doctor?: MemoryDoctorReport;
+  /** Exact-ID read capability verdict that forget is gated on (change
+   * memory-forget-exact-id, task 3.3): a verdict plus a reason code / command
+   * name, never a memory body. */
+  exactIdRead?: ExactIdReadCapability;
   fallback: boolean | null;
   /** Near-duplicate pairs reported by mechanical sleep; never mutates storage. */
   nearDuplicates?: {
@@ -44,6 +49,8 @@ export interface MemoryStatus {
   /** Gated offline extraction state; disabled unless explicitly configured. */
   offlineExtraction?: {
     enabled: boolean;
+    /** Body-free lifecycle outcome code (task 3.3), never proposal text. */
+    lastOutcome?: string;
     lastStatus?: string;
   };
   /** Read-only orphan project banks (task 6.4); never deleted automatically. */
@@ -237,6 +244,23 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
       : null,
     diskBytes: status.diskBytes,
     doctor: status.doctor,
+    ...(status.exactIdRead
+      ? {
+          exactIdRead: {
+            available: status.exactIdRead.available,
+            ...(status.exactIdRead.command
+              ? {
+                  command: status.exactIdRead.command,
+                }
+              : {}),
+            ...(status.exactIdRead.reason
+              ? {
+                  reason: status.exactIdRead.reason,
+                }
+              : {}),
+          },
+        }
+      : {}),
     fallback: status.fallback,
     observability: status.observability,
     ...(status.security
@@ -324,6 +348,11 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
       ? {
           offlineExtraction: {
             enabled: status.offlineExtraction.enabled,
+            ...(status.offlineExtraction.lastOutcome
+              ? {
+                  lastOutcome: status.offlineExtraction.lastOutcome,
+                }
+              : {}),
             ...(status.offlineExtraction.lastStatus
               ? {
                   lastStatus: status.offlineExtraction.lastStatus,

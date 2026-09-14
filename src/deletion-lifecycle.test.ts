@@ -1,10 +1,18 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createAuditLog } from "./audit.js";
+import { EXACT_ID_READ_UNAVAILABLE } from "./banks.js";
 import { runT1Delete } from "./deletion-lifecycle.js";
 import type { L0Coordinator } from "./l0/l0-runtime.js";
 import type { L0Event, L0EventType } from "./l0/types.js";
@@ -67,6 +75,19 @@ function adapter(
 ): MnemosyneAdapter {
   return {
     readMemoryById: reader,
+    async store() {
+      throw new Error("not-used");
+    },
+  };
+}
+
+/** Adapter without exact-ID read: forget must delete directly (task 2.3). */
+function blindAdapter(): MnemosyneAdapter {
+  return {
+    exactIdReadCapability: async () => ({
+      available: false,
+      reason: EXACT_ID_READ_UNAVAILABLE,
+    }),
     async store() {
       throw new Error("not-used");
     },
@@ -157,6 +178,7 @@ describe("T1 deletion lifecycle", () => {
     });
 
     expect(result.status).toBe("failed");
+    expect(result.recovery).toBe("none");
     expect(deleteCalls).toEqual([]);
     expect(events.map((event) => event.type)).toEqual([
       "memory_delete_requested",
@@ -250,6 +272,164 @@ describe("T1 deletion lifecycle", () => {
     expect(result.status).toBe("unresolved");
     expect(events.map((event) => event.type)).toEqual([
       "memory_delete_requested",
+    ]);
+    expect(readFileSync(join(dataDir, "audit.json"), "utf8")).not.toContain(
+      "memory-deleted-by-user",
+    );
+  });
+
+  it("deletes directly without recovery when the capability is unavailable", async () => {
+    const dataDir = dataDirectory();
+    const { events, l0 } = coordinator();
+    const calls: string[] = [];
+    const result = await runT1Delete({
+      adapter: blindAdapter(),
+      audit: createAuditLog({
+        statePath: join(dataDir, "audit.json"),
+      }),
+      banks: [
+        "project-test",
+        "default",
+      ],
+      dataDir,
+      deleteMemory: async (_args, options) => {
+        const bank = options?.bank ?? "default";
+        calls.push(`delete:${bank}`);
+        if (bank === "project-test") throw new Error("Memory not found: memory-1");
+        return "Deleted: memory-1";
+      },
+      l0,
+      memoryId: "memory-1",
+      operationId: "delete-no-reader",
+    });
+
+    expect(result).toEqual({
+      bank: "default",
+      id: "memory-1",
+      operationId: "delete-no-reader",
+      reason: "memory-deleted-by-user",
+      recovery: "none",
+      status: "deleted",
+      capability: {
+        available: false,
+        reason: EXACT_ID_READ_UNAVAILABLE,
+      },
+    });
+    // project bank first, then default; nothing is read and no snapshot exists.
+    expect(calls).toEqual([
+      "delete:project-test",
+      "delete:default",
+    ]);
+    expect(existsSync(join(dataDir, "recovery"))).toBe(false);
+    expect(events.map((event) => event.type)).toEqual([
+      "memory_delete_requested",
+      "memory_deleted",
+    ]);
+    expect(readFileSync(join(dataDir, "audit.json"), "utf8")).toContain(
+      "memory-deleted-by-user",
+    );
+  });
+
+  it("stops after the first successful bank when the capability is unavailable", async () => {
+    const dataDir = dataDirectory();
+    const { l0 } = coordinator();
+    const calls: string[] = [];
+    const result = await runT1Delete({
+      adapter: blindAdapter(),
+      audit: createAuditLog({
+        statePath: join(dataDir, "audit.json"),
+      }),
+      banks: [
+        "project-test",
+        "default",
+      ],
+      dataDir,
+      deleteMemory: async (_args, options) => {
+        calls.push(`delete:${options?.bank ?? "default"}`);
+        return "Deleted: memory-1";
+      },
+      l0,
+      memoryId: "memory-1",
+      operationId: "delete-project-hit",
+    });
+
+    expect(result).toMatchObject({
+      bank: "project-test",
+      recovery: "none",
+      status: "deleted",
+    });
+    expect(calls).toEqual([
+      "delete:project-test",
+    ]);
+  });
+
+  it("reports failure without a success record when no bank holds the target", async () => {
+    const dataDir = dataDirectory();
+    const { events, l0 } = coordinator();
+    const result = await runT1Delete({
+      adapter: blindAdapter(),
+      audit: createAuditLog({
+        statePath: join(dataDir, "audit.json"),
+      }),
+      banks: [
+        "project-test",
+        "default",
+      ],
+      dataDir,
+      deleteMemory: async () => {
+        throw new Error("Memory not found: memory-1");
+      },
+      l0,
+      memoryId: "memory-1",
+      operationId: "delete-absent",
+    });
+
+    expect(result).toMatchObject({
+      id: "memory-1",
+      reason: "memory-not-found",
+      recovery: "none",
+      status: "failed",
+    });
+    expect(events.map((event) => event.type)).toEqual([
+      "memory_delete_requested",
+      "memory_failed",
+    ]);
+    const auditState = readFileSync(join(dataDir, "audit.json"), "utf8");
+    expect(auditState).not.toContain("memory-deleted-by-user");
+    expect(auditState).toContain("upstream-exact-id-read-unavailable");
+  });
+
+  it("treats a non-not-found backend failure as terminal", async () => {
+    const dataDir = dataDirectory();
+    const { l0 } = coordinator();
+    const calls: string[] = [];
+    const result = await runT1Delete({
+      adapter: blindAdapter(),
+      audit: createAuditLog({
+        statePath: join(dataDir, "audit.json"),
+      }),
+      banks: [
+        "project-test",
+        "default",
+      ],
+      dataDir,
+      deleteMemory: async (_args, options) => {
+        calls.push(`delete:${options?.bank ?? "default"}`);
+        throw new Error("database is locked");
+      },
+      l0,
+      memoryId: "memory-1",
+      operationId: "delete-backend-locked",
+    });
+
+    expect(result).toMatchObject({
+      bank: "project-test",
+      reason: "database is locked",
+      recovery: "none",
+      status: "failed",
+    });
+    expect(calls).toEqual([
+      "delete:project-test",
     ]);
     expect(readFileSync(join(dataDir, "audit.json"), "utf8")).not.toContain(
       "memory-deleted-by-user",

@@ -62,6 +62,7 @@
       "!**/dist",
       "!**/build",
       "!**/backend",
+      "!**/.pi/reports", //生成的报告产物:压缩 CSS 会被 biome 误判并给出破坏性修复
       "!**/__fixtures__",
       "!src/components/ui", //排除 shadcn-ui
       "!src/components/assistant-ui", //排除 assistant-ui

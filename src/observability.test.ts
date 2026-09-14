@@ -43,6 +43,11 @@ describe("provenance-safe observability snapshot", () => {
         recalledHits: 0,
         rejection: 1,
         storage: 2,
+        extractionOutcome: {
+          unavailable: 0,
+          withoutProposals: 0,
+          withProposals: 0,
+        },
       },
       counts: {
         backendNoHits: 0,
@@ -171,12 +176,47 @@ describe("provenance-safe observability snapshot", () => {
       recalledHits: 4,
       rejection: 1,
       storage: 3,
+      extractionOutcome: {
+        unavailable: 0,
+        withoutProposals: 0,
+        withProposals: 0,
+      },
     });
     expect(snapshot.counts.storage).toBe(3);
     expect(snapshot.counts.recall).toBe(2);
     // Body-free: no kind name leaks into a body-like field, no content anywhere.
     expect(JSON.stringify(snapshot)).not.toContain("content");
     expect(JSON.stringify(snapshot)).not.toContain("reason");
+  });
+
+  it("distinguishes runner-unavailable, executed-with-proposals, and executed-without-proposals (task 3.3)", () => {
+    const snapshot = buildObservabilitySnapshot([
+      entry("extraction", {
+        outcome: "runner-unavailable",
+        status: "unavailable",
+      }),
+      entry("extraction", {
+        outcome: "executed-with-proposals",
+        proposalsTotal: 2,
+        status: "completed",
+        validProposals: 2,
+      }),
+      entry("extraction", {
+        outcome: "executed-without-proposals",
+        proposalsTotal: 0,
+        status: "completed",
+        validProposals: 0,
+      }),
+    ]);
+
+    expect(snapshot.activation.extraction).toBe(3);
+    expect(snapshot.activation.extractionOutcome).toEqual({
+      unavailable: 1,
+      withoutProposals: 1,
+      withProposals: 1,
+    });
+    // Body-free: only outcome codes are counted, never proposal text.
+    expect(JSON.stringify(snapshot)).not.toContain("proposalsTotal");
   });
 
   it("counts routing rejections, degraded failures, and backend states (task 3.3)", () => {

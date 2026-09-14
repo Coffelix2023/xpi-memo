@@ -36,6 +36,11 @@ import { runT1Write } from "./t1-lifecycle.js";
 export const DEFAULT_OFFLINE_EXTRACTION_MAX_EVENTS = 200;
 export const DEFAULT_OFFLINE_EXTRACTION_MAX_INPUT_CHARS = 60_000;
 export const DEFAULT_OFFLINE_EXTRACTION_TIMEOUT_MS = 15_000;
+/**
+ * Sentinel message the boundary classifies as `timed-out`. Shared with the
+ * default runner so a runner-owned timeout keeps that classification.
+ */
+export const OFFLINE_EXTRACTION_TIMEOUT_MESSAGE = "offline-extraction-timeout";
 export const DEFAULT_OFFLINE_EXTRACTION_MAX_EXECUTIONS_PER_SESSION = 1;
 export const DEFAULT_OFFLINE_EXTRACTION_MAX_PROPOSALS_PER_SESSION = 20;
 export const DEFAULT_OFFLINE_EXTRACTION_MAX_CHARS_PER_SESSION = 5_000;
@@ -75,6 +80,30 @@ export type OfflineExtractionStatus =
   | "timed-out"
   | "unavailable"
   | "refused";
+
+/**
+ * Body-free lifecycle outcome of one gated extraction attempt (task 3.3).
+ *
+ * `runner-unavailable` must not be confused with `executed-without-proposals`:
+ * the first means no model call happened at all, the second means the model ran
+ * and had nothing durable to report. Every other status keeps its own name so
+ * the audit never has to reconstruct the reason from counter arithmetic.
+ */
+export type OfflineExtractionOutcome =
+  | "executed-with-proposals"
+  | "executed-without-proposals"
+  | "runner-unavailable"
+  | Exclude<OfflineExtractionStatus, "completed" | "unavailable">;
+
+/** Derive the audit/status outcome from the boundary status plus proposal count. */
+export function offlineExtractionOutcome(
+  status: OfflineExtractionStatus,
+  validProposals: number,
+): OfflineExtractionOutcome {
+  if (status === "unavailable") return "runner-unavailable";
+  if (status !== "completed") return status;
+  return validProposals > 0 ? "executed-with-proposals" : "executed-without-proposals";
+}
 export interface OfflineExtractionDiagnostics {
   /** Current per-session budget consumption; present when a ledger is wired. */
   budgetChars?: number;
@@ -251,7 +280,7 @@ export async function runOfflineExtraction(
 
   const timeout = new Promise<never>((_resolve, reject) => {
     setTimeout(
-      () => reject(new Error("offline-extraction-timeout")),
+      () => reject(new Error(OFFLINE_EXTRACTION_TIMEOUT_MESSAGE)),
       options.timeoutMs,
     );
   });
@@ -279,7 +308,7 @@ export async function runOfflineExtraction(
     };
   } catch (error) {
     const timedOut =
-      error instanceof Error && error.message === "offline-extraction-timeout";
+      error instanceof Error && error.message === OFFLINE_EXTRACTION_TIMEOUT_MESSAGE;
     return {
       diagnostics: diagnostics(
         timedOut ? "timed-out" : "failed",

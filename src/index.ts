@@ -14,6 +14,7 @@ import {
   bankExists,
   ensureProjectBank,
   GLOBAL_BANK,
+  probeExactIdReadCapability,
   type RoutingContext,
 } from "./banks.ts";
 import { buildCandidateDigest, renderCandidateDigest } from "./candidate-digest.ts";
@@ -73,8 +74,10 @@ import {
   governOfflineExtractionOutput,
   normalizeOfflineExtractionOutput,
   type OfflineExtractionRunner,
+  offlineExtractionOutcome,
   runOfflineExtraction,
 } from "./offline-extraction.ts";
+import { createSessionModelRunner } from "./offline-extraction-runner.ts";
 import {
   createMnemosyneAdapter,
   type ExactMemoryReader,
@@ -154,6 +157,8 @@ interface ToolDetails {
     tui: string;
   };
   recoveryId?: string;
+  /** Whether a deletion wrote a recovery snapshot before deleting (task 3.1). */
+  recoverySnapshot?: "none" | "written";
   resultCount?: number;
   safety?: {
     blocked: number;
@@ -253,11 +258,29 @@ function deletionMessage(result: {
   reason?: string;
   status: string;
 }): string {
-  if (result.reason === "upstream-exact-id-read-unavailable")
-    return "Memory deletion unavailable: Mnemosyne has no stable exact-ID read command; no deletion was attempted.";
   if (result.status === "unresolved")
     return `Memory deletion unresolved for operation ${result.operationId}; deletion outcome requires diagnosis.`;
   return "Memory deletion failed; the memory was not confirmed deleted.";
+}
+function deletionSuccessMessage(
+  memoryId: string,
+  result: {
+    recovery: "none" | "written";
+    recoveryId?: string;
+  },
+  projection: {
+    memoryProjection: string;
+  } | null,
+): string {
+  const recovery =
+    result.recovery === "written"
+      ? ` Recovery: ${result.recoveryId}.`
+      : " No recovery snapshot was written.";
+  const projectionNote =
+    projection?.memoryProjection === "failed"
+      ? " MEMORY.md projection failed and remains retryable."
+      : "";
+  return `Memory ${memoryId} deleted.${recovery}${projectionNote}`;
 }
 
 /**
@@ -479,14 +502,32 @@ function createRuntime(
   };
 }
 
+/**
+ * Default session-model runner (tasks 2.1–2.3): the fallback used only when no
+ * runner was injected. Returns undefined whenever the session has no active
+ * model, which keeps "no model" a bounded `unavailable` diagnostic instead of
+ * a failed model call.
+ */
+function sessionModelRunnerFor(
+  ctx: ExtensionContext,
+): OfflineExtractionRunner | undefined {
+  if (!ctx.model || !ctx.modelRegistry) return undefined;
+  return createSessionModelRunner({
+    client: ctx.modelRegistry,
+    model: ctx.model,
+    timeoutMs: DEFAULT_OFFLINE_EXTRACTION_TIMEOUT_MS,
+  });
+}
+
 async function runOfflineExtractionForLifecycle(
-  cwd: string,
+  ctx: ExtensionContext,
   config: ReturnType<typeof loadConfig>["config"],
   dependencies: XpiMemoDependencies,
   l0: L0Coordinator,
   audit: AuditLog,
   trigger: "session_shutdown" | "session_before_compact",
 ): Promise<void> {
+  const cwd = ctx.cwd;
   const sessionId = l0.sessionId();
   if (!sessionId) return;
   const ledger = createExtractionBudgetLedger({
@@ -503,6 +544,7 @@ async function runOfflineExtractionForLifecycle(
       budgetRejectedCount: 1,
       candidateCount: 0,
       invalidProposals: 0,
+      outcome: offlineExtractionOutcome("budget-exhausted", 0),
       proposalsTotal: 0,
       reason: "budget-exhausted",
       rejectedCount: 0,
@@ -536,7 +578,7 @@ async function runOfflineExtractionForLifecycle(
     limits,
     maxEvents: DEFAULT_OFFLINE_EXTRACTION_MAX_EVENTS,
     maxInputChars: DEFAULT_OFFLINE_EXTRACTION_MAX_INPUT_CHARS,
-    runner: dependencies.offlineExtractionRunner,
+    runner: dependencies.offlineExtractionRunner ?? sessionModelRunnerFor(ctx),
     sessionId,
     timeoutMs: DEFAULT_OFFLINE_EXTRACTION_TIMEOUT_MS,
   });
@@ -586,6 +628,9 @@ async function runOfflineExtractionForLifecycle(
           budgetRejectedCount: 1,
         }
       : {}),
+    // Task 3.3: the outcome names the three states the diagnosis needs, so
+    // "no usable runner" is never read as "ran and found nothing".
+    outcome: offlineExtractionOutcome(result.status, extractionCounts.validProposals),
     reason: result.status,
     status: result.status,
     trigger,
@@ -1739,6 +1784,9 @@ async function statusForContext(
   const l0T1WriteEvents = await countL0T1WriteEvents(config.dataDir);
   const lifecycle = await lifecycleStatusFor(config.dataDir);
   const memoryProjection = memoryProjectionStatusFor(config.dataDir) ?? "unknown";
+  // Task 3.3: the forget capability verdict is visible in status. Probing is
+  // cached per process, so this stays a single extra CLI call at most.
+  const exactIdRead = await probeExactIdReadCapability(run, config.dataDir);
   const security = securityForAudit(auditEntries);
   const doctor: MemoryDoctorReport = buildMemoryDoctorReport(
     {
@@ -1769,12 +1817,18 @@ async function statusForContext(
       memoryProjection,
     },
     doctor,
+    exactIdRead,
     fallback: auditEntries.some(
       (entry) => entry.action === "fallback" && entry.metadata.status === "degraded",
     ),
     observability: buildObservabilitySnapshot(auditEntries),
     offlineExtraction: {
       enabled: config.offlineExtractionEnabled,
+      ...(lastExtraction?.metadata.outcome
+        ? {
+            lastOutcome: lastExtraction.metadata.outcome,
+          }
+        : {}),
       ...(lastExtraction?.metadata.status
         ? {
             lastStatus: lastExtraction.metadata.status,
@@ -2692,7 +2746,7 @@ export default function xpiMemo(
     if (config.offlineExtractionEnabled && config.l0Enabled) {
       try {
         await runOfflineExtractionForLifecycle(
-          ctx.cwd,
+          ctx,
           config,
           dependencies,
           l0ForHooks(),
@@ -2730,7 +2784,7 @@ export default function xpiMemo(
     if (config.offlineExtractionEnabled && config.l0Enabled) {
       try {
         await runOfflineExtractionForLifecycle(
-          ctx.cwd,
+          ctx,
           config,
           dependencies,
           l0ForHooks(),
@@ -2956,6 +3010,7 @@ export default function xpiMemo(
                     reason: result.reason,
                   }
                 : {}),
+              recoverySnapshot: result.recovery,
               ...(result.recoveryId
                 ? {
                     recoveryId: result.recoveryId,
@@ -2964,10 +3019,7 @@ export default function xpiMemo(
               status: result.status === "deleted" ? "deleted" : "error",
             },
             result.status === "deleted"
-              ? `Memory ${params.memoryId} deleted. Recovery: ${result.recoveryId}.` +
-                  (projection?.memoryProjection === "failed"
-                    ? " MEMORY.md projection failed and remains retryable."
-                    : "")
+              ? deletionSuccessMessage(params.memoryId, result, projection)
               : deletionMessage(result),
           );
         } catch (error) {

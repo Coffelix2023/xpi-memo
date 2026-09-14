@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { AuditLog } from "./audit.js";
+import {
+  EXACT_ID_READ_UNAVAILABLE,
+  type ExactIdReadCapability,
+  isMemoryNotFoundError,
+} from "./banks.js";
 import type { L0Coordinator } from "./l0/l0-runtime.js";
 import type { GetMemoryByIdResult, MnemosyneAdapter } from "./operations.js";
 import { writeMemoryRecovery } from "./recovery.js";
-
-export const EXACT_ID_READ_UNAVAILABLE = "upstream-exact-id-read-unavailable";
 
 type DeleteRunner = (
   args: string[],
@@ -16,9 +19,13 @@ type DeleteRunner = (
 
 export interface T1DeleteResult {
   bank?: string;
+  /** Capability verdict that routed this request (diagnostics; no bodies). */
+  capability?: ExactIdReadCapability;
   id: string;
   operationId: string;
   reason?: string;
+  /** Whether a recovery snapshot was written before the destructive call. */
+  recovery: "none" | "written";
   recoveryId?: string;
   status: "deleted" | "failed" | "unresolved";
 }
@@ -42,59 +49,53 @@ export async function runT1Delete({
   memoryId: string;
   operationId?: string;
 }): Promise<T1DeleteResult> {
-  if (!adapter.readMemoryById) {
-    const result: T1DeleteResult = {
-      id: memoryId,
-      operationId,
-      reason: EXACT_ID_READ_UNAVAILABLE,
-      status: "failed",
-    };
-    audit.record("rejection", {
-      operationId,
-      outcome: "rejected",
-      reason: EXACT_ID_READ_UNAVAILABLE,
-      status: result.status,
-    });
-    return result;
-  }
-
+  const capability = await resolveExactIdReadCapability(adapter, dataDir);
   const request = {
     memoryId,
     operationId,
   };
   l0.record("memory_delete_requested", request);
+  // Only a capability verdict may gate the recovery snapshot: without a
+  // stable exact-ID read there is nothing to snapshot, and refusing to
+  // delete is not an acceptable fallback (design D1/D3).
+  const reader = capability.available ? adapter.readMemoryById : undefined;
   let lastReason = "memory-not-found";
 
   for (const bank of banks) {
-    let memory: GetMemoryByIdResult | null;
-    try {
-      // biome-ignore lint/performance/noAwaitInLoops: bank probing must remain ordered.
-      memory = await adapter.readMemoryById(memoryId, dataDir, bank);
-    } catch (error) {
-      lastReason = boundedReason(error);
-      continue;
-    }
-    if (!memory) continue;
+    let recoveryId: string | undefined;
+    if (reader) {
+      let memory: GetMemoryByIdResult | null;
+      try {
+        // biome-ignore lint/performance/noAwaitInLoops: bank probing must remain ordered.
+        memory = await reader(memoryId, dataDir, bank);
+      } catch (error) {
+        lastReason = boundedReason(error);
+        continue;
+      }
+      if (!memory) continue;
 
-    let recoveryId: string;
-    try {
-      recoveryId = writeMemoryRecovery(dataDir, memory).recoveryId;
-    } catch (error) {
-      const reason = boundedReason(error);
-      const recorded = recordFailure(l0, audit, request, bank, reason);
-      return {
-        bank,
-        id: memoryId,
-        operationId,
-        reason,
-        // Without the terminal memory_failed event L0 cannot express the
-        // failure outcome, so the operation is unresolved, not failed.
-        status: recorded ? "failed" : "unresolved",
-      };
+      try {
+        recoveryId = writeMemoryRecovery(dataDir, memory).recoveryId;
+      } catch (error) {
+        const reason = boundedReason(error);
+        const recorded = recordFailure(l0, audit, request, bank, reason, capability);
+        return {
+          bank,
+          capability,
+          id: memoryId,
+          operationId,
+          reason,
+          recovery: "none",
+          // Without the terminal memory_failed event L0 cannot express the
+          // failure outcome, so the operation is unresolved, not failed.
+          status: recorded ? "failed" : "unresolved",
+        };
+      }
     }
 
     try {
-      // Recovery must succeed before the destructive backend call.
+      // Recovery (when the capability allowed one) must succeed before the
+      // destructive backend call.
       await deleteMemory(
         [
           "delete",
@@ -106,14 +107,26 @@ export async function runT1Delete({
         },
       );
     } catch (error) {
+      // Without a reader, the backend's not-found result IS the "target does
+      // not exist in this bank" verdict, so keep probing later banks.
+      if (!reader && isMemoryNotFoundError(error)) {
+        lastReason = "memory-not-found";
+        continue;
+      }
       const reason = boundedReason(error);
-      const recorded = recordFailure(l0, audit, request, bank, reason);
+      const recorded = recordFailure(l0, audit, request, bank, reason, capability);
       return {
         bank,
+        capability,
         id: memoryId,
         operationId,
         reason,
-        recoveryId,
+        recovery: recoveryId ? "written" : "none",
+        ...(recoveryId
+          ? {
+              recoveryId,
+            }
+          : {}),
         // Without the terminal memory_failed event L0 cannot express the
         // failure outcome, so the operation is unresolved, not failed.
         status: recorded ? "failed" : "unresolved",
@@ -128,10 +141,16 @@ export async function runT1Delete({
     } catch (error) {
       return {
         bank,
+        capability,
         id: memoryId,
         operationId,
         reason: boundedReason(error),
-        recoveryId,
+        recovery: recoveryId ? "written" : "none",
+        ...(recoveryId
+          ? {
+              recoveryId,
+            }
+          : {}),
         status: "unresolved",
       };
     }
@@ -143,26 +162,54 @@ export async function runT1Delete({
     });
     return {
       bank,
+      capability,
       id: memoryId,
       operationId,
       reason: "memory-deleted-by-user",
-      recoveryId,
+      recovery: recoveryId ? "written" : "none",
+      ...(recoveryId
+        ? {
+            recoveryId,
+          }
+        : {}),
       status: "deleted",
     };
   }
 
-  const result: T1DeleteResult = {
+  // No bank held the target: the request gets its terminal L0 event and the
+  // audit records a bounded reason plus the capability verdict, never a
+  // success deletion record.
+  const recorded = recordFailure(l0, audit, request, undefined, lastReason, capability);
+  return {
+    capability,
     id: memoryId,
     operationId,
     reason: lastReason,
-    status: "failed",
+    recovery: "none",
+    status: recorded ? "failed" : "unresolved",
   };
-  audit.record("rejection", {
-    outcome: "rejected",
-    reason: lastReason,
-    status: result.status,
-  });
-  return result;
+}
+
+/**
+ * Capability verdict for this delete. Hand-built adapters that do not expose a
+ * probe fall back to "it has an exact reader", so being available never
+ * implies an unimplemented read path.
+ */
+async function resolveExactIdReadCapability(
+  adapter: MnemosyneAdapter,
+  dataDir: string,
+): Promise<ExactIdReadCapability> {
+  const verdict = adapter.exactIdReadCapability
+    ? await adapter.exactIdReadCapability(dataDir)
+    : {
+        available: Boolean(adapter.readMemoryById),
+      };
+  if (verdict.available && !adapter.readMemoryById)
+    return {
+      available: false,
+      reason: EXACT_ID_READ_UNAVAILABLE,
+    };
+  return verdict;
 }
 
 /** Record a terminal memory_failed event; false means only the request exists in L0. */
@@ -173,14 +220,19 @@ function recordFailure(
     memoryId: string;
     operationId: string;
   },
-  bank: string,
+  bank: string | undefined,
   reason: string,
+  capability?: ExactIdReadCapability,
 ): boolean {
   let recorded = false;
   try {
     l0.record("memory_failed", {
       ...request,
-      bank,
+      ...(bank
+        ? {
+            bank,
+          }
+        : {}),
       outcome: "failed",
       phase: "delete",
       reason,
@@ -190,7 +242,16 @@ function recordFailure(
     // The unresolved state is represented by the request without a terminal event.
   }
   audit.record("rejection", {
-    bank,
+    ...(bank
+      ? {
+          bank,
+        }
+      : {}),
+    ...(capability?.reason
+      ? {
+          capability: capability.reason,
+        }
+      : {}),
     operationId: request.operationId,
     outcome: "rejected",
     reason,

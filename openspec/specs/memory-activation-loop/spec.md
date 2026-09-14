@@ -7,105 +7,154 @@ This capability closes xpi-memo's activation gap: valuable user and project know
 ## Requirements
 
 ### Requirement: Explicit memory intent MUST enter a governed activation path
+
 The system MUST detect explicit user intent to preserve a preference, workflow, project constraint, project decision, project gotcha, or bounded session context without requiring a separate manual memory-tool call.
 
 #### Scenario: User states an explicit preference
+
 - **WHEN** the user explicitly states a durable preference or workflow rule
 - **THEN** the system MUST create a governed memory outcome for the appropriate global category
 - **AND THEN** the outcome MUST retain the originating session and event provenance
 
 #### Scenario: User states an explicit project decision
+
 - **WHEN** the user explicitly confirms a project decision, constraint, or gotcha
 - **THEN** the system MUST route it to the current project scope when a recognized project exists
 - **AND THEN** the system MUST apply the existing candidate or storage governance for that category
 
 #### Scenario: Ambiguous content is encountered
+
 - **WHEN** content could map to more than one category or lacks enough scope context
 - **THEN** the system MUST skip direct durable storage or create a governed candidate
 - **AND THEN** it MUST NOT guess a category or silently place project content in the global scope
 
 ### Requirement: Capture evidence MUST distinguish user statements from agent-derived content
+
 The system MUST preserve the difference between explicit user statements, verified repository or tool evidence, and model-derived suggestions. Content captured or derived for offline processing MUST pass the same external-boundary credential protection as other memory transmission, and unsafe or uncertain content MUST not enter durable memory, candidates, or diagnostic body output.
 
 #### Scenario: Agent proposes a memory
+
 - **WHEN** a memory originates from an agent tool input, model inference, or offline extraction
 - **THEN** the system MUST NOT label it as an explicit user statement without a linked user event that supports that claim
 - **AND THEN** the evidence type and source reference MUST remain visible to governance and diagnostics
 
 #### Scenario: Sensitive content is encountered
+
 - **WHEN** explicit or derived content contains secrets, credentials, tokens, or prohibited personal data
 - **THEN** the system MUST prevent the content from entering durable memory, candidates, or diagnostic body output
 - **AND THEN** before any external processing the system MUST use a redacted safe copy or refuse the external call when safety cannot be confirmed
 - **AND THEN** the system MUST retain only bounded non-sensitive rejection metadata where required for diagnosis
 
 #### Scenario: Derived content is sent to an external runner
+
 - **WHEN** offline extraction prepares content for a provider or external runner
 - **THEN** known credentials MUST be redacted before transmission
 - **AND THEN** uncertain content MUST prevent the external request from being sent
 - **AND THEN** the original local event MAY remain available for L0 replay without being used as the external payload
+
 ### Requirement: Offline extraction MUST be gated and non-blocking
-The system MUST support an optional offline extraction path that runs at a bounded lifecycle point such as compaction or session shutdown, without blocking the active coding interaction.
+
+系统 MUST 支持可选的离线提取路径，在 compaction 或 session shutdown 等有界生命周期点运行，且不得阻塞正在进行的编码交互。该路径 MUST 提供一个默认的会话模型 runner 作为可选实现，同时 MUST 保留外部注入的 runner 作为更高优先级的装配点。默认 runner MUST NOT 在未显式开启时调用任何模型。
 
 #### Scenario: Offline extraction is enabled
-- **WHEN** a bounded offline extraction run is enabled
-- **THEN** the system MUST produce a bounded set of proposed memories with category, confidence, evidence type, and source references
-- **AND THEN** high-confidence low-risk results MAY be stored while other results MUST follow the candidate lifecycle
+
+- **WHEN** 有界的离线提取运行被显式开启
+- **THEN** 系统 MUST 产生有界的记忆提案，每条带类别、置信度、证据类型和来源引用
+- **AND THEN** 高置信度低风险结果 MAY 直接存储，其余结果 MUST 走候选生命周期
+
+#### Scenario: Default runner is used only when explicitly enabled
+
+- **WHEN** 离线提取未被显式开启，或当前会话没有可用模型
+- **THEN** 系统 MUST NOT 发起任何模型请求
+- **AND THEN** 显式确定性捕获 MUST 继续正常工作
+
+#### Scenario: Injected runner takes precedence
+
+- **WHEN** 外部宿主或测试注入了 runner
+- **THEN** 系统 MUST 使用注入的 runner 而不是默认 runner
+- **AND THEN** 默认 runner MUST NOT 被调用
 
 #### Scenario: Offline extraction is disabled or unavailable
-- **WHEN** the extraction feature is disabled, unavailable, or fails
-- **THEN** explicit deterministic capture MUST continue to work
-- **AND THEN** the failure MUST be observable without failing the active session
+
+- **WHEN** 该功能被关闭、默认 runner 不可用，或提取失败
+- **THEN** 显式确定性捕获 MUST 继续工作
+- **AND THEN** 失败 MUST 可在不中断当前会话的前提下被观察
 
 #### Scenario: Extraction budget is exhausted
-- **WHEN** the configured per-session extraction or output budget is reached
-- **THEN** the system MUST stop further extraction for that lifecycle event
-- **AND THEN** it MUST record bounded diagnostic counts rather than processing unbounded history
+
+- **WHEN** 配置的每会话提取预算或输出预算用尽
+- **THEN** 系统 MUST 停止该生命周期事件的后续提取
+- **AND THEN** 系统 MUST 记录有界诊断计数，而不是处理无界历史
+
+#### Scenario: Model call is bounded and abortable
+
+- **WHEN** 默认 runner 向会话模型发起请求
+- **THEN** 请求 MUST 在既定的时间与字符预算内，并 MUST 可被中止
+- **AND THEN** 超时或中止 MUST NOT 阻塞会话关闭流程
+- **AND THEN** 外发内容 MUST 先经过既有的凭证脱敏边界，无法确认安全时 MUST 拒绝外发
+
+#### Scenario: Model-derived proposals keep their evidence type
+
+- **WHEN** 默认 runner 产出的提案进入治理流程
+- **THEN** 其证据类型 MUST 为模型推导类型，且 MUST NOT 被标记为显式用户陈述
+- **AND THEN** 需要审核的类别 MUST 走候选生命周期而不是直接存储
 
 ### Requirement: Pending candidates MUST have a visible, low-noise digest
+
 The system MUST expose pending candidates through the existing review flow and provide a concise reminder when the backlog requires attention.
 
 #### Scenario: Pending candidates exist at session start
+
 - **WHEN** a new session starts and pending candidates exist
 - **THEN** the system MUST make the backlog count and review command or surface discoverable
 - **AND THEN** the reminder MUST NOT block the user or open a mandatory confirmation dialog
 
 #### Scenario: Candidate actions are applied
+
 - **WHEN** a user stores, defers, or rejects a candidate
 - **THEN** the system MUST preserve the existing lifecycle semantics
 - **AND THEN** the resulting state MUST be reflected in counts and provenance-safe diagnostics
 
 ### Requirement: Recall MUST separate memory roles and enforce bounded ranking
+
 The system MUST distinguish standing memory from contextual memory and MUST apply relevance, query intent, recency, scope priority, diversity, deduplication, and output budgets before automatic injection.
 
 #### Scenario: A prompt requests project context
+
 - **WHEN** the system evaluates memory for a prompt about the current project
 - **THEN** project contextual memory and relevant standing memory MUST be ranked separately before selection
 - **AND THEN** unrelated global or other-project memory MUST be excluded
 
 #### Scenario: A prompt requests user preferences
+
 - **WHEN** the system evaluates memory for a prompt about the user's general preferences or workflow
 - **THEN** global standing memory MUST receive the appropriate scope and intent priority
 - **AND THEN** project-only context MUST not crowd out relevant global preferences without a stronger relevance signal
 
 #### Scenario: Recall results exceed the budget
+
 - **WHEN** eligible results exceed the configured item or character budget
 - **THEN** the system MUST select a bounded diverse subset and omit the remainder
 - **AND THEN** an empty result MUST omit the memory block rather than injecting an empty or raw trace block
 
 #### Scenario: A memory is stale or superseded
+
 - **WHEN** a memory is marked superseded or has fallen below the configured freshness contribution
 - **THEN** it MUST not dominate automatic recall
 - **AND THEN** the ranking decision MUST remain diagnosable through bounded metrics
 
 ### Requirement: Activation and recall health MUST be measurable
+
 The system MUST expose counts and outcomes that allow an operator to distinguish no capture, candidate accumulation, failed writes, empty recall, successful recall, and automatic injection.
 
 #### Scenario: Health status is requested
+
 - **WHEN** the user requests xpi-memo status or doctor information
 - **THEN** the system MUST report bounded counts for explicit capture, extraction proposals, candidate creation, direct storage, confirmation, rejection, recall execution, recall hits, and injection
 - **AND THEN** the report MUST identify the relevant global and current-project scope without exposing memory bodies
 
 #### Scenario: Recall backend ran with no hits
+
 - **WHEN** a recall backend was queried but returned no eligible memory
 - **THEN** the system MUST distinguish that outcome from a recall that did not execute
 - **AND THEN** it MUST report the queried scope or bank in the diagnostic evidence
