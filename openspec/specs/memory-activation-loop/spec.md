@@ -30,7 +30,13 @@ The system MUST detect explicit user intent to preserve a preference, workflow, 
 
 ### Requirement: Capture evidence MUST distinguish user statements from agent-derived content
 
-The system MUST preserve the difference between explicit user statements, verified repository or tool evidence, and model-derived suggestions. Content captured or derived for offline processing MUST pass the same external-boundary credential protection as other memory transmission, and unsafe or uncertain content MUST not enter durable memory, candidates, or diagnostic body output.
+The system MUST preserve the difference between explicit user statements, verified repository or tool evidence, model-derived suggestions, and T2-derived proposals. Content captured or derived for offline processing MUST pass the same external-boundary credential protection as other memory transmission, and unsafe or uncertain content MUST not enter durable memory, candidates, or diagnostic body output.
+
+#### Scenario: T2 proposes a memory
+
+- **WHEN** a memory originates from a T2 index, graph, embedding result, or model-derived proposal
+- **THEN** the system MUST retain that derived evidence type and linked source events
+- **AND THEN** it MUST NOT label the result as an explicit user statement without a supporting user event
 
 #### Scenario: Agent proposes a memory
 
@@ -101,7 +107,13 @@ The system MUST preserve the difference between explicit user statements, verifi
 
 ### Requirement: Pending candidates MUST have a visible, low-noise digest
 
-The system MUST expose pending candidates through the existing review flow and provide a concise reminder when the backlog requires attention.
+The system MUST expose pending candidates through the existing review flow, provide a concise reminder when the backlog requires attention, and expose bounded transient status for candidate creation and resolution.
+
+#### Scenario: Candidate is created by T2
+
+- **WHEN** a T2 proposal enters the candidate lifecycle
+- **THEN** the system MUST show a bounded candidate-created status
+- **AND THEN** the candidate MUST remain available through the existing review surface
 
 #### Scenario: Pending candidates exist at session start
 
@@ -113,7 +125,7 @@ The system MUST expose pending candidates through the existing review flow and p
 
 - **WHEN** a user stores, defers, or rejects a candidate
 - **THEN** the system MUST preserve the existing lifecycle semantics
-- **AND THEN** the resulting state MUST be reflected in counts and provenance-safe diagnostics
+- **AND THEN** the resulting state MUST be reflected in counts, provenance-safe diagnostics, and transient status
 
 ### Requirement: Recall MUST separate memory roles and enforce bounded ranking
 
