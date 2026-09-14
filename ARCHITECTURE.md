@@ -3,6 +3,7 @@
 xpi-memo is a Pi Coding Agent extension (TypeScript, loaded directly from `src/index.ts`, no build step). It layers a lossless session trace (L0) under governed long-term memory (T1), derives human-readable Markdown from L0, and searches through pluggable backends.
 
 **Default-value philosophy:** local deterministic operations default on; operations that consume external resources or are irreversible default off.
+
 ## Layer model
 
 ```
@@ -37,7 +38,14 @@ Dual-write: a T1 write appends to L0 first, then writes to mnemosyne + `audit.js
 
 ## Markdown export (`src/markdown-export/`)
 
-`exportMarkdown()` reads every session through `readAfter(lastExportedPosition)` (state in `markdown/export-state.json`), folds events into `daily/YYYY-MM-DD.md` (append-only day files) and regenerates `MEMORY.md`. Exact duplicates in the same bank and kind stay in the export and are marked `supersededBy`; SQLite is never rewritten. Writes are temp-file + rename. Markdown is always derivable — users may edit it, the next export regenerates it. `AUTO_EXPORT` defaults to on (local deterministic); disable with `XPI_MEMO_AUTO_EXPORT=false`.
+`exportMarkdown()` reads every session through `readAfter(lastExportedPosition)` (state in `markdown/export-state.json`), folds events into `daily/YYYY-MM-DD.md` (append-only day files) and projects `MEMORY.md`. Writes are temp-file + rename. `AUTO_EXPORT` defaults to on (local deterministic); disable with `XPI_MEMO_AUTO_EXPORT=false`.
+
+**MEMORY.md is a projection of the bank's current state** (`bank-state.ts`, `memory-generator.ts`): the entry set comes from the memory rows the bank holds right now (the default bank plus every project bank under `<dataDir>/banks/`), read through a bounded `mnemosyne export` — fixed 5 s timeout per bank, fixed 5 MB payload cap, private temporary file removed on every outcome, and a failure of any bank fails the whole read. L0 is used only to annotate a row: `t1_memory_write` supplies kind, scope, confirming time, session and position, keyed by the bank memory id. A row the bank holds without a matching L0 write is still projected, in an explicit `Unclassified` section marked `source missing` — never dropped, never guessed. Deletion therefore needs no projection logic: a row that left the bank left the view. Duplicates in the same bank and kind stay in the projection and are marked `supersededBy`; SQLite is never rewritten. Order is fixed at (section, L0 position, memory id) with unannotated rows last, so identical state and annotations produce byte-identical output.
+
+Projection failure semantics (`memory-projection-state.json`): a bank read failure, a timeout, an unparseable payload, or a write failure leaves the last successful `MEMORY.md` in place and marks the projection `pending`/`failed`, so the next export retries — an empty or partial projection is never written. An export with no memory-affecting event is a no-op for `MEMORY.md` unless the file diverged from the projection's recorded content hash (hand-edited or deleted), which triggers a rebuild on the next export.
+
+**Two different boundaries, deliberately** (change `markdown-state-projection`): *the projection layer reads whole-bank state* — that is what a state view is, it is read-only, bounded per bank, and runs as a background/derived-view action; *`xpi_memo_forget` must never use a full-library scan* — it resolves exactly one memory by id and either reads that one row (when the backend exposes exact-ID read) or deletes by id, never enumerating the library, never using semantic `recall`, and never touching SQLite directly (see `GUIDE.md`, `TROUBLESHOOTING.md`). The two decisions do not conflict because they answer different questions with different cost profiles: "what is remembered now" vs "remove this one id".
+
 ## Search backends (`src/search/`)
 
 `SearchBackend` interface with three implementations: **mnemosyne** (wraps the existing CLI recall; global→global bank, project→project bank), **ripgrep** (full-text over `markdown/` + `sessions/`), **qmd** (external semantic CLI). Selection walks configured → mnemosyne → ripgrep → qmd; unavailability (checked via a per-process `which` cache) and mid-search failures are recorded as `BackendAttempt`s and the chain degrades. Per-query metrics (latency, result count) are kept for status reporting.
@@ -60,6 +68,7 @@ Activation is wired to L0 provenance: the input hook records a `user_message` ev
 Provider-neutral: the runner is injected by the host (`dependencies.offlineExtractionRunner`), so no model dependency lives in the module. Disabled by default (`offlineExtractionEnabled: false`). When enabled it runs at `session_shutdown` and `session_before_compact`, sharing one per-session ledger. The ledger records `consumedThrough` so the same L0 range is never consumed twice, and still enforces one execution, 20 proposals, and 5,000 proposal characters per session. Compact and shutdown failures are best-effort and never block the lifecycle. Disable with `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED=false`.
 
 ### Recall ranking (`recall-ranking.ts`)
+
 Pure backend-agnostic post-processing for automatic injection: standing vs contextual roles from the canonical taxonomy, query-intent weighting (`detectQueryIntent`), recency decay (30-day half-life), scope priority, superseded filtering, content deduplication, and per-role item + character budgets. Returns `null` when nothing survives so the caller omits the memory block. Explicit `xpi_memo_recall` output is untouched.
 
 ### Observability (`observability.ts`, `candidate-digest.ts`, `status.ts`, `doctor.ts`)
@@ -80,7 +89,8 @@ Pure backend-agnostic post-processing for automatic injection: standing vs conte
 └── markdown/
     ├── MEMORY.md
     ├── daily/YYYY-MM-DD.md
-    └── export-state.json
+    ├── export-state.json
+    └── memory-projection-state.json
 ```
 
 The global data root above is the only machine-state write/recall engine. In addition, an **explicit project layer** may exist under a project root:

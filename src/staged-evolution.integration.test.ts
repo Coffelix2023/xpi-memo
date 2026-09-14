@@ -3,10 +3,17 @@
  *
  * One scenario walks the whole chain on a single temp data dir:
  *   L0 dual-write records governed writes alongside mnemosyne/audit
- *   Markdown export derives MEMORY.md + daily logs from L0, incrementally
+ *   Markdown export projects the bank's current state + daily logs from L0
  *   recall runs through the backend chain (ripgrep over the export)
  */
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,6 +21,7 @@ import { clearIdentityCache } from "./identity.ts";
 import { createEventLogWriter } from "./l0/event-log-writer.ts";
 import { sessionDirFor } from "./l0/session-manager.ts";
 import { exportMarkdown, markdownDirFor } from "./markdown-export/exporter.ts";
+import type { MnemosyneRunner } from "./operations.ts";
 import { RipgrepBackend } from "./search/ripgrep-backend.ts";
 
 const tempDirs: string[] = [];
@@ -49,15 +57,35 @@ describe("L0 → export → recall chain", () => {
     writer.append("t1_memory_write", {
       content: "Roll out in stages",
       kind: "project_decision",
+      memoryId: "memory-rollout",
     });
     expect(existsSync(sessionDirFor(targetDataDir, sessionId))).toBe(true);
 
-    // ── Markdown export derived from L0, then incremental no-op ──
+    // ── Markdown export projects the bank state + L0 provenance ──
+    // The bank file and the CLI export payload stand in for the real
+    // mnemosyne bank that a governed write would have created.
+    writeFileSync(join(targetDataDir, "mnemosyne.db"), "");
     const env = {
       XPI_MEMO_DATA_DIR: targetDataDir,
     };
+    const run: MnemosyneRunner = async (args) => {
+      writeFileSync(
+        args[1] ?? "",
+        JSON.stringify({
+          episodic_memory: [],
+          working_memory: [
+            {
+              content: "Roll out in stages",
+              id: "memory-rollout",
+            },
+          ],
+        }),
+      );
+      return "Exported";
+    };
     const firstExport = await exportMarkdown({
       env,
+      run,
     });
     expect(firstExport.sessions[0]?.exportedEvents).toBe(2);
     expect(firstExport.memoryMd).toBe(true);
@@ -73,6 +101,7 @@ describe("L0 → export → recall chain", () => {
     expect(daily).toContain("plan the rollout");
     const secondExport = await exportMarkdown({
       env,
+      run,
     });
     expect(secondExport.sessions[0]?.exportedEvents).toBe(0);
 

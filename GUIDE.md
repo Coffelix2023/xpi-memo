@@ -8,7 +8,7 @@ xpi-memo is a memory extension for the [Pi Coding Agent](https://github.com/eare
 
 **T1 — governed memory.** Long-term memories live in mnemosyne vector banks (one global, one per project, optional per-session). Writes pass through governance: prohibited-content checks, routing (global/project/session), and a candidate confirmation lifecycle. Recall is policy-driven (`active`, `assist`, `high-value-auto`).
 
-**Markdown export.** Derived from L0: `MEMORY.md` (long-term memory view, latest-wins) plus `daily/YYYY-MM-DD.md` activity logs. You can edit them freely — the next export regenerates from L0. See [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md).
+**Markdown export.** Two derived views: `MEMORY.md` projects the bank's *current* state (L0 only annotates kind, scope, session and position; a forgotten memory disappears without needing a deletion event), and `daily/YYYY-MM-DD.md` folds the L0 activity log. You can edit them freely — an edited or deleted `MEMORY.md` is rebuilt by the next export. See [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md).
 
 **Search backends.** Recall runs through a fallback chain: configured → mnemosyne → ripgrep → qmd. Any subset can be installed; unavailable backends are skipped automatically and `/xpi-memo-status` reports what is active.
 
@@ -25,6 +25,7 @@ xpi-memo is a memory extension for the [Pi Coding Agent](https://github.com/eare
 | `project_decision` | Decision | contextual | project | Review required |
 | `project_gotcha` | Gotcha | contextual | project | Review required |
 | `session_context` | Session context | contextual | session | Session-only |
+
 ## Installation
 
 ```bash
@@ -47,6 +48,7 @@ Updating: `pi update --extension git:github.com/Coffelix2023/xpi-memo`
 - `xpi_memo_recall` — search memories through the backend chain
 - `xpi_memo_forget` — delete a memory
 - `xpi_memo_sleep` — consolidation; requires explicit authorization
+
 ## Commands
 
 | Command | Purpose |
@@ -92,7 +94,7 @@ Capture is idempotent by L0 event position, session, content fingerprint, and ki
 /xpi-memo-init
 ```
 
-This writes `.pi/xpi-memo/project.json` in the current directory (metadata only — no SQLite/WAL/SHM in the repo) and gives the directory a stable identity (`p-` + sha256(root)[:12]) shared by all descendants. Unrelated directories stay isolated. Roll back by deleting that one file.
+This writes `.pi/xpi-memo/project.json` in the current directory (metadata only — no SQLite/WAL/SHM in the repo) and gives the directory a stable identity (`p-` + sha256[root](:12)) shared by all descendants. Unrelated directories stay isolated. Roll back by deleting that one file.
 
 **Session context works everywhere.** `session_context` is session-scoped and independent of project identity: it can be captured and recalled in an uninitialized non-Git directory, is excluded from unrelated sessions, and never becomes global standing memory.
 
@@ -211,6 +213,7 @@ Pause writes during a sensitive session:
 ```bash
 XPI_MEMO_PAUSED=true pi
 ```
+
 ## Upgrading from memoharness
 
 The dedicated migration command and `docs/MIGRATION.md` were removed. Tool names changed once: `memoharness_remember` → `xpi_memo_remember` (and similarly for `recall`/`forget`/`sleep`). Historical `pi:memoharness_*` provenance values in existing L0/audit data are never rewritten — only new writes use the `xpi_memo_*` names.

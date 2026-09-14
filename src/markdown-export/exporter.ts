@@ -10,6 +10,7 @@
  * reported via SessionExportResult; write failures surface as warnings.
  */
 
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -24,13 +25,17 @@ import { createEventLogReader } from "../l0/event-log-reader.js";
 import { sessionsDirFor } from "../l0/l0-runtime.js";
 import { sessionDirFor } from "../l0/session-manager.js";
 import type { L0Event } from "../l0/types.js";
+import type { MnemosyneRunner } from "../operations.js";
+import { type BankStateReader, createCliBankStateReader } from "./bank-state.js";
 import { type DailyLog, generateDailyLogs } from "./daily-generator.js";
 import {
-  collectMemoryEntries,
+  collectMemoryAnnotations,
   duplicateCounts,
-  generateMemoryMarkdown,
+  type MemoryEntry,
   type MemorySource,
-  memoryProjectionDiagnostics,
+  projectMemoryEntries,
+  renderMemoryMarkdown,
+  UNCLASSIFIED_KIND,
 } from "./memory-generator.js";
 import {
   corruptEventLine,
@@ -46,6 +51,8 @@ export interface ExportOptions {
   force?: boolean;
   /** Rebuild MEMORY.md from all events without appending daily logs. */
   memoryOnly?: boolean;
+  /** mnemosyne CLI runner used for the bounded bank state read (test seam). */
+  run?: MnemosyneRunner;
   /** Restrict export to one session id. */
   sessionId?: string;
 }
@@ -94,6 +101,8 @@ interface ExportState {
 export type MemoryProjectionStatus = "complete" | "pending" | "failed";
 
 interface MemoryProjectionState {
+  /** sha256 of the content last written to MEMORY.md (manual-edit detection). */
+  contentHash?: string;
   status: MemoryProjectionStatus;
   version: 1;
 }
@@ -219,6 +228,11 @@ function readMemoryProjectionState(markdownDir: string): MemoryProjectionState |
     )
       return null;
     return {
+      ...(typeof parsed.contentHash === "string"
+        ? {
+            contentHash: parsed.contentHash,
+          }
+        : {}),
       status: parsed.status,
       version: 1,
     };
@@ -234,14 +248,42 @@ export function memoryProjectionStatusFor(
   return readMemoryProjectionState(markdownDirFor(dataDir))?.status ?? null;
 }
 
+/** sha256 of the projected content: the projection's own fingerprint. */
+function projectionHash(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+/**
+ * True when MEMORY.md is no longer the file the projection wrote — edited by
+ * hand or deleted. A divergence means the derived view must be rebuilt before
+ * it is trusted again (task 3.2), while an untouched file keeps the
+ * incremental fast path.
+ */
+function projectionDiverged(markdownDir: string, contentHash?: string): boolean {
+  if (!contentHash) return true;
+  try {
+    const path = join(markdownDir, "MEMORY.md");
+    if (!existsSync(path)) return true;
+    return projectionHash(readFileSync(path, "utf8")) !== contentHash;
+  } catch {
+    return true;
+  }
+}
+
 function writeMemoryProjectionState(
   markdownDir: string,
   status: MemoryProjectionStatus,
+  contentHash?: string,
 ): void {
   writeFileAtomic(
     join(markdownDir, MEMORY_PROJECTION_STATE_FILE),
     `${JSON.stringify(
       {
+        ...(contentHash
+          ? {
+              contentHash,
+            }
+          : {}),
         status,
         version: 1,
       },
@@ -303,23 +345,28 @@ export async function exportMarkdown(
   const nextPositions: Record<string, number> = {
     ...state.positions,
   };
-  const incrementalMemoryInputs: MemorySource[] = [];
+  const incrementalAnnotationSources: MemorySource[] = [];
   for (const read of reads)
     foldSession(read, {
+      annotationSources: incrementalAnnotationSources,
       dailyByDate,
-      memoryInputs: incrementalMemoryInputs,
       nextPositions,
       sessions,
       warnings,
     });
 
+  const staleness =
+    projectionState?.status === "complete" &&
+    projectionDiverged(markdownDir, projectionState.contentHash);
   const shouldProject =
     memoryOnly ||
     options.force === true ||
     projectionState?.status === "pending" ||
     projectionState?.status === "failed" ||
-    incrementalMemoryInputs.some(({ events }) => memoryAffecting(events));
-  let projectionInputs = incrementalMemoryInputs;
+    staleness ||
+    incrementalAnnotationSources.some(({ events }) => memoryAffecting(events));
+  let projectionSources = incrementalAnnotationSources;
+  let projectionEntries: MemoryEntry[] = [];
   let projectionBlocked = false;
   if (shouldProject && !memoryOnly) {
     const fullReads = await Promise.all(
@@ -327,7 +374,7 @@ export async function exportMarkdown(
         readAllSession(sessionId, dataDir, filters),
       ),
     );
-    projectionInputs = [];
+    projectionSources = [];
     for (const read of fullReads) {
       if (read.error) {
         projectionBlocked = true;
@@ -340,22 +387,44 @@ export async function exportMarkdown(
         warnings.push(
           `MEMORY.md: session ${read.sessionId} skipped ${read.corruptLines.length} corrupt event line(s)`,
         );
-      projectionInputs.push({
+      projectionSources.push({
         events: read.events,
         sessionId: read.sessionId,
       });
     }
   }
-  for (const diagnostic of memoryProjectionDiagnostics(projectionInputs))
-    warnings.push(
-      `MEMORY.md: ${diagnostic.code} at session ${diagnostic.sessionId} position ${diagnostic.position}`,
-    );
+  if (shouldProject && !projectionBlocked) {
+    const readBankState: BankStateReader = createCliBankStateReader(options.run);
+    const bankState = await readBankState({
+      dataDir,
+    });
+    if (!bankState.ok) {
+      // Design D5: never project from a failed read; keep the previous view
+      // and leave the projection retryable.
+      projectionBlocked = true;
+      warnings.push(
+        `MEMORY.md: bank state read failed (${bankState.reason}) — previous projection kept`,
+      );
+    } else {
+      projectionEntries = projectMemoryEntries(
+        bankState.rows,
+        collectMemoryAnnotations(projectionSources),
+      );
+      const unannotated = projectionEntries.filter(
+        (entry) => entry.kind === UNCLASSIFIED_KIND,
+      ).length;
+      if (unannotated > 0)
+        warnings.push(
+          `MEMORY.md: ${unannotated} bank row(s) have no L0 provenance (marked source missing)`,
+        );
+    }
+  }
 
   const persisted = persistOutputs({
     dailyByDate,
     filters,
     markdownDir,
-    memoryInputs: projectionInputs,
+    memoryEntries: projectionEntries,
     nextPositions,
     projectionBlocked,
     projectionRequested: shouldProject,
@@ -365,7 +434,7 @@ export async function exportMarkdown(
   });
   return {
     dailyFiles: persisted.dailyFiles,
-    duplicates: duplicateCounts(collectMemoryEntries(projectionInputs)),
+    duplicates: duplicateCounts(projectionEntries),
     exportedPositions: nextPositions,
     markdownDir,
     memoryMd: persisted.memoryMd,
@@ -379,8 +448,8 @@ export async function exportMarkdown(
 function foldSession(
   read: SessionRead,
   into: {
+    annotationSources: MemorySource[];
     dailyByDate: Map<string, DailyLog[]>;
-    memoryInputs: MemorySource[];
     nextPositions: Record<string, number>;
     sessions: SessionExportResult[];
     warnings: string[];
@@ -438,7 +507,7 @@ function foldSession(
       });
     into.dailyByDate.set(fallbackDate, bucket);
   }
-  into.memoryInputs.push({
+  into.annotationSources.push({
     events,
     sessionId,
   });
@@ -457,7 +526,7 @@ function persistOutputs(into: {
   dailyByDate: Map<string, DailyLog[]>;
   filters: ExportFilters;
   markdownDir: string;
-  memoryInputs: MemorySource[];
+  memoryEntries: MemoryEntry[];
   nextPositions: Record<string, number>;
   projectionBlocked: boolean;
   projectionRequested: boolean;
@@ -494,9 +563,7 @@ function persistOutputs(into: {
   if (into.projectionRequested) {
     if (into.projectionBlocked) {
       memoryProjection = "failed";
-      into.warnings.push(
-        "MEMORY.md: projection pending because L0 history is incomplete",
-      );
+      into.warnings.push("MEMORY.md: projection pending; previous projection kept");
       try {
         writeMemoryProjectionState(into.markdownDir, "pending");
       } catch {
@@ -504,13 +571,16 @@ function persistOutputs(into: {
       }
     } else {
       try {
+        const markdown = renderMemoryMarkdown(into.memoryEntries).markdown;
         writeFileAtomic(
           join(into.markdownDir, "MEMORY.md"),
-          into.filters.privacy
-            ? redactSensitive(generateMemoryMarkdown(into.memoryInputs).markdown)
-            : generateMemoryMarkdown(into.memoryInputs).markdown,
+          into.filters.privacy ? redactSensitive(markdown) : markdown,
         );
-        writeMemoryProjectionState(into.markdownDir, "complete");
+        writeMemoryProjectionState(
+          into.markdownDir,
+          "complete",
+          projectionHash(markdown),
+        );
         memoryMd = true;
         memoryProjection = "complete";
       } catch (error) {

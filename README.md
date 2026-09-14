@@ -9,8 +9,8 @@ A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension
 - **T1 Governed Memory** — routing (global/project/session), write governance with candidate confirmation, policy-driven recall
 - **Memory Activation Loop** — explicit user intent (preferences, workflow, project decisions, gotchas, session context) is captured deterministically from the prompt, idempotent per L0 event + content fingerprint, with a gated offline extraction path (disabled by default) at session shutdown
 - **Human-Readable Observability** — canonical 7-kind taxonomy (Preference, Workflow, Repository fact, Constraint, Decision, Gotcha, Session context) with roles, scopes, and trust states shared by console, status, and export
-- **L0 Session Trace** — lossless append-only JSONL log per session (10 MB rotation); source of truth for everything derived
-- **Markdown Export** — human-readable `MEMORY.md` + daily logs derived from L0; incremental, privacy redaction, Git-friendly
+- **L0 Session Trace** — lossless append-only JSONL log per session (10 MB rotation); the event truth for how state changed (daily logs and memory provenance derive from it, while the bank holds the current state)
+- **Markdown Export** — human-readable `MEMORY.md` (projected from the bank's current state, L0-annotated) + daily logs folded from L0; incremental, privacy redaction, Git-friendly
 - **Pluggable Search** — recall through a fallback chain: mnemosyne (vector+FTS5) → ripgrep (full-text) → qmd (semantic); any subset installed works
 Details: [GUIDE.md](./GUIDE.md) (usage) · [ARCHITECTURE.md](./ARCHITECTURE.md) (L0/T1 layers) · [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md) (versions) · [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md) (export format)
 
@@ -54,6 +54,7 @@ brew install ripgrep               # full-text search (macOS); dnf install ripgr
 - `xpi_memo_sleep` — Consolidate memory (explicit authorization required)
 
 **Automatic capture.** When you explicitly state a durable preference, workflow, project decision, gotcha, or bounded session context in a prompt, the activation loop routes it through the same governance path as `xpi_memo_remember` — no extra tool call needed. Global preferences/workflows store directly; project decisions, constraints, and gotchas become review candidates (see [GUIDE.md § Activation loop](./GUIDE.md#activation-loop)).
+
 ## Configuration
 
 Default data directory: `~/.pi/agent/xpi-memo/`

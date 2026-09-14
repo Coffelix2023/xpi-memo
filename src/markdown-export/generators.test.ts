@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { describeMemoryKind, MEMORY_KINDS } from "../kinds.js";
+import { describeMemoryKind, MEMORY_KINDS, type MemoryKind } from "../kinds.js";
 import { createL0Event, L0_EVENT_TYPES, type L0Event } from "../l0/types.js";
+import type { BankMemoryRow } from "./bank-state.js";
 import { generateDailyLogs } from "./daily-generator.js";
 import {
-  collectMemoryEntries,
+  collectMemoryAnnotations,
   generateMemoryMarkdown,
-  memoryProjectionDiagnostics,
+  type MemorySource,
+  projectMemoryEntries,
+  UNCLASSIFIED_KIND,
 } from "./memory-generator.js";
 import { corruptEventLine, transformEvent } from "./transformer.js";
 
@@ -18,6 +21,62 @@ function event(
   time = "2024-03-15T10:00:00.000Z",
 ): L0Event {
   return createL0Event(type, position, payload, time);
+}
+
+interface RowSpec {
+  content: string;
+  id: string;
+  /** Omit to model a bank row with no L0 provenance. */
+  kind?: MemoryKind;
+  position?: number;
+  sessionId?: string;
+  timestamp?: string;
+}
+
+/**
+ * Build the projection's two inputs from one spec list: the bank's current
+ * rows, plus the L0 events that annotate the rows which have provenance.
+ */
+function memoryInput(specs: RowSpec[]): {
+  rows: BankMemoryRow[];
+  sources: MemorySource[];
+} {
+  const rows: BankMemoryRow[] = [];
+  const events: L0Event[] = [];
+  for (const spec of specs) {
+    rows.push({
+      bank: "default",
+      content: spec.content,
+      id: spec.id,
+      ...(spec.timestamp
+        ? {
+            timestamp: spec.timestamp,
+          }
+        : {}),
+    });
+    if (!spec.kind) continue;
+    events.push(
+      event(
+        "t1_memory_write",
+        spec.position ?? events.length + 1,
+        {
+          content: spec.content,
+          kind: spec.kind,
+          memoryId: spec.id,
+        },
+        spec.timestamp,
+      ),
+    );
+  }
+  return {
+    rows,
+    sources: [
+      {
+        events,
+        sessionId: SESSION,
+      },
+    ],
+  };
 }
 
 describe("transformer", () => {
@@ -114,29 +173,33 @@ describe("transformer", () => {
 
 describe("memory generator", () => {
   it("groups memories into decisions/preferences/constraints/gotchas sections", () => {
-    const doc = generateMemoryMarkdown([
+    const input = memoryInput([
       {
-        sessionId: SESSION,
-        events: [
-          event("t1_memory_write", 1, {
-            content: "pick X",
-            kind: "project_decision",
-          }),
-          event("t1_memory_write", 2, {
-            content: "prefer Y",
-            kind: "global_preference",
-          }),
-          event("t1_memory_write", 3, {
-            content: "never Z",
-            kind: "project_constraint",
-          }),
-          event("t1_memory_write", 4, {
-            content: "watch out",
-            kind: "project_gotcha",
-          }),
-        ],
+        content: "pick X",
+        id: "row-1",
+        kind: "project_decision",
+        position: 1,
+      },
+      {
+        content: "prefer Y",
+        id: "row-2",
+        kind: "global_preference",
+        position: 2,
+      },
+      {
+        content: "never Z",
+        id: "row-3",
+        kind: "project_constraint",
+        position: 3,
+      },
+      {
+        content: "watch out",
+        id: "row-4",
+        kind: "project_gotcha",
+        position: 4,
       },
     ]);
+    const doc = generateMemoryMarkdown(input.rows, input.sources);
     expect(doc.markdown).toContain("## Decisions");
     expect(doc.markdown).toContain("## Preferences");
     expect(doc.markdown).toContain("## Constraints");
@@ -145,17 +208,15 @@ describe("memory generator", () => {
   });
 
   it("renders one canonical section for every supported kind", () => {
-    const doc = generateMemoryMarkdown([
-      {
-        events: MEMORY_KINDS.map((kind, position) =>
-          event("t1_memory_write", position + 1, {
-            content: `memory-${kind}`,
-            kind,
-          }),
-        ),
-        sessionId: SESSION,
-      },
-    ]);
+    const input = memoryInput(
+      MEMORY_KINDS.map((kind, position) => ({
+        content: `memory-${kind}`,
+        id: `row-${kind}`,
+        kind,
+        position: position + 1,
+      })),
+    );
+    const doc = generateMemoryMarkdown(input.rows, input.sources);
     for (const kind of MEMORY_KINDS) {
       expect(doc.markdown).toContain(`## ${describeMemoryKind(kind).sectionTitle}`);
     }
@@ -163,17 +224,15 @@ describe("memory generator", () => {
   });
 
   it("groups every supported kind under its own canonical section, never Other", () => {
-    const doc = generateMemoryMarkdown([
-      {
-        events: MEMORY_KINDS.map((kind, position) =>
-          event("t1_memory_write", position + 1, {
-            content: `memory-${kind}`,
-            kind,
-          }),
-        ),
-        sessionId: SESSION,
-      },
-    ]);
+    const input = memoryInput(
+      MEMORY_KINDS.map((kind, position) => ({
+        content: `memory-${kind}`,
+        id: `row-${kind}`,
+        kind,
+        position: position + 1,
+      })),
+    );
+    const doc = generateMemoryMarkdown(input.rows, input.sources);
     const sectionTitles = MEMORY_KINDS.map(
       (kind) => describeMemoryKind(kind).sectionTitle,
     );
@@ -184,54 +243,65 @@ describe("memory generator", () => {
   });
 
   it("annotates every entry with its canonical scope (task 2.4)", () => {
-    const doc = generateMemoryMarkdown([
+    const input = memoryInput([
       {
-        sessionId: SESSION,
-        events: [
-          event("t1_memory_write", 1, {
-            content: "pick X",
-            kind: "project_decision",
-          }),
-          event("t1_memory_write", 2, {
-            content: "prefer Y",
-            kind: "global_preference",
-          }),
-          event("t1_memory_write", 3, {
-            content: "session note",
-            kind: "session_context",
-          }),
-        ],
+        content: "pick X",
+        id: "row-1",
+        kind: "project_decision",
+        position: 1,
+      },
+      {
+        content: "prefer Y",
+        id: "row-2",
+        kind: "global_preference",
+        position: 2,
+      },
+      {
+        content: "session note",
+        id: "row-3",
+        kind: "session_context",
+        position: 3,
       },
     ]);
+    const doc = generateMemoryMarkdown(input.rows, input.sources);
     expect(doc.markdown).toContain("scope `project`");
     expect(doc.markdown).toContain("scope `global`");
     expect(doc.markdown).toContain("scope `session`");
   });
   it("marks exact duplicate content with supersededBy instead of dropping it", () => {
-    const sources = [
+    const input = memoryInput([
       {
-        sessionId: SESSION,
-        events: [
-          event("t1_memory_write", 1, {
-            content: "deploy at  9am",
-            kind: "project_decision",
-          }),
-          event("t1_memory_write", 2, {
-            content: "deploy at 9am",
-            kind: "project_decision",
-          }),
-        ],
+        content: "deploy at  9am",
+        id: "row-a",
+        kind: "project_decision",
+        position: 1,
       },
-    ];
-    const entries = collectMemoryEntries(sources);
+      {
+        content: "deploy at 9am",
+        id: "row-b",
+        kind: "project_decision",
+        position: 2,
+      },
+    ]);
+    const entries = projectMemoryEntries(
+      input.rows,
+      collectMemoryAnnotations(input.sources),
+    );
     expect(entries.length).toBe(2);
-    const doc = generateMemoryMarkdown(sources);
+    const doc = generateMemoryMarkdown(input.rows, input.sources);
     expect(doc.markdown).toContain("deploy at  9am");
     expect(doc.markdown).toContain("deploy at 9am");
     expect(doc.markdown).toContain("supersededBy `");
   });
 
-  it("excludes entries whose backend memory id was deleted", () => {
+  it("projects only rows the bank still holds, without needing a deletion event", () => {
+    const rows: BankMemoryRow[] = [
+      {
+        bank: "default",
+        content: "keep this memory",
+        id: "memory-keep",
+      },
+    ];
     const sources = [
       {
         sessionId: SESSION,
@@ -252,45 +322,174 @@ describe("memory generator", () => {
         ],
       },
     ];
-    expect(collectMemoryEntries(sources).map(({ content }) => content)).toEqual([
+    expect(
+      projectMemoryEntries(rows, collectMemoryAnnotations(sources)).map(
+        ({ content }) => content,
+      ),
+    ).toEqual([
       "keep this memory",
     ]);
   });
 
-  it("keeps legacy writes and reports missing memory IDs without guessing", () => {
+  it("keeps bank rows without L0 provenance and marks them source missing without guessing", () => {
+    const rows: BankMemoryRow[] = [
+      {
+        bank: "default",
+        content: "legacy memory",
+        id: "legacy-row",
+        timestamp: "2024-03-15T10:00:00.000Z",
+      },
+    ];
     const sources = [
       {
         sessionId: SESSION,
         events: [
-          event("t1_memory_write", 1, {
-            content: "legacy memory",
-            kind: "global_preference",
-          }),
           event("memory_deleted", 2, {
             memoryId: "unrelated-id",
           }),
         ],
       },
     ];
-    expect(collectMemoryEntries(sources).map(({ content }) => content)).toEqual([
+    const entries = projectMemoryEntries(rows, collectMemoryAnnotations(sources));
+    expect(entries.map(({ content }) => content)).toEqual([
       "legacy memory",
     ]);
-    expect(memoryProjectionDiagnostics(sources)).toEqual([
+    expect(entries[0]?.kind).toBe(UNCLASSIFIED_KIND);
+    const doc = generateMemoryMarkdown(rows, sources);
+    expect(doc.markdown).toContain("## Unclassified");
+    expect(doc.markdown).toContain("source `missing`");
+    // No fabricated provenance: no session reference for an unannotated row.
+    expect(doc.markdown).not.toContain("session `");
+  });
+
+  it("ignores annotations whose bank row no longer exists", () => {
+    const rows: BankMemoryRow[] = [
       {
-        code: "legacy-memory-id-unavailable",
-        position: 1,
-        sessionId: SESSION,
+        bank: "default",
+        content: "still here",
+        id: "row-keep",
       },
+    ];
+    const sources = [
+      {
+        sessionId: SESSION,
+        events: [
+          event("t1_memory_write", 1, {
+            content: "still here",
+            kind: "global_preference",
+            memoryId: "row-keep",
+          }),
+          event("t1_memory_write", 2, {
+            content: "gone from the bank",
+            kind: "global_preference",
+            memoryId: "row-gone",
+          }),
+        ],
+      },
+    ];
+    const entries = projectMemoryEntries(rows, collectMemoryAnnotations(sources));
+    expect(entries.map(({ content }) => content)).toEqual([
+      "still here",
+    ]);
+    expect(entries[0]?.sessionId).toBe(SESSION);
+  });
+
+  it("orders annotated rows by L0 position and unannotated rows last by memory id", () => {
+    const rows: BankMemoryRow[] = [
+      {
+        bank: "default",
+        content: "unannotated Z",
+        id: "row-z",
+      },
+      {
+        bank: "default",
+        content: "second write",
+        id: "row-2",
+      },
+      {
+        bank: "default",
+        content: "unannotated A",
+        id: "row-a",
+      },
+      {
+        bank: "default",
+        content: "first write",
+        id: "row-1",
+      },
+    ];
+    const sources = [
+      {
+        sessionId: SESSION,
+        events: [
+          event("t1_memory_write", 1, {
+            content: "first write",
+            kind: "project_decision",
+            memoryId: "row-1",
+          }),
+          event("t1_memory_write", 2, {
+            content: "second write",
+            kind: "project_decision",
+            memoryId: "row-2",
+          }),
+        ],
+      },
+    ];
+    const ordered = projectMemoryEntries(rows, collectMemoryAnnotations(sources)).map(
+      ({ content }) => content,
+    );
+    expect(ordered).toEqual([
+      "first write",
+      "second write",
+      "unannotated A",
+      "unannotated Z",
     ]);
   });
 
-  it("renders an empty-state note when nothing was confirmed", () => {
-    const doc = generateMemoryMarkdown([
+  it("produces byte-identical output for identical state and annotations", () => {
+    const rows: BankMemoryRow[] = [
       {
-        events: [],
-        sessionId: SESSION,
+        bank: "default",
+        content: "second write",
+        id: "row-2",
       },
-    ]);
+      {
+        bank: "default",
+        content: "unannotated",
+        id: "row-x",
+      },
+      {
+        bank: "default",
+        content: "first write",
+        id: "row-1",
+      },
+    ];
+    const sources = [
+      {
+        sessionId: SESSION,
+        events: [
+          event("t1_memory_write", 2, {
+            content: "second write",
+            kind: "project_decision",
+            memoryId: "row-2",
+          }),
+          event("t1_memory_write", 1, {
+            content: "first write",
+            kind: "project_decision",
+            memoryId: "row-1",
+          }),
+        ],
+      },
+    ];
+    const shuffled = [
+      ...rows,
+    ].reverse();
+    const first = generateMemoryMarkdown(rows, sources).markdown;
+    expect(generateMemoryMarkdown(rows, sources).markdown).toBe(first);
+    expect(generateMemoryMarkdown(shuffled, sources).markdown).toBe(first);
+  });
+
+  it("renders an empty-state note when nothing was confirmed", () => {
+    const doc = generateMemoryMarkdown([], []);
     expect(doc.markdown).toContain("No confirmed memories yet.");
   });
 });

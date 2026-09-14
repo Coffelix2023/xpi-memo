@@ -1,13 +1,14 @@
 # Markdown Export Format
 
-xpi-memo derives human-readable Markdown files from the L0 event log. The L0 JSONL log is the source of truth; Markdown is a derived view and can be regenerated at any time with `/xpi-memo-export`.
+xpi-memo derives human-readable Markdown files from machine state. Two sources feed two different views: `daily/YYYY-MM-DD.md` is folded from the L0 JSONL event log (the event truth for *how* state changed), and `MEMORY.md` is projected from the bank's *current* state (the state truth for *what is remembered now*) with L0 used only as provenance annotation. Both are derived views and can be regenerated with `/xpi-memo-export`.
 
 ## Directory layout
 
-```
+```text
 <dataDir>/markdown/
-├── MEMORY.md                  # long-term memory view (latest-wins)
+├── MEMORY.md                  # long-term memory projection (bank current state)
 ├── export-state.json          # incremental export positions (internal)
+├── memory-projection-state.json  # projection status + content hash (internal)
 └── daily/
     ├── 2024-03-15.md          # one file per calendar day (ISO 8601)
     └── 2024-03-16.md
@@ -17,7 +18,7 @@ Default output directory is `<dataDir>/markdown/` where `<dataDir>` is `~/.pi/ag
 
 ## MEMORY.md
 
-Long-term memory derived from confirmed `t1_memory_write` events. Sections: **Decisions**, **Preferences**, **Constraints**, **Gotchas**, and **Other** (any kind that does not map to the first four).
+The entry set is the **bank's current state**, not the event history: the default bank plus every project bank under `<dataDir>/banks/`, read through a bounded `mnemosyne export` (fixed 5 s timeout and 5 MB cap per bank, temporary file always cleaned up). The L0 log only annotates a row: `t1_memory_write` supplies kind, scope, confirming time, session and position, keyed by the bank memory id. Sections are the canonical taxonomy — **Preferences**, **Workflows**, **Repository Facts**, **Constraints**, **Decisions**, **Gotchas**, **Session Context** — plus **Unclassified** for rows the bank holds without a matching L0 write.
 
 ```markdown
 # MEMORY
@@ -25,11 +26,20 @@ Long-term memory derived from confirmed `t1_memory_write` events. Sections: **De
 ## Decisions
 
 - Use pnpm workspaces for all new packages
-  <sub>confirmed 2024-03-15 · `project_decision` · session `2024-03-15T10-00-00-...` @ position 7</sub>
+  <sub>confirmed 2024-03-15 · `project_decision` · scope `project` · session `2024-03-15T10-00-00-...` @ position 7</sub>
+
+## Unclassified
+
+- Row written directly into the bank by another tool
+  <sub>source `missing` · bank `default`</sub>
 ```
 
-- **Duplicate handling**: content is normalized (trimmed, whitespace-collapsed); when the same content appears again, only the latest version is kept.
-- **Ordering**: entries are ordered by their confirming L0 position, so regenerated files are byte-stable and Git diffs stay minimal.
+- **Removal is state-driven**: a memory that is no longer in the bank disappears on the next projection, with no deletion event required, and unrelated entries are untouched.
+- **Duplicate handling**: content is normalized (trimmed, whitespace-collapsed); when the same content appears twice in one bank and kind, both entries stay visible and the older one is marked `supersededBy` — the bank is never rewritten or deduplicated as a side effect of export.
+- **Missing provenance**: a bank row with no usable L0 write is projected anyway and marked `source missing` in `Unclassified`; its kind and source are never guessed and no session reference is invented.
+- **Ordering**: sections follow the canonical taxonomy order (Unclassified last); within a section, annotated entries are ordered by confirming L0 position and unannotated entries follow, ordered by memory id. Identical state plus identical annotations therefore yields a byte-identical file and Git diffs stay minimal.
+- **Failure semantics**: a bank read, timeout, parse or write failure keeps the previous `MEMORY.md` and leaves the projection retryable (`memory-projection-state.json`) — an empty or partial projection is never written. A no-op incremental export leaves the file alone unless it diverged from the projection's recorded content hash (hand-edited or deleted), which triggers a rebuild.
+- **Boundary**: the projection layer deliberately reads whole-bank state (a bounded, read-only derived-view action). That is a *different* boundary from `xpi_memo_forget`, which must never scan the full library: see `GUIDE.md` and `TROUBLESHOOTING.md`.
 
 ## daily/YYYY-MM-DD.md
 
@@ -79,7 +89,9 @@ Object payloads render as compact `key: value` summaries — never raw JSON dump
 
 ## Source traceability
 
-Every entry carries `<sub>session ... @ position N</sub>`. The pair (session id, position) locates the exact raw line in `<dataDir>/sessions/<sessionId>/events.jsonl`, enabling bidirectional navigation between Markdown and the L0 log.
+Annotated MEMORY.md entries carry `<sub>… session <id> @ position N</sub>`. The pair (session id, position) locates the exact raw line in `<dataDir>/sessions/<sessionId>/events.jsonl`, enabling bidirectional navigation between Markdown and the L0 log. Rows without L0 provenance carry `source \`missing\`` instead of a session reference — the absence of provenance is shown, never fabricated.
+
+Daily entries carry the same `<sub>session … @ position N</sub>` pair.
 
 ## Configuration
 
@@ -104,6 +116,7 @@ A separate, explicit export layer writes governed project memory as deterministi
 - `/xpi-memo-export --repo --reimport` — read the files back as `repo-export` evidence and route entries through the normal candidate lifecycle (content policy, scope routing, user confirmation) with stable-ID deduplication.
 
 The repo-export layer is a portable human view only: the global SQLite bank remains the sole machine-state write and recall engine, and no SQLite/WAL/SHM ever lands in the project repository.
+
 ## Error handling
 
 - Writes are atomic (temp file + rename): a crash never leaves a partial Markdown file behind.

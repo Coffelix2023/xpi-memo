@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createEventLogWriter } from "../l0/event-log-writer.js";
 import { sessionDirFor } from "../l0/session-manager.js";
 import { createL0Event, type L0Event, type L0EventType } from "../l0/types.js";
+import type { MnemosyneRunner } from "../operations.js";
 import {
   exportMarkdown,
   markdownDirFor,
@@ -52,8 +53,41 @@ function readDaily(date = TODAY): string {
   return readFileSync(join(markdownDirFor(dataDir), "daily", `${date}.md`), "utf8");
 }
 
+interface BankRow {
+  content: string;
+  id: string;
+  superseded_by?: string | null;
+  timestamp?: string;
+}
+
+/** The projection reads bank state, so a bank file must exist for it to read. */
+function createDefaultBank(): void {
+  writeFileSync(join(dataDir, "mnemosyne.db"), "");
+}
+
+/** Fake mnemosyne CLI: serves the export payload the bounded bank read parses. */
+function bankRun(rows: BankRow[]): MnemosyneRunner {
+  return async (args) => {
+    writeFileSync(
+      args[1] ?? "",
+      JSON.stringify({
+        episodic_memory: [],
+        working_memory: rows,
+      }),
+    );
+    return "Exported";
+  };
+}
+
 describe("markdown export", () => {
   it("exports events to daily log and MEMORY.md with source traceability", async () => {
+    createDefaultBank();
+    const rows: BankRow[] = [
+      {
+        content: "Use pnpm workspaces",
+        id: "memory-use-pnpm",
+      },
+    ];
     writeRawEvent(
       SESSION_ID,
       createL0Event(
@@ -73,11 +107,13 @@ describe("markdown export", () => {
         {
           content: "Use pnpm workspaces",
           kind: "project_decision",
+          memoryId: "memory-use-pnpm",
         },
         "2024-03-15T08:01:00.000Z",
       ),
     );
     const result = await exportMarkdown({
+      run: bankRun(rows),
       env: {
         XPI_MEMO_DATA_DIR: dataDir,
       },
@@ -154,6 +190,8 @@ describe("markdown export", () => {
   });
 
   it("rebuilds MEMORY.md from complete history after an incremental export", async () => {
+    createDefaultBank();
+    const rows: BankRow[] = [];
     writeEvents([
       {
         type: "t1_memory_write",
@@ -164,7 +202,12 @@ describe("markdown export", () => {
         },
       },
     ]);
+    rows.push({
+      content: "memory A",
+      id: "memory-a",
+    });
     await exportMarkdown({
+      run: bankRun(rows),
       env: {
         XPI_MEMO_DATA_DIR: dataDir,
       },
@@ -180,7 +223,12 @@ describe("markdown export", () => {
         },
       },
     ]);
+    rows.push({
+      content: "memory B",
+      id: "memory-b",
+    });
     const result = await exportMarkdown({
+      run: bankRun(rows),
       env: {
         XPI_MEMO_DATA_DIR: dataDir,
       },
@@ -242,6 +290,8 @@ describe("markdown export", () => {
   });
 
   it("keeps projection retryable when MEMORY.md replacement fails", async () => {
+    createDefaultBank();
+    const rows: BankRow[] = [];
     writeEvents([
       {
         type: "t1_memory_write",
@@ -252,7 +302,12 @@ describe("markdown export", () => {
         },
       },
     ]);
+    rows.push({
+      content: "retry memory A",
+      id: "retry-a",
+    });
     await exportMarkdown({
+      run: bankRun(rows),
       env: {
         XPI_MEMO_DATA_DIR: dataDir,
       },
@@ -271,7 +326,12 @@ describe("markdown export", () => {
         },
       },
     ]);
+    rows.push({
+      content: "retry memory B",
+      id: "retry-b",
+    });
     const failed = await exportMarkdown({
+      run: bankRun(rows),
       env: {
         XPI_MEMO_DATA_DIR: dataDir,
       },
@@ -285,6 +345,7 @@ describe("markdown export", () => {
       recursive: true,
     });
     const retried = await exportMarkdown({
+      run: bankRun(rows),
       env: {
         XPI_MEMO_DATA_DIR: dataDir,
       },
@@ -294,6 +355,223 @@ describe("markdown export", () => {
     const memory = readFileSync(memoryPath, "utf8");
     expect(memory).toContain("retry memory A");
     expect(memory).toContain("retry memory B");
+  });
+
+  it("keeps the previous projection when the bank state read fails", async () => {
+    createDefaultBank();
+    const rows: BankRow[] = [
+      {
+        content: "survives a failed read",
+        id: "bank-a",
+      },
+    ];
+    writeEvents([
+      {
+        type: "t1_memory_write",
+        payload: {
+          content: "survives a failed read",
+          kind: "global_preference",
+          memoryId: "bank-a",
+        },
+      },
+    ]);
+    await exportMarkdown({
+      run: bankRun(rows),
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+    const memoryPath = join(markdownDirFor(dataDir), "MEMORY.md");
+    const before = readFileSync(memoryPath, "utf8");
+
+    writeEvents([
+      {
+        type: "t1_memory_write",
+        payload: {
+          content: "written while the bank was unreadable",
+          kind: "global_preference",
+          memoryId: "bank-b",
+        },
+      },
+    ]);
+    const failed = await exportMarkdown({
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      run: async () => {
+        throw new Error("bank is unreadable");
+      },
+    });
+    expect(failed.memoryMd).toBe(false);
+    expect(failed.memoryProjection).toBe("failed");
+    expect(failed.warnings.join("\n")).toContain("bank state read failed");
+    // Never an empty or partial projection: the previous file is untouched.
+    expect(readFileSync(memoryPath, "utf8")).toBe(before);
+    expect(memoryProjectionStatusFor(dataDir)).toBe("pending");
+
+    rows.push({
+      content: "written while the bank was unreadable",
+      id: "bank-b",
+    });
+    const retried = await exportMarkdown({
+      run: bankRun(rows),
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+    expect(retried.memoryMd).toBe(true);
+    const memory = readFileSync(memoryPath, "utf8");
+    expect(memory).toContain("survives a failed read");
+    expect(memory).toContain("written while the bank was unreadable");
+  });
+
+  it("projects bank rows without L0 provenance and warns once about them", async () => {
+    createDefaultBank();
+    writeEvents([
+      {
+        type: "t1_memory_write",
+        payload: {
+          content: "annotated memory",
+          kind: "global_preference",
+          memoryId: "bank-annotated",
+        },
+      },
+    ]);
+    const result = await exportMarkdown({
+      run: bankRun([
+        {
+          content: "annotated memory",
+          id: "bank-annotated",
+        },
+        {
+          content: "written by another tool",
+          id: "bank-external",
+        },
+      ]),
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+    expect(result.memoryMd).toBe(true);
+    const memory = readFileSync(join(markdownDirFor(dataDir), "MEMORY.md"), "utf8");
+    expect(memory).toContain("annotated memory");
+    expect(memory).toContain("written by another tool");
+    expect(memory).toContain("## Unclassified");
+    expect(memory).toContain("source `missing`");
+    expect(result.warnings.join("\n")).toContain("no L0 provenance");
+  });
+
+  it("keeps the previous projection when the bank export cannot be parsed", async () => {
+    createDefaultBank();
+    const rows: BankRow[] = [
+      {
+        content: "survives an unparseable read",
+        id: "bank-a",
+      },
+    ];
+    writeEvents([
+      {
+        type: "t1_memory_write",
+        payload: {
+          content: "survives an unparseable read",
+          kind: "global_preference",
+          memoryId: "bank-a",
+        },
+      },
+    ]);
+    await exportMarkdown({
+      run: bankRun(rows),
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+    const memoryPath = join(markdownDirFor(dataDir), "MEMORY.md");
+    const before = readFileSync(memoryPath, "utf8");
+
+    writeEvents([
+      {
+        type: "t1_memory_write",
+        payload: {
+          content: "written while the export was broken",
+          kind: "global_preference",
+          memoryId: "bank-b",
+        },
+      },
+    ]);
+    const failed = await exportMarkdown({
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      run: async (args) => {
+        writeFileSync(args[1] ?? "", "{not json");
+        return "Exported";
+      },
+    });
+    expect(failed.memoryMd).toBe(false);
+    expect(failed.memoryProjection).toBe("failed");
+    const warnings = failed.warnings.join("\n");
+    expect(warnings).toContain("bank state read failed");
+    expect(warnings).toContain("bank-export-unparseable");
+    // Never an empty or partial projection: the previous file is untouched.
+    expect(readFileSync(memoryPath, "utf8")).toBe(before);
+    expect(memoryProjectionStatusFor(dataDir)).toBe("pending");
+
+    rows.push({
+      content: "written while the export was broken",
+      id: "bank-b",
+    });
+    const retried = await exportMarkdown({
+      run: bankRun(rows),
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+    expect(retried.memoryMd).toBe(true);
+    expect(memoryProjectionStatusFor(dataDir)).toBe("complete");
+    const memory = readFileSync(memoryPath, "utf8");
+    expect(memory).toContain("survives an unparseable read");
+    expect(memory).toContain("written while the export was broken");
+  });
+
+  it("rebuilds MEMORY.md when it was edited by hand", async () => {
+    createDefaultBank();
+    const rows: BankRow[] = [
+      {
+        content: "projection-owned content",
+        id: "bank-owned",
+      },
+    ];
+    writeEvents([
+      {
+        type: "t1_memory_write",
+        payload: {
+          content: "projection-owned content",
+          kind: "global_preference",
+          memoryId: "bank-owned",
+        },
+      },
+    ]);
+    await exportMarkdown({
+      run: bankRun(rows),
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+
+    const memoryPath = join(markdownDirFor(dataDir), "MEMORY.md");
+    writeFileSync(memoryPath, "# MEMORY\n\n- hand written line\n");
+
+    // No new L0 event: the divergence itself must trigger the rebuild.
+    const corrected = await exportMarkdown({
+      run: bankRun(rows),
+      env: {
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+    });
+    expect(corrected.memoryMd).toBe(true);
+    const memory = readFileSync(memoryPath, "utf8");
+    expect(memory).toContain("projection-owned content");
+    expect(memory).not.toContain("hand written line");
   });
 
   it("validation reports missing exports, then passes after export", async () => {
@@ -426,6 +704,7 @@ describe("markdown export", () => {
   });
 
   it("redacts credentials in MEMORY.md without changing L0 events", async () => {
+    createDefaultBank();
     const content = "token=memory-export-secret";
     writeRawEvent(
       SESSION_ID,
@@ -435,6 +714,7 @@ describe("markdown export", () => {
         {
           content,
           kind: "global_preference",
+          memoryId: "memory-secret",
         },
         "2024-03-15T08:00:00.000Z",
       ),
@@ -442,6 +722,12 @@ describe("markdown export", () => {
 
     await exportMarkdown({
       memoryOnly: true,
+      run: bankRun([
+        {
+          content,
+          id: "memory-secret",
+        },
+      ]),
       env: {
         XPI_MEMO_DATA_DIR: dataDir,
         XPI_MEMO_PRIVACY: "true",
@@ -454,22 +740,40 @@ describe("markdown export", () => {
   });
 
   it("marks duplicate memory content with supersededBy instead of dropping it", async () => {
+    createDefaultBank();
     const writer = createEventLogWriter({
       sessionDir: sessionDirFor(dataDir, SESSION_ID),
     });
     writer.append("t1_memory_write", {
       content: "Deploy at 9am",
       kind: "project_decision",
+      memoryId: "deploy-1",
     });
     writer.append("t1_memory_write", {
       content: "Deploy at 10am",
       kind: "project_decision",
+      memoryId: "deploy-2",
     });
     writer.append("t1_memory_write", {
       content: "Deploy at  9am",
       kind: "project_decision",
+      memoryId: "deploy-3",
     });
     await exportMarkdown({
+      run: bankRun([
+        {
+          content: "Deploy at 9am",
+          id: "deploy-1",
+        },
+        {
+          content: "Deploy at 10am",
+          id: "deploy-2",
+        },
+        {
+          content: "Deploy at  9am",
+          id: "deploy-3",
+        },
+      ]),
       env: {
         XPI_MEMO_DATA_DIR: dataDir,
       },
@@ -481,6 +785,7 @@ describe("markdown export", () => {
     expect((memory.match(/Deploy at/g) ?? []).length).toBe(3);
   });
   it("removes deleted historical memory from a full MEMORY.md export", async () => {
+    createDefaultBank();
     writeEvents([
       {
         type: "t1_memory_write",
@@ -507,6 +812,13 @@ describe("markdown export", () => {
     ]);
     const result = await exportMarkdown({
       memoryOnly: true,
+      // Bank state is authoritative: the deleted row is simply absent.
+      run: bankRun([
+        {
+          content: "historical memory to keep",
+          id: "memory-kept",
+        },
+      ]),
       env: {
         XPI_MEMO_DATA_DIR: dataDir,
       },
@@ -555,6 +867,7 @@ describe("markdown export", () => {
 });
 
 it("keeps MEMORY.md projections from all sessions when daily export is filtered to one session", async () => {
+  createDefaultBank();
   const idA = "2024-03-15T10-00-00-00000000-aaaa";
   const idB = "2024-03-15T11-00-00-00000000-bbbb";
   writeRawEvent(
@@ -584,6 +897,16 @@ it("keeps MEMORY.md projections from all sessions when daily export is filtered 
     ),
   );
   const result = await exportMarkdown({
+    run: bankRun([
+      {
+        content: "memory from session A",
+        id: "memory-a",
+      },
+      {
+        content: "memory from session B",
+        id: "memory-b",
+      },
+    ]),
     sessionId: idA,
     env: {
       XPI_MEMO_DATA_DIR: dataDir,
