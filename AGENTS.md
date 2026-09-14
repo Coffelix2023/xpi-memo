@@ -60,19 +60,10 @@ pnpm test             # vitest run
 - **冒烟**:`pi -e git:github.com/Coffelix2023/xpi-memo`(临时装,不落 settings)。
 
 ## 6. Git 与回滚纪律
+
 - 只要任务碰到 git / GitHub / 远端仓库 / release，先读 `docs/GIT-WORKFLOW.md`，再读 `docs/GITHUB-GUARD.md`。
-- 先做 `git branch --show-current`、`git status --short`、`git diff --stat`; 仅存在 `origin` 时再 `git fetch origin`,然后决定建分支、提交、推送或暂停。
-- 默认不直推 `main/master`; 如果项目文档允许例外, 以项目文档为准。
-- 暂存用 `git add <specific-file>`; 提交用小粒度 Conventional Commits; 不用 `git add .` / `git add -A`.
-- 推送分支后再开 PR; Agent 不代做 merge, 不代做 `git push --force`、`reset --hard`、`restore .`、`checkout .`、`clean -fd`、`--no-verify`.
-- 如果用户问合并 / release / 发布, 说明 GitHub UI 里的下一步并停在需要人类确认的位置。
-- 远端不存在、分叉、冲突、ignore 对不上时先说风险, 不猜测.
+- 默认不设分支, 以git安全流程提交检查点.
 
 ## 7. 计划与任务执行规范
-- 每当完成一项子任务(`task.md`中以`##`符号开头的任务,不是`1.1`这类次级子任务), 必须以通俗易懂的方式表述该任务的`目的/作用/特点/边界`,并作为 report保存到`docs/task-report/dev-<编号>/repo-task<编号>.md`.
 
-## 8. 禁止清单
-- ❌ 引入 tsup/esbuild 等构建步骤或提交 `dist/`.
-- ❌ 引入 ink/`@inquirer/prompts` 等接管终端的库.
-- ❌ 使用 `any` / 关闭 strict / 绕过 Biome.
-- ❌ 在日志或错误信息中打印 Token、完整用户数据.
+- 每当完成一项子任务(`task.md`中以`##`符号开头的任务,不是`1.1`这类次级子任务), 必须以通俗易懂的方式表述该任务的`目的/作用/特点/边界`,并作为 report保存到`docs/task-report/dev-<编号>/repo-task<编号>.md`.

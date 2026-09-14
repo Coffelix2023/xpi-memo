@@ -11,12 +11,11 @@ dist/
 __pycache__/
 .venv/
 coverage/
-.pi/
 plans/
 **/notes
-**/openspec/
 **/feedback/
-mise.toml
-**/*reports*
-**/archived
-**/*report*
+
+# c6x-config
+# .pi/
+# **/openspec/
+.pi-lens.json

@@ -2,7 +2,3 @@
 node = "24.20.0"
 pnpm = "12.3.4"
 python = "3.12.10"
-
-[env]
-# ╭───────> 在pi中禁用的供应商
-AI_GATEWAY_API_KEY = false
