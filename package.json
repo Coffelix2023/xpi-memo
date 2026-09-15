@@ -54,7 +54,7 @@
   },
   "scripts": {
     "lint": "biome check .",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --dir src --passWithNoTests",
     "typecheck": "tsc --noEmit"
   }
 }
