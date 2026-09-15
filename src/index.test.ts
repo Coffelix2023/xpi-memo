@@ -494,6 +494,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       "xpi-memo-init",
     ]);
     expect(tools.map(({ name }) => name)).toEqual([
+      "xpi_memo_feedback",
       "xpi_memo_remember",
       "xpi_memo_recall",
       "xpi_memo_show_injected",

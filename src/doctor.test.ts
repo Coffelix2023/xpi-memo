@@ -347,6 +347,57 @@ describe("buildMemoryDoctorReport", () => {
     expect(report.state).toBe("NEVER_CALLED");
   });
 
+  it("exposes bounded feedback counters with defaults and no bodies (task 4.4)", () => {
+    const withFeedback = buildMemoryDoctorReport(
+      {
+        auditActions: [],
+        auditStatuses: [],
+        l0T1WriteEvents: 0,
+        pendingCandidates: 0,
+        bankRows: {
+          default: 1,
+        },
+        feedback: {
+          conflicts: 2,
+          explicit: 3,
+          helpful: 4,
+          irrelevant: 5,
+          passive: 6,
+          supersessions: 7,
+          wrong: 8,
+        },
+      },
+      [],
+    );
+    expect(withFeedback.evidence.feedback).toEqual({
+      conflicts: 2,
+      explicit: 3,
+      helpful: 4,
+      irrelevant: 5,
+      passive: 6,
+      supersessions: 7,
+      wrong: 8,
+    });
+
+    const withoutFeedback = buildMemoryDoctorReport(
+      {
+        auditActions: [],
+        auditStatuses: [],
+        feedback: undefined,
+        l0T1WriteEvents: 0,
+        pendingCandidates: 0,
+        bankRows: {
+          default: 1,
+        },
+      },
+      [],
+    );
+    expect(withoutFeedback.evidence.feedback).toMatchObject({
+      passive: 0,
+    });
+    expect(JSON.stringify(withFeedback)).not.toContain("content");
+  });
+
   it("contains no memory body text — counts and names only", () => {
     const report = buildMemoryDoctorReport(
       {

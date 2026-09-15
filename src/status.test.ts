@@ -243,6 +243,26 @@ describe("XpiMemo status", () => {
     expect(rendered).not.toContain("memory body");
   });
 
+  it("renders bounded feedback counters without memory bodies (task 4.4)", () => {
+    const rendered = JSON.stringify(
+      renderStatus({
+        ...status,
+        feedback: {
+          conflicts: 1,
+          explicit: 2,
+          helpful: 3,
+          irrelevant: 4,
+          passive: 5,
+          supersessions: 6,
+          wrong: 7,
+        },
+      }),
+    );
+    expect(rendered).toContain('"supersessions":6');
+    expect(rendered).toContain('"passive":5');
+    expect(rendered).not.toContain("Reply in Chinese");
+  });
+
   it("keeps consistency diagnostics bounded and body-free", () => {
     const rendered = JSON.stringify(
       renderStatus({

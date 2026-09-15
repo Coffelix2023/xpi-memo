@@ -406,3 +406,50 @@ describe("L0 config flag", () => {
     expect(config.config.l0Enabled).toBe(false);
   });
 });
+
+describe("runtime surface flags", () => {
+  it("defaults lifecycle surfaces to enabled", () => {
+    const config = loadConfig({
+      configHome: createTemporaryDirectory(),
+      env: {},
+    });
+    expect(config.config.eventPresentation).toBe(true);
+    expect(config.config.passiveFeedback).toBe(true);
+    expect(config.config.profileInjection).toBe(true);
+  });
+
+  it("reads surface flags from the environment", () => {
+    const config = loadConfig({
+      configHome: createTemporaryDirectory(),
+      env: {
+        XPI_MEMO_EVENT_PRESENTATION: "false",
+        XPI_MEMO_PASSIVE_FEEDBACK: "false",
+        XPI_MEMO_PROFILE_INJECTION: "false",
+      } as NodeJS.ProcessEnv,
+    });
+    expect(config.config.eventPresentation).toBe(false);
+    expect(config.config.passiveFeedback).toBe(false);
+    expect(config.config.profileInjection).toBe(false);
+  });
+
+  it("lets user config disable a surface and ignores an invalid value", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        passiveFeedback: "no",
+        profileInjection: false,
+      }),
+    );
+
+    const config = loadConfig({
+      configHome,
+      env: {},
+    }).config;
+    expect(config.profileInjection).toBe(false);
+    expect(config.passiveFeedback).toBe(true);
+  });
+});

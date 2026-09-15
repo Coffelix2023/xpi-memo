@@ -237,8 +237,10 @@ describe("activation-loop non-TUI acceptance (tasks 4.1-4.2)", () => {
 
     const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8")).entries;
     expect(audit.map((entry: { action: string }) => entry.action)).toEqual([
+      // Passive "used" feedback is recorded per recalled memory (task 4.2).
       "write",
       "recall",
+      "feedback",
       "recall",
     ]);
 

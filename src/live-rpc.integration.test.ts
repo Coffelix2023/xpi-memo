@@ -82,6 +82,7 @@ describe.skipIf(!enabled)("task 7.7 live RPC probe", () => {
         MNEMOSYNE_NO_EMBEDDINGS: "1",
         XDG_CONFIG_HOME: dataDir,
         XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_SLEEP_MODE: "dedicated",
         XPI_MEMO_SLEEP_MODEL: "live-dedicated-sleep-model",
       },
     });
@@ -100,15 +101,19 @@ describe.skipIf(!enabled)("task 7.7 live RPC probe", () => {
     ).toBe(true);
     expect(commands.filter(({ name }) => name === "xpi-memo-status")).toHaveLength(1);
 
-    const contextFor = (cwd: string): ExtensionContext =>
+    // Tool calls use a TUI context: outside TUI every remember is queued as a
+    // candidate by design, so a stored row needs the interactive path.
+    const contextFor = (cwd: string, mode: "rpc" | "tui" = "tui"): ExtensionContext =>
       ({
         cwd,
+        mode,
         ui: {
           confirm: async () => true,
           notify: (message: string) => {
             notifications.push(message);
           },
           setStatus: () => undefined,
+          setWidget: () => undefined,
         },
       }) as unknown as ExtensionContext;
 
@@ -137,9 +142,8 @@ describe.skipIf(!enabled)("task 7.7 live RPC probe", () => {
       cwd: string,
     ) => tool(name).execute(id, params, undefined, undefined, contextFor(cwd));
 
-    const aCtx = contextFor(projectA);
     const statusCommand = commands.find(({ name }) => name === "xpi-memo-status");
-    await statusCommand?.handler("", aCtx);
+    await statusCommand?.handler("", contextFor(projectA, "rpc"));
     const status = JSON.parse(
       notifications.find((message) => message.includes('"tiers"')) ?? "{}",
     ) as {

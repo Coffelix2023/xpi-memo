@@ -33,6 +33,7 @@ describe("bounded T1 audit metadata", () => {
       "rejection",
       "recall",
       "fallback",
+      "feedback",
       "sleep-authorization",
       "cross-layer-promotion",
       "extraction",

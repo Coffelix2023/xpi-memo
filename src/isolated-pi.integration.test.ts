@@ -44,9 +44,42 @@ function isNotifyEvent(event: unknown): event is NotifyEvent {
   );
 }
 
+function notifyMessages(events: unknown[]): string[] {
+  return events.filter(isNotifyEvent).map((event) => event.message);
+}
+
+/** Ready when the extension registry, command list and status payload arrived. */
+function registrationReady(events: unknown[]): boolean {
+  const hasTools = events.some(
+    (event) => isNotifyEvent(event) && event.message.includes('"kind":"tool-registry"'),
+  );
+  const hasCommands = events.some(
+    (event) =>
+      typeof event === "object" &&
+      event !== null &&
+      "type" in event &&
+      event.type === "response" &&
+      "command" in event &&
+      event.command === "get_commands",
+  );
+  const hasStatus = events.some(
+    (event) => isNotifyEvent(event) && event.message.includes('"tiers"'),
+  );
+  return hasTools && hasCommands && hasStatus;
+}
+
+interface IsolatedPiOptions {
+  /** Stop collecting once this turns true for the accumulated events. */
+  done?: (events: unknown[]) => boolean;
+  env?: NodeJS.ProcessEnv;
+  /** RPC request lines written to stdin after startup. */
+  requests?: string[];
+}
+
 async function runIsolatedPi(
   extensionPath: string,
   probePath: string,
+  options: IsolatedPiOptions = {},
 ): Promise<unknown[]> {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(
@@ -67,7 +100,7 @@ async function runIsolatedPi(
       ],
       {
         cwd: packageRoot,
-        env: process.env,
+        env: options.env ?? process.env,
         stdio: [
           "pipe",
           "pipe",
@@ -90,28 +123,12 @@ async function runIsolatedPi(
 
     const timer = setTimeout(() => {
       finish(new Error(`isolated Pi timed out; stderr: ${stderr}`));
-    }, 15_000);
+    }, 30_000);
 
+    const isDone = options.done ?? registrationReady;
     child.stdout.on("data", (chunk: Buffer) => {
       stdout.push(...chunk.toString().split("\n").filter(Boolean));
-      const events = parseJsonLines(stdout);
-      const hasTools = events.some(
-        (event) =>
-          isNotifyEvent(event) && event.message.includes('"kind":"tool-registry"'),
-      );
-      const hasCommands = events.some(
-        (event) =>
-          typeof event === "object" &&
-          event !== null &&
-          "type" in event &&
-          event.type === "response" &&
-          "command" in event &&
-          event.command === "get_commands",
-      );
-      const hasStatus = events.some(
-        (event) => isNotifyEvent(event) && event.message.includes('"tiers"'),
-      );
-      if (hasTools && hasCommands && hasStatus) finish();
+      if (isDone(parseJsonLines(stdout))) finish();
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
@@ -122,19 +139,18 @@ async function runIsolatedPi(
         finish(new Error(`isolated Pi exited with code ${code}; stderr: ${stderr}`));
     });
 
-    child.stdin.write(
-      `${JSON.stringify({
+    const requests = options.requests ?? [
+      JSON.stringify({
         id: "commands",
         type: "get_commands",
-      })}\n`,
-    );
-    child.stdin.write(
-      `${JSON.stringify({
+      }),
+      JSON.stringify({
         id: "status",
         message: "/xpi-memo-status",
         type: "prompt",
-      })}\n`,
-    );
+      }),
+    ];
+    for (const request of requests) child.stdin.write(`${request}\n`);
   });
 }
 
@@ -237,11 +253,105 @@ describe.skipIf(!enabled)("isolated Pi registration", () => {
       T2: "deferred-ai-memory",
       T3: "deferred-memvid",
     });
-    expect(status.recall).toEqual({
+    // Backend state varies with the local CLI; the schema is what must hold.
+    expect(status.recall).toMatchObject({
       queriedBanks: expect.arrayContaining([
         "default",
       ]),
       scope: "current-project-plus-global",
     });
   });
+});
+
+/**
+ * Real-process smoke for the surfaces a command handler can reach: status,
+ * trace and export. Tool execution (remember/recall/forget/sleep) is covered by
+ * `live-rpc.integration.test.ts` and `real-cli.integration.test.ts`, which drive
+ * the same registered tools against a real mnemosyne sandbox — the extension API
+ * exposes tool metadata only, not a way to invoke another extension's tool.
+ */
+describe.skipIf(!enabled)("isolated Pi lifecycle smoke", () => {
+  it("serves status, trace and export without hiding failure states", async () => {
+    const directory = createTemporaryDirectory();
+    const dataDir = createTemporaryDirectory();
+    const probePath = join(directory, "smoke-probe.ts");
+    writeFileSync(
+      probePath,
+      `export default function (pi) {\n  pi.on("session_start", (_event, ctx) => {\n    ctx.ui.notify(JSON.stringify({ kind: "tool-registry", tools: pi.getAllTools().map(({ name }) => name) }), "info");\n  });\n}\n`,
+    );
+
+    const events = await runIsolatedPi(
+      resolve(packageRoot, "src/index.ts"),
+      probePath,
+      {
+        done: (parsed) => {
+          const seen = notifyMessages(parsed);
+          return (
+            seen.some((message) => message.includes('"tiers"')) &&
+            seen.some((message) => message.includes("Usage: /xpi-memo-trace")) &&
+            seen.some((message) => message.includes("Output:"))
+          );
+        },
+        env: {
+          ...process.env,
+          XDG_CONFIG_HOME: dataDir,
+          XPI_MEMO_DATA_DIR: dataDir,
+        },
+        requests: [
+          JSON.stringify({
+            id: "status",
+            message: "/xpi-memo-status",
+            type: "prompt",
+          }),
+          JSON.stringify({
+            id: "trace",
+            message: "/xpi-memo-trace",
+            type: "prompt",
+          }),
+          JSON.stringify({
+            id: "export",
+            message: "/xpi-memo-export",
+            type: "prompt",
+          }),
+        ],
+      },
+    );
+    const messages = notifyMessages(events);
+
+    const registry = JSON.parse(
+      messages.find((message) => message.includes('"kind":"tool-registry"')) ?? "{}",
+    ) as {
+      tools?: string[];
+    };
+    expect(
+      [
+        "xpi_memo_remember",
+        "xpi_memo_recall",
+        "xpi_memo_forget",
+        "xpi_memo_sleep",
+      ].every(
+        (name) => (registry.tools ?? []).filter((tool) => tool === name).length === 1,
+      ),
+    ).toBe(true);
+
+    // Status schema stays machine-readable and body-free (task 2.2).
+    const status = JSON.parse(
+      messages.find((message) => message.includes('"tiers"')) ?? "{}",
+    ) as {
+      events?: unknown[];
+      feedback?: Record<string, number>;
+      tiers?: Record<string, string>;
+    };
+    expect(status.tiers?.T1).toBe("xpi-memo");
+    expect(Array.isArray(status.events)).toBe(true);
+    expect(typeof status.feedback?.passive).toBe("number");
+
+    // A missing trace target is reported, never silently empty.
+    expect(messages.some((message) => message.includes("Usage: /xpi-memo-trace"))).toBe(
+      true,
+    );
+    // Export names its session count and output path.
+    expect(messages.some((message) => message.includes("Exported "))).toBe(true);
+    expect(messages.some((message) => message.includes("Output:"))).toBe(true);
+  }, 60_000);
 });
