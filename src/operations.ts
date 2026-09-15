@@ -33,6 +33,8 @@ export interface T1MemoryOperation {
   /** Canonical semantic scope (task 1.2): global / project / session. */
   scope: MemoryScope;
   source: T1SourceMetadata;
+  /** Existing T1 memory replaced by this governed correction. */
+  supersedes?: string;
   targetBank: string;
 }
 
@@ -83,6 +85,7 @@ export function encodeSourceMetadata(operation: T1MemoryOperation): string {
   // isolate current-session context from unrelated sessions (task 2.3).
   if (operation.source.sessionId) fields.push(field("sid", operation.source.sessionId));
   if (operation.source.revision) fields.push(field("rev", operation.source.revision));
+  if (operation.supersedes) fields.push(field("sup", operation.supersedes));
   return fields.join(";");
 }
 

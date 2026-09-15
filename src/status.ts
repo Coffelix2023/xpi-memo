@@ -5,8 +5,11 @@ import type { AuditEntry } from "./audit.js";
 import type { ExactIdReadCapability } from "./banks.ts";
 import type { L0Status } from "./cli/l0.js";
 import type { MemoryDoctorReport } from "./doctor.js";
+import type { MemoryEvent } from "./event-stream.js";
+import type { FeedbackSummary } from "./feedback.js";
 import { describeMemoryKindOrNull } from "./kinds.js";
 import type { ObservabilitySnapshot } from "./observability.js";
+
 export interface MemoryStatus {
   /** Body-free cross-layer consistency diagnostics. */
   consistency?: {
@@ -36,11 +39,18 @@ export interface MemoryStatus {
   diskBytes: number | null;
   /** Empty-memory diagnosis + evidence bundle (task 4.2/4.3). */
   doctor?: MemoryDoctorReport;
+  /** Body-free recent memory lifecycle events (task 2.2), oldest first.
+   * Stored / candidate-created / rejected / recalled / injected / degraded
+   * states are directly distinguishable; the backend field distinguishes
+   * backend-not-run from queried-no-hits. */
+  events?: MemoryEvent[];
   /** Exact-ID read capability verdict that forget is gated on (change
    * memory-forget-exact-id, task 3.3): a verdict plus a reason code / command
    * name, never a memory body. */
   exactIdRead?: ExactIdReadCapability;
   fallback: boolean | null;
+  /** Bounded explicit/passive feedback and relation counters. */
+  feedback?: FeedbackSummary;
   /** Near-duplicate pairs reported by mechanical sleep; never mutates storage. */
   nearDuplicates?: {
     count: number;
@@ -244,6 +254,7 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
       : null,
     diskBytes: status.diskBytes,
     doctor: status.doctor,
+    events: status.events?.slice(-10),
     ...(status.exactIdRead
       ? {
           exactIdRead: {
@@ -263,6 +274,19 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
       : {}),
     fallback: status.fallback,
     observability: status.observability,
+    ...(status.feedback
+      ? {
+          feedback: {
+            conflicts: status.feedback.conflicts,
+            explicit: status.feedback.explicit,
+            helpful: status.feedback.helpful,
+            irrelevant: status.feedback.irrelevant,
+            passive: status.feedback.passive,
+            supersessions: status.feedback.supersessions,
+            wrong: status.feedback.wrong,
+          },
+        }
+      : {}),
     ...(status.security
       ? {
           security: {

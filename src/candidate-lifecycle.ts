@@ -34,6 +34,7 @@ interface CandidateAudit {
 }
 
 export interface CandidateLifecycleResult {
+  memoryId?: string;
   reason?: string;
   status: "conflict" | "rejected" | "stored" | "unresolved";
 }
@@ -58,6 +59,7 @@ interface CreateCandidateStoreOptions {
   beforeStore?: (operation: T1MemoryOperation) => void;
   commit?: (operation: T1MemoryOperation) => Promise<{
     reason?: string;
+    memoryId?: string;
     status: "failed" | "stored" | "unresolved";
   }>;
   statePath: string;
@@ -196,6 +198,7 @@ export function createCandidateStore({
     const outcome = commit
       ? await commit(stored.operation)
       : await adapter.store(stored.operation).then(() => ({
+          memoryId: undefined,
           status: "stored" as const,
         }));
     if (outcome.status === "unresolved") {
@@ -203,6 +206,11 @@ export function createCandidateStore({
       // event: the candidate stays pending and the outcome is not a user
       // rejection.
       return {
+        ...(outcome.memoryId
+          ? {
+              memoryId: outcome.memoryId,
+            }
+          : {}),
         ...(outcome.reason
           ? {
               reason: outcome.reason,
@@ -225,6 +233,11 @@ export function createCandidateStore({
     audit(state, "candidate-confirmed", candidateId);
     saveState(statePath, state);
     return {
+      ...(outcome.memoryId
+        ? {
+            memoryId: outcome.memoryId,
+          }
+        : {}),
       status: "stored",
     };
   }

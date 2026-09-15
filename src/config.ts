@@ -14,14 +14,17 @@ export const DEFAULT_XPI_MEMO_CONFIG = {
   autoExport: true,
   confirmStore: false,
   dataDir: join(homedir(), ".pi", "agent", "xpi-memo"),
+  eventPresentation: true,
   excludeToolResults: false,
   globalLimit: 5,
   l0Enabled: true,
   language: "en",
   limit: 5,
   offlineExtractionEnabled: false,
+  passiveFeedback: true,
   paused: false,
   privacy: false,
+  profileInjection: true,
   projectLimit: 5,
   recallPolicy: "high-value-auto",
   retrievalMode: "hybrid",
@@ -48,14 +51,20 @@ export interface XpiMemoConfig {
   autoExport: boolean;
   confirmStore: boolean;
   dataDir: string;
+  /** Runtime surface: footer/status lifecycle event presentation. */
+  eventPresentation: boolean;
   excludeToolResults: boolean;
   globalLimit: number;
   l0Enabled: boolean;
   language: Language;
   limit: number;
   offlineExtractionEnabled: boolean;
+  /** Runtime surface: passive usage feedback writes. */
+  passiveFeedback: boolean;
   paused: boolean;
   privacy: boolean;
+  /** Runtime surface: bounded preference-profile injection. */
+  profileInjection: boolean;
   projectLimit: number;
   recallPolicy: RecallPolicy;
   retrievalMode: RetrievalMode;
@@ -69,14 +78,17 @@ export interface UserConfig {
   autoExport?: unknown;
   confirmStore?: unknown;
   dataDir?: unknown;
+  eventPresentation?: unknown;
   excludeToolResults?: unknown;
   globalLimit?: unknown;
   l0Enabled?: unknown;
   language?: unknown;
   limit?: unknown;
   offlineExtractionEnabled?: unknown;
+  passiveFeedback?: unknown;
   paused?: unknown;
   privacy?: unknown;
+  profileInjection?: unknown;
   projectLimit?: unknown;
   recallPolicy?: unknown;
   retrievalMode?: unknown;
@@ -148,13 +160,16 @@ export interface SaveUserConfigOptions {
     Pick<
       XpiMemoConfig,
       | "confirmStore"
+      | "eventPresentation"
       | "globalLimit"
       | "l0Enabled"
       | "language"
       | "limit"
       | "offlineExtractionEnabled"
       | "paused"
+      | "passiveFeedback"
       | "projectLimit"
+      | "profileInjection"
       | "recallPolicy"
       | "retrievalMode"
       | "searchBackend"
@@ -167,13 +182,16 @@ const WRITABLE_KEYS = new Set([
   "autoExport",
   "confirmStore",
   "excludeToolResults",
+  "eventPresentation",
   "globalLimit",
   "l0Enabled",
   "language",
   "limit",
   "offlineExtractionEnabled",
   "paused",
+  "passiveFeedback",
   "privacy",
+  "profileInjection",
   "projectLimit",
   "recallPolicy",
   "retrievalMode",
@@ -183,14 +201,17 @@ const WRITABLE_KEYS = new Set([
 const ENV_KEYS: Record<string, string> = {
   autoExport: "XPI_MEMO_AUTO_EXPORT",
   confirmStore: "XPI_MEMO_CONFIRM_STORE",
+  eventPresentation: "XPI_MEMO_EVENT_PRESENTATION",
   excludeToolResults: "XPI_MEMO_EXCLUDE_TOOL_RESULTS",
   globalLimit: "XPI_MEMO_GLOBAL_LIMIT",
   l0Enabled: "XPI_MEMO_L0_ENABLED",
   language: "XPI_MEMO_LANGUAGE",
   limit: "XPI_MEMO_LIMIT",
   offlineExtractionEnabled: "XPI_MEMO_OFFLINE_EXTRACTION_ENABLED",
+  passiveFeedback: "XPI_MEMO_PASSIVE_FEEDBACK",
   paused: "XPI_MEMO_PAUSED",
   privacy: "XPI_MEMO_PRIVACY",
+  profileInjection: "XPI_MEMO_PROFILE_INJECTION",
   projectLimit: "XPI_MEMO_PROJECT_LIMIT",
   recallPolicy: "XPI_MEMO_RECALL_POLICY",
   retrievalMode: "XPI_MEMO_RETRIEVAL_MODE",
@@ -361,6 +382,12 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
       (nonEmptyString(user.config.dataDir)
         ? user.config.dataDir.trim()
         : DEFAULT_XPI_MEMO_CONFIG.dataDir),
+    eventPresentation: envBool(
+      "XPI_MEMO_EVENT_PRESENTATION",
+      boolean(user.config.eventPresentation)
+        ? user.config.eventPresentation
+        : DEFAULT_XPI_MEMO_CONFIG.eventPresentation,
+    ),
     excludeToolResults: envBool(
       "XPI_MEMO_EXCLUDE_TOOL_RESULTS",
       boolean(user.config.excludeToolResults)
@@ -395,6 +422,12 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
         ? user.config.offlineExtractionEnabled
         : DEFAULT_XPI_MEMO_CONFIG.offlineExtractionEnabled,
     ),
+    passiveFeedback: envBool(
+      "XPI_MEMO_PASSIVE_FEEDBACK",
+      boolean(user.config.passiveFeedback)
+        ? user.config.passiveFeedback
+        : DEFAULT_XPI_MEMO_CONFIG.passiveFeedback,
+    ),
     paused: (() => {
       if (environmentPaused === "true") return true;
       if (environmentPaused === "false") return false;
@@ -407,6 +440,12 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
       boolean(user.config.privacy)
         ? user.config.privacy
         : DEFAULT_XPI_MEMO_CONFIG.privacy,
+    ),
+    profileInjection: envBool(
+      "XPI_MEMO_PROFILE_INJECTION",
+      boolean(user.config.profileInjection)
+        ? user.config.profileInjection
+        : DEFAULT_XPI_MEMO_CONFIG.profileInjection,
     ),
     projectLimit:
       envPositiveInteger(env, "XPI_MEMO_PROJECT_LIMIT") ??

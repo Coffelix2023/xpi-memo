@@ -3,6 +3,8 @@
  * hit nothing. Any recall with results resets the streak; RECALL_ZERO_STREAK
  * alert fires at RECALL_ZERO_STREAK_THRESHOLD.
  */
+import type { FeedbackSummary } from "./feedback.js";
+
 export const RECALL_ZERO_STREAK_THRESHOLD = 10;
 
 export interface RecallZeroStreak {
@@ -94,6 +96,7 @@ export interface MemoryDoctorInput {
   auditStatuses: Array<string | undefined>;
   /** Row counts per queried bank, null when stats were unavailable. */
   bankRows: Record<string, number | null>;
+  feedback?: FeedbackSummary;
   /** t1_memory_write event count from the L0 session trace. */
   l0T1WriteEvents: number;
   /** Candidates waiting in candidates.json. */
@@ -127,6 +130,7 @@ export interface MemoryDoctorReport {
     l0T1WriteEvents: number;
     pendingCandidates: number;
     roots: MemoryRootSurface[];
+    feedback: FeedbackSummary;
     /** Pre-candidate routing rejection count (task 3.3). */
     security: {
       backendNoHitCount: number;
@@ -237,6 +241,15 @@ export function buildMemoryDoctorReport(
       audit: audit.counts,
       bankRows: input.bankRows,
       degraded,
+      feedback: input.feedback ?? {
+        conflicts: 0,
+        explicit: 0,
+        helpful: 0,
+        irrelevant: 0,
+        passive: 0,
+        supersessions: 0,
+        wrong: 0,
+      },
       l0T1WriteEvents: input.l0T1WriteEvents,
       pendingCandidates: input.pendingCandidates,
       roots: surfaces,

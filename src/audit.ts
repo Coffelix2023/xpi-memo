@@ -17,6 +17,7 @@ export const AUDIT_ACTIONS = [
   "rejection",
   "recall",
   "fallback",
+  "feedback",
   "sleep-authorization",
   "cross-layer-promotion",
   "extraction",
@@ -39,6 +40,9 @@ export interface AuditMetadata {
   confidence?: number;
   evidenceType?: EvidenceType;
   fallback?: boolean;
+  /** Body-free explicit/passive feedback classification. */
+  feedback?: string;
+  feedbackMode?: "explicit" | "passive";
   /** Environment identity state at the failure boundary (task 3.1):
    * git / initialized-local / uninitialized / unknown. */
   identity?: string;
@@ -46,6 +50,7 @@ export interface AuditMetadata {
   injectedCount?: number;
   invalidProposals?: number;
   kind?: string;
+  memoryId?: string;
   /** Actual sleep execution mode (task 3.4): dedicated / session-model / mechanical / none / disabled. */
   mode?: string;
   omittedCount?: number;
@@ -57,6 +62,7 @@ export interface AuditMetadata {
   proposalsTotal?: number;
   reason?: string;
   rejectedCount?: number;
+  replacementMemoryId?: string;
   /** Number of results the backend returned (task 5.6). */
   resultCount?: number;
   safetyReasons?: string[];
@@ -64,7 +70,10 @@ export interface AuditMetadata {
   scope?: "global" | "project" | "session";
   status?: string;
   storedCount?: number;
+  supersedes?: string;
+  targetMemoryId?: string;
   trigger?: string;
+  usage?: "recalled" | "injected";
   validProposals?: number;
 }
 
@@ -100,6 +109,8 @@ const ALLOWED_METADATA_KEYS = new Set([
   "evidenceType",
   "fallback",
   "identity",
+  "feedback",
+  "feedbackMode",
   "injectedCount",
   "blockedCount",
   "invalidProposals",
@@ -109,6 +120,11 @@ const ALLOWED_METADATA_KEYS = new Set([
   "proposalsTotal",
   "reason",
   "rejectedCount",
+  "memoryId",
+  "replacementMemoryId",
+  "supersedes",
+  "targetMemoryId",
+  "usage",
   "omittedCount",
   "policyVersion",
   "safetyReasons",
@@ -120,6 +136,8 @@ const ALLOWED_METADATA_KEYS = new Set([
   "validProposals",
   "trigger",
 ]);
+
+import { defaultMemoryEventBus, toMemoryEvent } from "./event-stream.js";
 
 function emptyState(): AuditState {
   return {
@@ -184,14 +202,19 @@ export function createAuditLog({
     Number.isInteger(maxEntries) && maxEntries > 0 ? maxEntries : DEFAULT_MAX_ENTRIES;
 
   function record(action: AuditAction, metadata: AuditMetadata = {}): void {
-    state.entries.push({
+    const entry: AuditEntry = {
       action,
       metadata: safeMetadata(metadata),
       timestamp: new Date().toISOString(),
-    });
+    };
+    state.entries.push(entry);
     if (state.entries.length > limit)
       state.entries.splice(0, state.entries.length - limit);
     saveState(statePath, state);
+    // Body-free event projection (tasks 1.2/1.3): audit stays the durable
+    // provenance record; the bus is presentation-only and fail-open.
+    const event = toMemoryEvent(entry);
+    if (event) defaultMemoryEventBus().emit(event);
   }
 
   function list(): AuditEntry[] {

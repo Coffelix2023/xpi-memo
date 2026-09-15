@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -29,12 +30,23 @@ import {
   detectMemoryRootSurfaces,
   type MemoryDoctorReport,
 } from "./doctor.ts";
+import {
+  defaultMemoryEventBus,
+  type MemoryEvent,
+  toMemoryEvent,
+} from "./event-stream.ts";
 import { createEvidenceRecord } from "./evidence.ts";
 import {
   createExtractionBudgetLedger,
   type ExtractionBudgetLimits,
 } from "./extraction-budget.ts";
-import { clearFooterStatus, setFooterStatus } from "./footer.ts";
+import {
+  applyFeedbackToRecall,
+  canRecordPassiveFeedback,
+  isExplicitFeedback,
+  summarizeFeedback,
+} from "./feedback.ts";
+import { clearFooterStatus, setFooterEventStatus, setFooterStatus } from "./footer.ts";
 import { resolveProjectIdentity } from "./identity.ts";
 import { isMemoryKind, MEMORY_KINDS, type MemoryKind } from "./kinds.ts";
 import { createEventLogReader } from "./l0/event-log-reader.js";
@@ -90,6 +102,7 @@ import {
   type PendingCandidate,
   type PendingCandidateReason,
 } from "./pending-candidate.ts";
+import { projectProfile, renderProfileInjection } from "./profile.ts";
 import type { RecallItem, RecallResponse } from "./recall.ts";
 import { decideRecall, type RecallPolicy } from "./recall-policy.ts";
 import { rankRecallResults } from "./recall-ranking.ts";
@@ -127,6 +140,7 @@ type ToolStatus =
   | "candidate"
   | "deleted"
   | "error"
+  | "feedback"
   | "executed"
   | "recalled"
   | "rejected"
@@ -134,6 +148,22 @@ type ToolStatus =
   | "routing_rejected"
   | "skipped"
   | "stored";
+interface FeedbackParams {
+  feedback: "helpful" | "wrong" | "irrelevant";
+  memoryId: string;
+}
+
+const feedbackParameters = Type.Object({
+  feedback: Type.Union([
+    Type.Literal("helpful"),
+    Type.Literal("wrong"),
+    Type.Literal("irrelevant"),
+  ]),
+  memoryId: Type.String({
+    description: "T1 memory identifier",
+  }),
+});
+
 interface ToolDetails {
   /** Backend execution state for recall (task 3.3):
    * backend-not-run vs backend-queried-no-hits vs backend-queried-with-hits. */
@@ -168,6 +198,16 @@ interface ToolDetails {
   };
   scope?: "global" | "project" | "session";
   status: ToolStatus;
+  /** Agent-visible, provenance-safe memory state summary (task 2.3).
+   * Counts, scopes and state labels only; pending candidates and
+   * model-derived content are labeled as such — never presented as
+   * confirmed facts. */
+  statusSummary?: {
+    candidatePending: number;
+    injectedLast: number;
+    recalledLast: number;
+    scope: string;
+  };
 }
 export interface XpiMemoDependencies {
   env?: NodeJS.ProcessEnv;
@@ -241,6 +281,38 @@ function toolResult(details: ToolDetails, text: string) {
     ],
     details,
   };
+}
+async function executeFeedback(
+  params: FeedbackParams,
+  ctx: ExtensionContext,
+  dependencies: XpiMemoDependencies,
+  l0?: L0Coordinator,
+  passive = false,
+): Promise<ReturnType<typeof toolResult>> {
+  const runtime = createRuntime(ctx.cwd, dependencies, l0);
+  const feedback = params.feedback;
+  if (!isExplicitFeedback(feedback))
+    return toolResult(
+      {
+        id: params.memoryId,
+        reason: "unsupported-feedback",
+        status: "error",
+      },
+      "Memory feedback was not accepted.",
+    );
+  runtime.audit.record("feedback", {
+    feedback,
+    feedbackMode: passive ? "passive" : "explicit",
+    targetMemoryId: params.memoryId.trim(),
+    usage: passive ? "recalled" : undefined,
+  });
+  return toolResult(
+    {
+      id: params.memoryId,
+      status: "feedback",
+    },
+    `Memory feedback recorded: ${feedback}.`,
+  );
 }
 
 /**
@@ -714,6 +786,11 @@ function operationFor(
     provenance: evidence.provenance,
     scope: route.scope,
     targetBank: route.bank,
+    ...(params.supersedes?.trim()
+      ? {
+          supersedes: params.supersedes.trim(),
+        }
+      : {}),
     source: {
       evidenceType: evidence.type,
       // Session-scoped rows carry the L0 session discriminator so recall can
@@ -744,6 +821,11 @@ const rememberParameters = Type.Object({
       description: "Evidence source",
     }),
   ),
+  supersedes: Type.Optional(
+    Type.String({
+      description: "Existing memory ID replaced by this correction",
+    }),
+  ),
 });
 type RememberParams = Static<typeof rememberParameters>;
 
@@ -759,6 +841,9 @@ async function executeRemember(
   try {
     runtime = createRuntime(ctx.cwd, dependencies, l0Override, idempotencyOverride);
     const operation = operationFor(params, runtime, provenance);
+    // Task 1.3: one bounded correlation id per remember operation, shared by
+    // audit events so each started operation reaches a diagnosable terminal.
+    const operationId = randomUUID();
     const evidenceType = operation.source.evidenceType;
     const evidence = {
       confidence: operation.confidence,
@@ -773,6 +858,7 @@ async function executeRemember(
     if (classification) {
       const reason = `prohibited-content:${classification}`;
       runtime.audit.record("rejection", {
+        operationId,
         evidenceType,
         kind: operation.kind,
         reason,
@@ -801,6 +887,7 @@ async function executeRemember(
     if (operation.kind === "session_context" && operation.content.length > 500) {
       const reason = "session-context-too-long";
       runtime.audit.record("rejection", {
+        operationId,
         evidenceType,
         kind: operation.kind,
         reason,
@@ -842,6 +929,7 @@ async function executeRemember(
     if (!candidate && runtime.config.paused) {
       const reason = "paused";
       runtime.audit.record("rejection", {
+        operationId,
         evidenceType,
         kind: operation.kind,
         reason,
@@ -908,6 +996,7 @@ async function executeRemember(
         scope: candidate.targetScope,
       });
       runtime.audit.record("candidate", {
+        operationId,
         bank: candidate.targetBank,
         evidenceType,
         kind: candidate.kind,
@@ -967,6 +1056,7 @@ async function executeRemember(
           scope: candidate.targetScope,
         });
         runtime.audit.record("rejection", {
+          operationId,
           bank: candidate.targetBank,
           evidenceType,
           kind: candidate.kind,
@@ -1024,17 +1114,41 @@ async function executeRemember(
         });
       }
       runtime.audit.record("confirmation", {
+        operationId,
         bank: candidate.targetBank,
         evidenceType,
+        ...(stored.memoryId
+          ? {
+              memoryId: stored.memoryId,
+            }
+          : {}),
+        ...(params.supersedes
+          ? {
+              supersedes: params.supersedes,
+            }
+          : {}),
         kind: candidate.kind,
         reason: stored.reason,
         scope: candidate.targetScope,
         status: stored.status,
       });
+      if (params.supersedes && stored.memoryId)
+        runtime.audit.record("feedback", {
+          feedback: "correction",
+          feedbackMode: "explicit",
+          replacementMemoryId: stored.memoryId,
+          supersedes: params.supersedes,
+          targetMemoryId: params.supersedes,
+        });
       return toolResult(
         {
           bank: candidate.targetBank,
           candidateId: candidate.id,
+          ...(stored.memoryId
+            ? {
+                id: stored.memoryId,
+              }
+            : {}),
           kind: candidate.kind,
           reason: stored.reason,
           scope: candidate.targetScope,
@@ -1053,6 +1167,7 @@ async function executeRemember(
       !(await ensureProjectBank(runtime.context, runtime.run))
     ) {
       runtime.audit.record("fallback", {
+        operationId,
         bank: operation.targetBank,
         evidenceType,
         identity: runtime.context.identity,
@@ -1114,6 +1229,17 @@ async function executeRemember(
     }
     scheduleAutoExport(runtime.config, dependencies.env);
     runtime.audit.record("write", {
+      operationId,
+      ...(lifecycle.memoryId
+        ? {
+            memoryId: lifecycle.memoryId,
+          }
+        : {}),
+      ...(operation.supersedes
+        ? {
+            supersedes: operation.supersedes,
+          }
+        : {}),
       bank: operation.targetBank,
       confidence: operation.confidence,
       evidenceType,
@@ -1121,6 +1247,14 @@ async function executeRemember(
       scope: operation.scope,
       status: "stored",
     });
+    if (operation.supersedes && lifecycle.memoryId)
+      runtime.audit.record("feedback", {
+        feedback: "correction",
+        feedbackMode: "explicit",
+        replacementMemoryId: lifecycle.memoryId,
+        supersedes: operation.supersedes,
+        targetMemoryId: operation.supersedes,
+      });
     return toolResult(
       {
         bank: operation.targetBank,
@@ -1244,6 +1378,35 @@ function toRecallResponse(outcome: SearchOutcome): RecallResponse {
   };
 }
 
+/**
+ * Agent-visible, provenance-safe memory state summary (task 2.3).
+ * Bounded counts + scope labels derived from the audit trail; never memory
+ * bodies. Pending candidates are reported as pending, never as facts.
+ */
+function statusSummaryFor(
+  runtime: Runtime,
+  recalledLast = 0,
+): ToolDetails["statusSummary"] {
+  const auditEntries = runtime.audit.list();
+  const lastRecall = [
+    ...auditEntries,
+  ]
+    .reverse()
+    .find((entry) => entry.action === "recall");
+  const lastInjected = [
+    ...auditEntries,
+  ]
+    .reverse()
+    .find((entry) => entry.metadata.injectedCount !== undefined);
+  return {
+    candidatePending: runtime.candidates.list().length,
+    injectedLast: lastInjected?.metadata.injectedCount ?? 0,
+    recalledLast:
+      recalledLast > 0 ? recalledLast : (lastRecall?.metadata.resultCount ?? 0),
+    scope: runtime.context.projectBank ? "project+global" : "global",
+  };
+}
+
 async function executeRecall(
   params: RecallParams,
   ctx: ExtensionContext,
@@ -1252,6 +1415,8 @@ async function executeRecall(
 ) {
   try {
     const runtime = createRuntime(ctx.cwd, dependencies);
+    // Task 1.3: recall operation correlation across its audit events.
+    const operationId = randomUUID();
     const limit = params.limit ?? runtime.config.limit;
     // Phase 4: search backend chain (configured → mnemosyne → ripgrep → qmd).
     const outcome = await runtime.search.runSearch({
@@ -1266,6 +1431,7 @@ async function executeRecall(
       // Distinguish backend-not-run from backend-queried-no-hits (task 3.3).
       runtime.audit.record("recall", {
         backend: "none",
+        operationId,
         reason: "no-search-backend",
         resultCount: 0,
         status: "no-backend",
@@ -1285,6 +1451,7 @@ async function executeRecall(
           reason: "no-search-backend",
           resultCount: 0,
           status: "recalled",
+          statusSummary: statusSummaryFor(runtime),
         },
         JSON.stringify({
           ...empty,
@@ -1293,6 +1460,7 @@ async function executeRecall(
       );
     }
     const response = toRecallResponse(outcome);
+    response.results = applyFeedbackToRecall(response.results, runtime.audit.list());
     const safety = filterRecallEntries(response.results);
     let recallStatus = "no-hits";
     if (safety.items.length > 0) recallStatus = "recalled";
@@ -1302,12 +1470,26 @@ async function executeRecall(
       blockedCount: safety.counts.blocked,
       fallback: outcome.backendName !== "mnemosyne",
       omittedCount: safety.counts.omitted,
+      operationId,
       policyVersion: safety.policyVersion,
       reason: params.query,
       resultCount: safety.items.length,
       safetyReasons: safety.reasons,
       status: recallStatus,
     });
+    for (const item of safety.items) {
+      if (
+        runtime.config.passiveFeedback &&
+        item.id &&
+        canRecordPassiveFeedback(runtime.audit.list(), item.id)
+      )
+        runtime.audit.record("feedback", {
+          feedback: "used",
+          feedbackMode: "passive",
+          targetMemoryId: item.id,
+          usage: "recalled",
+        });
+    }
     return toolResult(
       {
         backendState:
@@ -1320,6 +1502,7 @@ async function executeRecall(
           (response.retrieval.fallback ? "fts5-fallback" : undefined),
         resultCount: safety.items.length,
         status: "recalled",
+        statusSummary: statusSummaryFor(runtime, safety.items.length),
         safety: {
           blocked: safety.counts.blocked,
           omitted: safety.counts.omitted,
@@ -1788,6 +1971,7 @@ async function statusForContext(
   // cached per process, so this stays a single extra CLI call at most.
   const exactIdRead = await probeExactIdReadCapability(run, config.dataDir);
   const security = securityForAudit(auditEntries);
+  const feedback = summarizeFeedback(auditEntries);
   const doctor: MemoryDoctorReport = buildMemoryDoctorReport(
     {
       auditActions: auditEntries.map((entry) => entry.action),
@@ -1799,6 +1983,7 @@ async function statusForContext(
       bankRows,
       l0T1WriteEvents,
       pendingCandidates,
+      feedback,
       security,
     },
     detectMemoryRootSurfaces(config.dataDir),
@@ -1817,7 +2002,16 @@ async function statusForContext(
       memoryProjection,
     },
     doctor,
+    feedback,
     exactIdRead,
+    // Task 2.2: body-free event projection of the audit tail, with backend
+    // distinction carried per event.
+    events: config.eventPresentation
+      ? auditEntries
+          .map(toMemoryEvent)
+          .filter((event): event is MemoryEvent => event !== null)
+          .slice(-10)
+      : [],
     fallback: auditEntries.some(
       (entry) => entry.action === "fallback" && entry.metadata.status === "degraded",
     ),
@@ -1939,6 +2133,8 @@ function renderMemoryContext(items: readonly RecallItem[]): string | null {
 
 /** Maximum characters of automatic-injection memory content (task 5.4). */
 const AUTO_INJECT_CHAR_BUDGET = 1500;
+/** Bounded profile injection budget (task 3.3): hard cap on injected chars. */
+const PROFILE_INJECT_CHAR_BUDGET = 700;
 
 /**
  * Dual-query auto-injection (plan-note-03): a fixed English template alone
@@ -2009,6 +2205,8 @@ async function recallForContext(
     statusLine: "",
   };
   const runtime = createRuntime(ctx.cwd, dependencies);
+  // Task 1.3: auto-injection correlation across its audit events.
+  const operationId = randomUUID();
   surface.begin(policy === "active" ? "inject" : "recall");
   try {
     const decision = decideRecall(policy, query, runtime.config.paused);
@@ -2048,6 +2246,7 @@ async function recallForContext(
     }
     const outcome = mergeSearchOutcomes(usable);
     const response = toRecallResponse(outcome);
+    response.results = applyFeedbackToRecall(response.results, runtime.audit.list());
     const ranked = rankRecallResults(response.results, query, {
       charBudget: AUTO_INJECT_CHAR_BUDGET,
       itemBudget: runtime.config.limit,
@@ -2071,6 +2270,7 @@ async function recallForContext(
       if (!single) continue;
       runtime.audit.record("recall", {
         backend: single.backendName ?? "none",
+        operationId,
         reason: queries[index] as string,
         resultCount: safety.items.length,
         status: single.backendName === null ? "no-backend" : "recalled",
@@ -2086,6 +2286,39 @@ async function recallForContext(
           : {}),
       });
     }
+    for (const item of injected) {
+      if (
+        runtime.config.passiveFeedback &&
+        item.id &&
+        canRecordPassiveFeedback(runtime.audit.list(), item.id)
+      )
+        runtime.audit.record("feedback", {
+          feedback: "used",
+          feedbackMode: "passive",
+          targetMemoryId: item.id,
+          usage: "injected",
+        });
+    }
+    // Task 3.3: bounded profile injection alongside the recall block.
+    // Derived from the same governed recall rows; session-local overrides
+    // never overwrite global values because only global-scope kinds project.
+    const profileInjection = runtime.config.profileInjection
+      ? renderProfileInjection(
+          projectProfile(
+            response.results.map((item) => ({
+              content: item.content,
+              id: item.id,
+              kind: item.kind,
+              scope: item.scope,
+              sourceBank: item.bank,
+              supersededBy: item.supersededBy,
+              timestamp: item.timestamp,
+            })),
+            "global",
+          ),
+          PROFILE_INJECT_CHAR_BUDGET,
+        )
+      : null;
     const context = renderMemoryContext(injected);
     const injectedMemoryIds = injected
       .map((item) => item.id)
@@ -2114,7 +2347,14 @@ async function recallForContext(
     const action = policy === "active" ? "inject" : "recall";
     surface.complete(action, injected.length);
     return {
-      context,
+      // Profile block rides with the recall block; either may be absent.
+      context:
+        [
+          context,
+          profileInjection,
+        ]
+          .filter(Boolean)
+          .join("\n\n") || null,
       statusLine: successText(action, injected.length),
     };
   } catch {
@@ -2512,6 +2752,7 @@ export default function xpiMemo(
   const CANDIDATE_REMINDER_MIN_PENDING = 3;
   const CANDIDATE_REMINDER_COOLDOWN_MS = 6 * 60 * 60 * 1000;
   let candidateReminderLastShownAt = 0;
+  let footerEventUnsubscribe: (() => void) | undefined;
   const getSurface = (ctx: ExtensionContext) => {
     let surface = surfaceByContext.get(ctx);
     if (!surface) {
@@ -2629,6 +2870,18 @@ export default function xpiMemo(
       env: dependencies.env,
     }).config;
     if (ctx.mode === "tui") setFooterStatus(ctx, startConfig.paused);
+    // Task 2.1: throttle-render lifecycle events as a one-line footer status.
+    // Fail-open: a render error must never affect memory operations.
+    if (ctx.mode === "tui" && startConfig.eventPresentation) {
+      footerEventUnsubscribe?.();
+      footerEventUnsubscribe = defaultMemoryEventBus().subscribe((event) => {
+        try {
+          setFooterEventStatus(ctx, startConfig.paused, event);
+        } catch {
+          // Presentation only; ignore footer failures.
+        }
+      });
+    }
     // 4.2 low-noise session-start backlog reminder: non-blocking, throttled.
     const store = createCandidateStore({
       adapter: createMnemosyneAdapter(dependencies.run ?? (async () => "")),
@@ -2797,6 +3050,15 @@ export default function xpiMemo(
     }
   });
 
+  pi.registerTool(
+    realTool(
+      "xpi_memo_feedback",
+      "XpiMemo Feedback",
+      "Record explicit helpful, wrong or irrelevant feedback for a governed memory.",
+      feedbackParameters,
+      (params, ctx) => executeFeedback(params, ctx, dependencies, l0ForHooks()),
+    ),
+  );
   pi.registerTool(
     realTool(
       "xpi_memo_remember",
