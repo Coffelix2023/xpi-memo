@@ -6,8 +6,11 @@ import {
   bodyRows,
   type ConsoleComponentOptions,
   type ConsoleViewModel,
+  clampCursor,
   createConsoleComponent,
+  cursorWindowStart,
   fit,
+  groupHeaderIndex,
   humanBytes,
   infoBarLines,
   listMaxVisible,
@@ -20,9 +23,11 @@ import {
   RECENT_TAB,
   recentLines,
   recentWindow,
+  SETTINGS_GROUPS,
   SETTINGS_TAB,
   STATUS_TAB,
   settingsItems,
+  settingsRows,
   statusLines,
   statusWindow,
   tabTitleLines,
@@ -565,43 +570,219 @@ describe("4.5b Status tab", () => {
 
 // 4.6 — Settings tab: SettingsList, save calls, env locks, one-shot sleep
 describe("4.6 Settings tab", () => {
-  it("settingsItems has pause + confirmStore + language + three limits + recallPolicy + retrievalMode + sleep", () => {
+  it("settingsItems covers every config field plus the one-shot sleep", () => {
     const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {});
     const ids = items.map((i) => i.id);
     expect(ids).toEqual([
-      "paused",
-      "confirmStore",
-      "language",
       "recallPolicy",
       "retrievalMode",
       "searchBackend",
       "limit",
       "globalLimit",
       "projectLimit",
+      "confirmStore",
+      "autoExport",
+      "offlineExtractionEnabled",
+      "excludeToolResults",
+      "dataDir",
+      "paused",
+      "l0Enabled",
+      "profileInjection",
+      "language",
+      "eventPresentation",
+      "passiveFeedback",
+      "privacy",
+      "sleepMode",
       "sleep",
     ]);
-    // sleep always has values; env-locked items omit values.
+    // No field is shown twice.
+    expect(new Set(ids).size).toBe(ids.length);
+    // sleep always has values; env-locked and never-written items omit values.
     expect(items.find((i) => i.id === "sleep")?.values).toEqual([
       "off",
       "run",
     ]);
   });
 
-  it("env-locked fields omit values and gain (env locked) label", () => {
+  it("env-locked fields omit values and name the variable that pins them", () => {
     const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {
       XPI_MEMO_CONFIRM_STORE: "true",
       XPI_MEMO_LANGUAGE: "zh",
       XPI_MEMO_RECALL_POLICY: "assist",
     });
     const confirm = items.find((i) => i.id === "confirmStore");
-    expect(confirm?.label).toBe("Confirm before store (env locked)");
+    expect(confirm?.label).toBe("Confirm before store (XPI_MEMO_CONFIRM_STORE)");
     expect(confirm?.values).toBeUndefined();
     const language = items.find((i) => i.id === "language");
-    expect(language?.label).toBe("Language (env locked)");
+    expect(language?.label).toBe("Language (XPI_MEMO_LANGUAGE)");
     expect(language?.values).toBeUndefined();
     const policy = items.find((i) => i.id === "recallPolicy");
-    expect(policy?.label).toBe("Recall policy (env locked)");
+    expect(policy?.label).toBe("Recall policy (XPI_MEMO_RECALL_POLICY)");
     expect(policy?.values).toBeUndefined();
+    // A field no environment variable pins stays writable.
+    expect(items.find((i) => i.id === "limit")?.values).toEqual([
+      "1",
+      "5",
+      "10",
+      "20",
+    ]);
+  });
+
+  it("every field belongs to exactly one group and dataDir is never writable", () => {
+    const grouped = SETTINGS_GROUPS.flatMap((group) => group.fields);
+    expect(new Set(grouped).size).toBe(grouped.length);
+    const ids = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {}).map(
+      (item) => item.id,
+    );
+    // The group table and the field spec table describe the same field set.
+    expect(
+      [
+        ...grouped,
+      ].sort(),
+    ).toEqual(
+      [
+        ...ids,
+      ].sort(),
+    );
+    const dataDir = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {}).find(
+      (item) => item.id === "dataDir",
+    );
+    expect(dataDir?.currentValue).toBe(DEFAULT_XPI_MEMO_CONFIG.dataDir);
+    expect(dataDir?.values).toBeUndefined();
+  });
+
+  it("settingsRows expands the collapsed state into one cursor sequence", () => {
+    const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {});
+    const collapsedElsewhere = new Set([
+      "storage",
+      "pipeline",
+      "display",
+      "privacy",
+    ]);
+    // Default view: first group open, the remaining four collapsed.
+    const firstOnly = settingsRows(items, collapsedElsewhere);
+    expect(firstOnly).toHaveLength(11);
+    expect(firstOnly.filter((row) => row.kind === "group")).toHaveLength(5);
+    expect(firstOnly.filter((row) => row.kind === "field")).toHaveLength(6);
+    // Fully collapsed: headers only.
+    const allCollapsed = settingsRows(
+      items,
+      new Set(SETTINGS_GROUPS.map((group) => group.id)),
+    );
+    expect(allCollapsed).toHaveLength(5);
+    expect(allCollapsed.every((row) => row.kind === "group")).toBe(true);
+    // Fully expanded: 5 headers + all 20 rows.
+    expect(settingsRows(items, new Set())).toHaveLength(25);
+  });
+
+  it("cursorWindowStart keeps the cursor visible inside the sequence", () => {
+    const total = 25;
+    const rows = 15;
+    // Cursor above the window pulls it up.
+    expect(cursorWindowStart(10, 3, total, rows)).toBe(3);
+    // Cursor below the window pushes it down, leaving the cursor at the bottom.
+    expect(cursorWindowStart(0, 20, total, rows)).toBe(6);
+    // Cursor already inside the window leaves it alone.
+    expect(cursorWindowStart(5, 9, total, rows)).toBe(5);
+    // A sequence shorter than the window never scrolls.
+    expect(cursorWindowStart(0, 2, 5, rows)).toBe(0);
+    // Every cursor position stays inside a window that fits the sequence.
+    for (let cursor = 0; cursor < total; cursor += 1) {
+      const start = cursorWindowStart(0, cursor, total, rows);
+      expect(start).toBeGreaterThanOrEqual(0);
+      expect(start + rows).toBeLessThanOrEqual(total);
+      expect(cursor).toBeGreaterThanOrEqual(start);
+      expect(cursor).toBeLessThan(start + rows);
+    }
+  });
+
+  it("collapsing moves the cursor onto a row that still exists", () => {
+    const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {});
+    const collapsedElsewhere = new Set([
+      "storage",
+      "pipeline",
+      "display",
+      "privacy",
+    ]);
+    const firstOpen = settingsRows(items, collapsedElsewhere);
+    // The first group's last field row sits just before its neighbour's header.
+    const last = 6;
+    expect(firstOpen[last]?.kind).toBe("field");
+    expect(firstOpen[last + 1]?.kind).toBe("group");
+    const allCollapsed = settingsRows(
+      items,
+      new Set([
+        ...collapsedElsewhere,
+        "retrieval",
+      ]),
+    );
+    expect(allCollapsed).toHaveLength(5);
+    // The old index no longer exists; clamping keeps the cursor renderable.
+    const moved = clampCursor(last, allCollapsed.length);
+    expect(moved).toBe(4);
+    expect(allCollapsed[moved]).toBeDefined();
+    // Reopening lands on the group header, which is a real row.
+    expect(groupHeaderIndex(firstOpen, "retrieval")).toBe(0);
+    expect(firstOpen[groupHeaderIndex(firstOpen, "retrieval")]?.kind).toBe("group");
+    // An empty sequence never yields a negative or out-of-range cursor.
+    expect(clampCursor(5, 0)).toBe(0);
+  });
+
+  it("renders both arrows with per-group counts and a distinguishable cursor", () => {
+    const accented: string[] = [];
+    const panel = component({
+      terminalRows: 20,
+      theme: {
+        bold: (text: string) => text,
+        fg: (color: string, text: string) => {
+          if (color === "accent") accented.push(text);
+          return text;
+        },
+      },
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    const lines = panel.render(78);
+    const body = lines.slice(2, 17).join("\n");
+    // Default view: the first group is open, the remaining four are folded.
+    expect(body).toContain("▾ Retrieval (6)");
+    expect(body).toContain("▸ Storage (5)");
+    expect(body).toContain("▸ Memory runtime (3)");
+    expect(body).toContain("▸ Display (3)");
+    expect(body).toContain("▸ Privacy & maintenance (3)");
+    // Exactly one row carries the cursor, and it is the first group header.
+    expect(accented).toHaveLength(1);
+    expect(accented[0]).toContain("Retrieval");
+  });
+
+  it("the new Settings path keeps the panel geometry contract", () => {
+    const panel = component({
+      terminalRows: 20,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    const lines = panel.render(78);
+    // 5 chrome rows + 15 body rows, never more than the viewport.
+    expect(lines.length).toBe(20);
+    expect(panel.getBodyRows()).toBe(15);
+    // Every row fits the 78-column basis.
+    for (const line of lines) expect(visibleWidth(line)).toBe(78);
+    // Border characters stay continuous around every body row.
+    expect(lines[0]?.startsWith("╭")).toBe(true);
+    expect(lines[lines.length - 1]?.startsWith("╰")).toBe(true);
+    for (const line of lines.slice(1, -1)) {
+      expect(line.startsWith("│")).toBe(true);
+      expect(line.endsWith("│")).toBe(true);
+    }
+    // The layout contract itself is untouched by the grouping change.
+    expect(bodyRows(6)).toBe(3);
+    expect(panelLayout(6).height).toBe(6);
+    const tall = component({
+      terminalRows: 50,
+    });
+    tall.handleInput("\u001b[C");
+    tall.handleInput("\u001b[C");
+    expect(tall.render(78).length).toBe(50);
   });
 
   it("Tab walks Settings fields and Enter changes + saves values", () => {
@@ -615,21 +796,23 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C"); // → Recent
     panel.handleInput("\u001b[C"); // → Settings
     expect(panel.getTab()).toBe(SETTINGS_TAB);
-    // Row 0 = paused (off → on)
-    panel.handleInput("\r");
-    expect(save).toHaveBeenCalledWith({
-      paused: true,
-    });
-    // Tab walks down one field: confirmStore (off → on)
+    // The cursor starts on a group header, so Tab is what reaches a field.
     panel.handleInput("\t");
     panel.handleInput("\r");
     expect(save).toHaveBeenLastCalledWith({
-      confirmStore: true,
+      recallPolicy: "active",
     });
+    // Tab walks down one field: Recall policy → Retrieval mode.
     panel.handleInput("\t");
     panel.handleInput("\r");
     expect(save).toHaveBeenLastCalledWith({
-      language: "zh",
+      retrievalMode: "fts5",
+    });
+    // Shift+Tab walks back up to the previous field.
+    panel.handleInput("\u001b[Z");
+    panel.handleInput("\r");
+    expect(save).toHaveBeenLastCalledWith({
+      recallPolicy: "assist",
     });
   });
 
@@ -642,14 +825,8 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    // Walk to limit (6 Tab presses from paused: confirmStore, language,
-    // recallPolicy, retrievalMode, searchBackend, limit)
-    panel.handleInput("\t");
-    panel.handleInput("\t");
-    panel.handleInput("\t");
-    panel.handleInput("\t");
-    panel.handleInput("\t");
-    panel.handleInput("\t");
+    // Tab skips the header; Limit is the fourth field of the first group.
+    for (let i = 0; i < 4; i += 1) panel.handleInput("\t");
     panel.handleInput("\r");
     expect(save).toHaveBeenLastCalledWith({
       limit: 10,
@@ -668,11 +845,15 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    panel.handleInput("\t"); // → confirmStore
-    panel.handleInput("\t"); // → language
-    panel.handleInput("\t"); // → recallPolicy (locked)
+    panel.handleInput("\t"); // → Recall policy, pinned by the environment
     panel.handleInput("\r");
     expect(save).not.toHaveBeenCalled();
+    // A field no environment variable pins stays writable.
+    panel.handleInput("\t"); // → Retrieval mode
+    panel.handleInput("\r");
+    expect(save).toHaveBeenLastCalledWith({
+      retrievalMode: "fts5",
+    });
   });
 
   it("sleep is one-shot behind explicit confirmation; reject resets and no sleep", async () => {
@@ -689,8 +870,10 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    // Walk to sleep (last field): 9 Tab presses
-    for (let i = 0; i < 9; i += 1) panel.handleInput("\t");
+    // The row sequence wraps, so one ↑ reaches the last group header.
+    panel.handleInput("\u001b[A");
+    panel.handleInput("\r"); // unfold Privacy & maintenance
+    for (let i = 0; i < 3; i += 1) panel.handleInput("\t"); // → One-shot sleep
     panel.handleInput("\r");
     await Promise.resolve();
     await Promise.resolve();
@@ -716,13 +899,148 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    for (let i = 0; i < 9; i += 1) panel.handleInput("\t");
+    panel.handleInput("\u001b[A");
+    panel.handleInput("\r"); // unfold Privacy & maintenance
+    for (let i = 0; i < 3; i += 1) panel.handleInput("\t"); // → One-shot sleep
     panel.handleInput("\r");
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     expect(sleep).toHaveBeenCalledTimes(1);
     expect(done).toHaveBeenCalledOnce();
+  });
+
+  it("up/down walk the row sequence across headers and wrap at both ends", () => {
+    const panel = component({
+      terminalRows: 20,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    // Row 0 is the first group header; the default view holds 11 rows.
+    expect(panel.getSettingsCursor()).toBe(0);
+    panel.handleInput("\u001b[B");
+    expect(panel.getSettingsCursor()).toBe(1);
+    // Six more steps cross the open group's fields onto the next header.
+    for (let i = 0; i < 6; i += 1) panel.handleInput("\u001b[B");
+    expect(panel.getSettingsCursor()).toBe(7);
+    // Up stays inside the sequence.
+    for (let i = 0; i < 4; i += 1) panel.handleInput("\u001b[A");
+    expect(panel.getSettingsCursor()).toBe(3);
+    // Down wraps from the last row back to the first.
+    for (let i = 0; i < 8; i += 1) panel.handleInput("\u001b[B");
+    expect(panel.getSettingsCursor()).toBe(0);
+  });
+
+  it("the window follows the cursor when the sequence outgrows the body", () => {
+    const accented: string[] = [];
+    const panel = component({
+      // body = 5 rows, but the default view is 11 rows long.
+      terminalRows: 10,
+      theme: {
+        bold: (text: string) => text,
+        fg: (color: string, text: string) => {
+          if (color === "accent") accented.push(text);
+          return text;
+        },
+      },
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    accented.length = 0;
+    panel.render(78);
+    expect(accented).toHaveLength(1);
+    expect(accented[0] ?? "").toContain("Retrieval");
+    // Walking to the last row must drag the window with it.
+    for (let i = 0; i < 10; i += 1) panel.handleInput("\u001b[B");
+    accented.length = 0;
+    panel.render(78);
+    expect(accented).toHaveLength(1);
+    expect(accented[0] ?? "").toContain("Privacy");
+  });
+
+  it("Enter folds and unfolds a group header without saving", () => {
+    const save = vi.fn();
+    const panel = component({
+      actions: actions({
+        save,
+      }),
+      terminalRows: 20,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    // Folding keeps the cursor on the header it just folded.
+    panel.handleInput("\r");
+    expect(save).not.toHaveBeenCalled();
+    expect(panel.getSettingsCursor()).toBe(0);
+    // A fully folded sequence has no field row for Tab to reach.
+    panel.handleInput("\t");
+    expect(panel.getSettingsCursor()).toBe(0);
+    // Unfolding brings the fields back, still with the cursor on the header.
+    panel.handleInput("\r");
+    expect(panel.getSettingsCursor()).toBe(0);
+    panel.handleInput("\t");
+    expect(panel.getSettingsCursor()).toBe(1);
+  });
+
+  it("Enter cycles a writable field, ignores a locked one, and routes sleep to confirm", async () => {
+    const save = vi.fn();
+    const confirm = vi.fn(async () => false);
+    const sleep = vi.fn(async () => undefined);
+    const panel = component({
+      actions: actions({
+        confirm,
+        save,
+        sleep,
+      }),
+      terminalRows: 20,
+      env: {
+        XPI_MEMO_RETRIEVAL_MODE: "hybrid",
+      },
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+
+    // Writable field: Enter cycles to the next value and saves it.
+    panel.handleInput("\t"); // → Recall policy
+    panel.handleInput("\r");
+    expect(save).toHaveBeenLastCalledWith({
+      recallPolicy: "active",
+    });
+
+    // Locked field: its values were omitted, so Enter is a no-op.
+    save.mockClear();
+    panel.handleInput("\t"); // → Retrieval mode, pinned by the environment
+    panel.handleInput("\r");
+    expect(save).not.toHaveBeenCalled();
+
+    // Action row: walk back to the header and wrap up to the last group.
+    for (let i = 0; i < 3; i += 1) panel.handleInput("\u001b[A");
+    expect(panel.getSettingsCursor()).toBe(10);
+    panel.handleInput("\r"); // unfold Privacy & maintenance
+    for (let i = 0; i < 3; i += 1) panel.handleInput("\t"); // → One-shot sleep
+    panel.handleInput("\r");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(confirm).toHaveBeenCalledWith(
+      "Run one-shot sleep",
+      expect.stringContaining("not persisted"),
+    );
+    // Neither the locked field nor the action row went through the save path.
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("Tab and Shift+Tab skip group headers in both directions", () => {
+    const panel = component({
+      terminalRows: 20,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    // Forward from the first header lands on its first field.
+    panel.handleInput("\t");
+    expect(panel.getSettingsCursor()).toBe(1);
+    // Backward wraps around the headers to the previous field row.
+    panel.handleInput("\u001b[Z");
+    expect(panel.getSettingsCursor()).toBe(6);
   });
 });
 
