@@ -1,4 +1,4 @@
-import { getKeybindings, visibleWidth } from "@earendil-works/pi-tui";
+import { getKeybindings, type SettingItem, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import type { XpiMemoConfig } from "./config.js";
 import { DEFAULT_XPI_MEMO_CONFIG } from "./config.js";
@@ -14,11 +14,16 @@ import {
   humanBytes,
   infoBarLines,
   listMaxVisible,
+  MIN_BODY_ROWS,
   moveRow,
   nextTab,
+  OVERLAY_MARGIN_BOTTOM,
   openConsole,
+  PANEL_CHROME_ROWS,
+  PANEL_HEIGHT,
   PENDING_TAB,
   panelLayout,
+  panelText,
   pendingItems,
   RECENT_TAB,
   recentLines,
@@ -28,6 +33,7 @@ import {
   STATUS_TAB,
   settingsItems,
   settingsRows,
+  settingsRowText,
   statusLines,
   statusWindow,
   tabTitleLines,
@@ -36,6 +42,12 @@ import type { PendingCandidate } from "./pending-candidate.js";
 import type { MemoryStatus } from "./status.js";
 
 const keybindings = getKeybindings();
+
+/** Identity theme: every style call returns its text unchanged. */
+const THEME = {
+  bold: (text: string) => text,
+  fg: (_color: string, text: string) => text,
+};
 
 function status(overrides: Partial<MemoryStatus> = {}): MemoryStatus {
   return {
@@ -151,6 +163,7 @@ function viewModel(overrides: Partial<ConsoleComponentOptions> = {}): ConsoleVie
   const o = options(overrides);
   return {
     env: o.env,
+    language: o.config.language,
     pending: o.pending,
     rows: settingsItems(o.config, o.env),
     status: o.status,
@@ -160,36 +173,63 @@ function viewModel(overrides: Partial<ConsoleComponentOptions> = {}): ConsoleVie
 
 // 4.1 — fixed-height bordered panel
 describe("4.1 console panel layout (fixed height)", () => {
-  it("derives body rows from the terminal", () => {
+  it("derives body rows from the panel height budget", () => {
     expect(bodyRows(8)).toBe(3);
-    expect(bodyRows(50)).toBe(45);
+    expect(bodyRows(50)).toBe(PANEL_HEIGHT - PANEL_CHROME_ROWS);
     expect(bodyRows(4)).toBe(3);
   });
 
-  it("keeps the panel inside the viewport on small and large terminals", () => {
+  it("caps the height at the documented budget and tightens on small terminals", () => {
+    // A tall terminal gets the documented 20-row panel, not the whole viewport.
+    expect(panelLayout(50)).toEqual({
+      body: 15,
+      height: 20,
+    });
+    expect(panelLayout(100)).toEqual({
+      body: 15,
+      height: 20,
+    });
+    // A short terminal is squeezed to 70% of its rows.
+    expect(panelLayout(24)).toEqual({
+      body: 11,
+      height: 16,
+    });
+    // The 3-row body floor still wins over the share, and the viewport clamps.
     expect(panelLayout(8)).toEqual({
       body: 3,
       height: 8,
     });
-    expect(panelLayout(50)).toEqual({
-      body: 45,
-      height: 50,
-    });
-    expect(panelLayout(6).body + 5).toBe(6);
+    expect(panelLayout(6).body + PANEL_CHROME_ROWS).toBe(6);
+    // The body floor survives every budget path.
+    expect(bodyRows(6)).toBe(MIN_BODY_ROWS);
+    expect(bodyRows(11)).toBe(MIN_BODY_ROWS);
   });
 
-  it("renders exactly the fixed height and never exceeds terminal rows", () => {
+  it("renders the budget height and never exceeds terminal rows", () => {
     for (const rows of [
       8,
       10,
       50,
     ]) {
+      const tui = {
+        requestRender: () => undefined,
+        terminal: {
+          rows,
+        },
+      };
       expect(
         component({
           terminalRows: rows,
-        }).render(70),
-      ).toHaveLength(rows);
+          tui,
+        }).render(70).length,
+      ).toBeLessThanOrEqual(rows);
     }
+    // A short viewport clamps at the terminal, not the budget.
+    expect(
+      component({
+        terminalRows: 50,
+      }).render(70),
+    ).toHaveLength(PANEL_HEIGHT);
   });
 
   it("shrinks but never grows when the terminal resizes", () => {
@@ -202,7 +242,7 @@ describe("4.1 console panel layout (fixed height)", () => {
       };
     };
     const panel = createConsoleComponent(o);
-    expect(panel.render(70)).toHaveLength(50);
+    expect(panel.render(70)).toHaveLength(PANEL_HEIGHT);
     tui.terminal.rows = 9;
     expect(panel.render(70).length).toBeLessThanOrEqual(9);
   });
@@ -376,6 +416,46 @@ describe("4.3 console Overview info bar", () => {
     }
   });
 
+  it("localizes the info bar and tab titles", () => {
+    const zh = viewModel({
+      config: {
+        ...DEFAULT_XPI_MEMO_CONFIG,
+        language: "zh",
+      } as XpiMemoConfig,
+    });
+    expect(infoBarLines(zh, 90)[0]).toContain("L0 会话轨迹");
+    expect(infoBarLines(zh, 90)[1]).toContain("库: project-demo");
+    expect(infoBarLines(zh, 90)[1]).toContain("待审: 1");
+    expect(tabTitleLines(zh, SETTINGS_TAB, 70)[0]).toContain("设置");
+    expect(infoBarLines(viewModel(), 90)[0]).toContain("L0 session trace");
+  });
+
+  it("the rendered panel speaks the configured language", () => {
+    const zh = component({
+      config: {
+        ...DEFAULT_XPI_MEMO_CONFIG,
+        language: "zh",
+      } as XpiMemoConfig,
+      terminalRows: 20,
+    });
+    zh.handleInput("\u001b[C"); // → Recent
+    zh.handleInput("\u001b[C"); // → Settings
+    const zhLines = zh.render(78).join("\n");
+    expect(zhLines).toContain("设置");
+    expect(zhLines).toContain("召回与检索");
+    expect(zhLines).toContain("召回策略");
+    expect(zhLines).toContain("按价值自动注入");
+    const en = component({
+      terminalRows: 20,
+    });
+    en.handleInput("\u001b[C");
+    en.handleInput("\u001b[C");
+    const enLines = en.render(78).join("\n");
+    expect(enLines).toContain("Settings");
+    expect(enLines).toContain("Retrieval");
+    expect(enLines).toContain("Auto-inject by value");
+  });
+
   it("humanBytes formats KiB-range and below", () => {
     expect(humanBytes(4096)).toBe("4.0 KB");
     expect(humanBytes(0)).toBe("0 B");
@@ -426,7 +506,7 @@ describe("4.4 Pending tab", () => {
     const panel = component({
       pending: [],
     });
-    expect(panel.render(70)).toHaveLength(50);
+    expect(panel.render(70)).toHaveLength(PANEL_HEIGHT);
   });
 });
 
@@ -478,7 +558,7 @@ describe("4.5 Recent tab", () => {
     panel.handleInput("\u001b[C"); // → Recent
     const rendered = panel.render(70).join("\n");
     expect(rendered).toContain("No recent activity");
-    expect(panel.render(70)).toHaveLength(50);
+    expect(panel.render(70)).toHaveLength(PANEL_HEIGHT);
   });
 
   it("scrolling Recent does not grow the panel", () => {
@@ -551,7 +631,7 @@ describe("4.5b Status tab", () => {
     const rendered = panel.render(70).join("\n");
     expect(rendered).toContain('"active": "ripgrep"');
     expect(rendered).toContain('"sessionCount": 2');
-    expect(panel.render(70)).toHaveLength(50);
+    expect(panel.render(70)).toHaveLength(PANEL_HEIGHT);
   });
 
   it("scrolling Status does not grow the panel", () => {
@@ -604,21 +684,58 @@ describe("4.6 Settings tab", () => {
     ]);
   });
 
-  it("env-locked fields omit values and name the variable that pins them", () => {
+  it("env-locked fields omit values and name the variable in the note slot", () => {
     const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {
       XPI_MEMO_CONFIRM_STORE: "true",
       XPI_MEMO_LANGUAGE: "zh",
       XPI_MEMO_RECALL_POLICY: "assist",
     });
+    // The item itself is language-neutral: its `label` is the dictionary key.
     const confirm = items.find((i) => i.id === "confirmStore");
-    expect(confirm?.label).toBe("Confirm before store (XPI_MEMO_CONFIRM_STORE)");
     expect(confirm?.values).toBeUndefined();
+    expect(
+      settingsRowText(
+        {
+          groupId: "storage",
+          item: confirm as SettingItem,
+          kind: "field",
+        },
+        false,
+        78,
+        THEME,
+        "en",
+      ),
+    ).toContain("⊘ XPI_MEMO_CONFIRM_STORE");
     const language = items.find((i) => i.id === "language");
-    expect(language?.label).toBe("Language (XPI_MEMO_LANGUAGE)");
     expect(language?.values).toBeUndefined();
+    expect(
+      settingsRowText(
+        {
+          groupId: "display",
+          item: language as SettingItem,
+          kind: "field",
+        },
+        false,
+        78,
+        THEME,
+        "en",
+      ),
+    ).toContain("⊘ XPI_MEMO_LANGUAGE");
     const policy = items.find((i) => i.id === "recallPolicy");
-    expect(policy?.label).toBe("Recall policy (XPI_MEMO_RECALL_POLICY)");
     expect(policy?.values).toBeUndefined();
+    expect(
+      settingsRowText(
+        {
+          groupId: "retrieval",
+          item: policy as SettingItem,
+          kind: "field",
+        },
+        false,
+        78,
+        THEME,
+        "en",
+      ),
+    ).toContain("⊘ XPI_MEMO_RECALL_POLICY");
     // A field no environment variable pins stays writable.
     expect(items.find((i) => i.id === "limit")?.values).toEqual([
       "1",
@@ -626,6 +743,115 @@ describe("4.6 Settings tab", () => {
       "10",
       "20",
     ]);
+  });
+
+  it("both panel dictionaries cover every key the panel can ask for", () => {
+    // Keys the panel renders: chrome, tabs, groups, fields, notes and info bar.
+    const keys = [
+      "chrome.hint",
+      "info.bank",
+      "info.disk",
+      "info.pause",
+      "info.pending",
+      "info.tier",
+      "info.today",
+      "info.total",
+      "tab.pending",
+      "tab.recent",
+      "tab.settings",
+      "tab.status",
+      ...SETTINGS_GROUPS.map((group) => `group.${group.id}`),
+      ...SETTINGS_GROUPS.flatMap((group) => group.fields).flatMap((id) => [
+        `field.${id}`,
+        `note.${id}`,
+      ]),
+    ];
+    for (const language of [
+      "en",
+      "zh",
+    ] as const) {
+      for (const key of keys) {
+        expect(panelText(key, language).length, `${language} ${key}`).toBeGreaterThan(
+          0,
+        );
+      }
+    }
+    // The two languages really differ, so the switch is observable.
+    expect(panelText("field.limit", "zh")).not.toBe(panelText("field.limit", "en"));
+  });
+
+  it("a missing translation falls back to en and never renders empty", () => {
+    // An unknown key is the worst case: readable fallback, no throw, no blank.
+    expect(panelText("field.doesNotExist", "zh")).toBe("field.doesNotExist");
+    expect(panelText("note.doesNotExist", "zh")).toBe("note.doesNotExist");
+    const item: SettingItem = {
+      currentValue: "5",
+      id: "limit",
+      label: "limit",
+    };
+    const row = settingsRowText(
+      {
+        groupId: "retrieval",
+        item,
+        kind: "field",
+      },
+      false,
+      78,
+      THEME,
+      "zh",
+    );
+    expect(row.length).toBeGreaterThan(0);
+    expect(visibleWidth(row)).toBeLessThanOrEqual(78);
+  });
+
+  it("a field row carries label, value and note as three aligned columns", () => {
+    const item: SettingItem = {
+      currentValue: "hybrid",
+      id: "retrievalMode",
+      label: "retrievalMode",
+    };
+    const row = settingsRowText(
+      {
+        groupId: "retrieval",
+        item,
+        kind: "field",
+      },
+      false,
+      78,
+      THEME,
+      "en",
+    );
+    expect(row).toContain("Retrieval mode");
+    expect(row).toContain("Hybrid adds semantics");
+    expect(row).toContain("hybrid");
+    expect(visibleWidth(row)).toBe(78);
+    // The value column is right-aligned: it ends the row.
+    expect(row.endsWith("hybrid")).toBe(true);
+    // The label column starts the row.
+    expect(row.startsWith("  Retrieval mode")).toBe(true);
+  });
+
+  it("a narrow row drops the note column before the label or the value", () => {
+    const item: SettingItem = {
+      currentValue: "high-value-auto",
+      id: "recallPolicy",
+      label: "recallPolicy",
+    };
+    const row = settingsRowText(
+      {
+        groupId: "retrieval",
+        item,
+        kind: "field",
+      },
+      false,
+      40,
+      THEME,
+      "en",
+    );
+    expect(row).not.toContain("Auto-inject by value");
+    expect(row).toContain("Recall policy");
+    expect(row).toContain("high-value-auto");
+    expect(visibleWidth(row)).toBeLessThanOrEqual(40);
   });
 
   it("every field belongs to exactly one group and dataDir is never writable", () => {
@@ -747,9 +973,7 @@ describe("4.6 Settings tab", () => {
     // Default view: the first group is open, the remaining four are folded.
     expect(body).toContain("▾ Retrieval (6)");
     expect(body).toContain("▸ Storage (5)");
-    expect(body).toContain("▸ Memory runtime (3)");
-    expect(body).toContain("▸ Display (3)");
-    expect(body).toContain("▸ Privacy & maintenance (3)");
+    expect(body).toContain("▸ Pipeline (3)");
     // Exactly one row carries the cursor, and it is the first group header.
     expect(accented).toHaveLength(1);
     expect(accented[0]).toContain("Retrieval");
@@ -762,9 +986,9 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
     const lines = panel.render(78);
-    // 5 chrome rows + 15 body rows, never more than the viewport.
-    expect(lines.length).toBe(20);
-    expect(panel.getBodyRows()).toBe(15);
+    // 5 chrome rows + 15 body rows at the 20-row budget.
+    expect(lines.length).toBe(PANEL_HEIGHT);
+    expect(panel.getBodyRows()).toBe(PANEL_HEIGHT - PANEL_CHROME_ROWS);
     // Every row fits the 78-column basis.
     for (const line of lines) expect(visibleWidth(line)).toBe(78);
     // Border characters stay continuous around every body row.
@@ -782,7 +1006,7 @@ describe("4.6 Settings tab", () => {
     });
     tall.handleInput("\u001b[C");
     tall.handleInput("\u001b[C");
-    expect(tall.render(78).length).toBe(50);
+    expect(tall.render(78).length).toBe(PANEL_HEIGHT);
   });
 
   it("Tab walks Settings fields and Enter changes + saves values", () => {
@@ -1046,7 +1270,7 @@ describe("4.6 Settings tab", () => {
 
 // overlay wiring
 describe("console overlay wiring", () => {
-  it("opens a centered fixed-width overlay without maxHeight", async () => {
+  it("opens a centered fixed-width overlay with the documented bottom margin", async () => {
     const custom = vi.fn(async (_factory: unknown, _options: unknown) => undefined);
     await openConsole(
       {
@@ -1071,10 +1295,14 @@ describe("console overlay wiring", () => {
       },
     ];
     expect(opts.overlay).toBe(true);
-    expect(opts.overlayOptions).toEqual({
-      anchor: "center",
-      width: "70%",
-    });
+    expect(opts.overlayOptions.anchor).toBe("center");
+    expect(opts.overlayOptions.width).toBe("70%");
+    // `TUI-DESIGN.md`: the panel must clear the conversation input area.
+    const margin = opts.overlayOptions.margin as {
+      bottom: number;
+    };
+    expect(margin.bottom).toBeGreaterThanOrEqual(4);
+    expect(margin.bottom).toBe(OVERLAY_MARGIN_BOTTOM);
     expect(opts.overlayOptions.maxHeight).toBeUndefined();
   });
 
@@ -1117,8 +1345,8 @@ describe("console overlay wiring", () => {
       keybindings,
       () => undefined,
     ) as ReturnType<typeof createConsoleComponent>;
-    expect(panel.getHeight()).toBe(12);
-    expect(panel.getBodyRows()).toBe(7);
-    expect(panel.render(60)).toHaveLength(12);
+    expect(panel.getHeight()).toBe(panelLayout(12).height);
+    expect(panel.getBodyRows()).toBe(panelLayout(12).body);
+    expect(panel.render(60)).toHaveLength(panelLayout(12).height);
   });
 });

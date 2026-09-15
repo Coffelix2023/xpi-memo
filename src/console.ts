@@ -38,41 +38,60 @@ export interface ConsoleActions {
 
 /**
  * Panel chrome is 5 rows: border top, tab title row, two info-bar rows, border
- * bottom. The body takes whatever the terminal has left, floored at 3 rows.
+ * bottom. The body is whatever the height budget left, floored at 3 rows.
  */
 export const PANEL_CHROME_ROWS = 5;
 export const MIN_BODY_ROWS = 3;
+/**
+ * Documented height budget (`TUI-DESIGN.md`): a 20-row panel, never more than
+ * 70% of the terminal, so a tall viewport no longer gets a full-height panel.
+ */
+export const PANEL_HEIGHT = 20;
+export const PANEL_MAX_HEIGHT_SHARE = 0.7;
+/** `TUI-DESIGN.md` Do's: the overlay must clear the input area by at least this. */
+export const OVERLAY_MARGIN_BOTTOM = 4;
 
 export function bodyRows(terminalRows: number): number {
-  return Math.max(terminalRows - PANEL_CHROME_ROWS, MIN_BODY_ROWS);
+  return Math.max(panelHeight(terminalRows) - PANEL_CHROME_ROWS, MIN_BODY_ROWS);
+}
+
+/** Panel height before the viewport clamp; always chrome plus the body floor. */
+function panelHeight(terminalRows: number): number {
+  return Math.max(
+    Math.min(PANEL_HEIGHT, Math.floor(terminalRows * PANEL_MAX_HEIGHT_SHARE)),
+    PANEL_CHROME_ROWS + MIN_BODY_ROWS,
+  );
 }
 
 /**
  * Fixed panel geometry, computed once when the panel opens. A viewport of
  * `terminalRows` can never show more than `terminalRows`, so the height is the
- * smaller of chrome + body and the viewport, with the body re-derived from that
- * height so the parts always add up.
+ * smaller of the height budget and the viewport, with the body re-derived from
+ * that height so the parts always add up.
  */
 export function panelLayout(terminalRows: number): {
   body: number;
   height: number;
 } {
-  const height = Math.min(bodyRows(terminalRows) + PANEL_CHROME_ROWS, terminalRows);
+  const height = Math.min(panelHeight(terminalRows), terminalRows);
   return {
     body: Math.max(height - PANEL_CHROME_ROWS, 0),
     height,
   };
 }
-
 /** Tab order is fixed: 0 Pending, 1 Recent, 2 Settings, 3 Status. Overview is the info bar. */
-export const TAB_TITLES = [
-  "Pending",
-  "Recent",
-  "Settings",
-  "Status",
+const TAB_TITLE_KEYS = [
+  "tab.pending",
+  "tab.recent",
+  "tab.settings",
+  "tab.status",
 ] as const;
-export const TAB_COUNT = TAB_TITLES.length;
-export const TAB_HINT = "←/→ tab · ↑/↓ move · Enter select · Tab field · Esc close";
+export const TAB_COUNT = TAB_TITLE_KEYS.length;
+
+/** Active tab name, in the configured language. */
+export function tabTitle(model: ConsoleViewModel, tab: number): string {
+  return panelText(TAB_TITLE_KEYS[tab] ?? "", model.language);
+}
 
 /** Tab titles, so a tab switch may keep the list cursor where it was. */
 export const PENDING_TAB = 0;
@@ -108,6 +127,8 @@ export function fit(rows: string[], count: number): string[] {
 
 export interface ConsoleViewModel {
   env: NodeJS.ProcessEnv;
+  /** Language the whole panel renders in; comes from the effective config. */
+  language: PanelLanguage;
   pending: PendingCandidate[];
   rows: SettingItem[];
   status: MemoryStatus;
@@ -133,32 +154,164 @@ export function humanBytes(bytes: number): string {
 }
 
 /**
+ * Panel copy: chrome, tab titles, group names, field labels and field notes.
+ * Only the panel reads it — injection and hint copy lives in `index.ts`, which
+ * renders prose rather than a 78-column grid, so the two are deliberately
+ * separate dictionaries (design D7).
+ */
+type PanelLanguage = XpiMemoConfig["language"];
+
+const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
+  en: {
+    "chrome.hint": "←/→ tab · ↑/↓ move · Enter select · Tab field · Esc close",
+    "field.autoExport": "Auto export",
+    "field.confirmStore": "Confirm store",
+    "field.dataDir": "Data dir",
+    "field.eventPresentation": "Event presentation",
+    "field.excludeToolResults": "Tool results",
+    "field.globalLimit": "Global limit",
+    "field.l0Enabled": "Session trace",
+    "field.language": "Language",
+    "field.limit": "Recall limit",
+    "field.offlineExtractionEnabled": "Offline extraction",
+    "field.passiveFeedback": "Passive feedback",
+    "field.paused": "Pause memory",
+    "field.privacy": "Privacy mode",
+    "field.profileInjection": "Preference profile",
+    "field.projectLimit": "Project limit",
+    "field.recallPolicy": "Recall policy",
+    "field.retrievalMode": "Retrieval mode",
+    "field.searchBackend": "Search backend",
+    "field.sleep": "Run sleep now",
+    "field.sleepMode": "Sleep mode",
+    "group.display": "Display",
+    "group.pipeline": "Pipeline",
+    "group.privacy": "Privacy",
+    "group.retrieval": "Retrieval",
+    "group.storage": "Storage",
+    "info.bank": "bank",
+    "info.disk": "disk",
+    "info.pause": "pause",
+    "info.pending": "pending",
+    "info.tier": "L0 session trace → T1 xpi-memo → T2 deferred → T3 deferred",
+    "info.today": "today",
+    "info.total": "total",
+    "note.autoExport": "Periodic export backup",
+    "note.confirmStore": "Ask before writing",
+    "note.dataDir": "Read-only, edit config file",
+    "note.eventPresentation": "Show events in footer",
+    "note.excludeToolResults": "Do not log tool output",
+    "note.globalLimit": "Cap across projects",
+    "note.l0Enabled": "Keep this session's trace",
+    "note.language": "Panel and hint language",
+    "note.limit": "Rows injected per turn",
+    "note.offlineExtractionEnabled": "Works without a model",
+    "note.passiveFeedback": "Record usage feedback",
+    "note.paused": "Resume any time",
+    "note.privacy": "Persist no memory at all",
+    "note.profileInjection": "Inject preference profile",
+    "note.projectLimit": "Cap inside this project",
+    "note.recallPolicy": "Auto-inject by value",
+    "note.retrievalMode": "Hybrid adds semantics",
+    "note.searchBackend": "Pick first available",
+    "note.sleep": "Run one consolidation",
+    "note.sleepMode": "When and how to tidy",
+    "tab.pending": "Pending",
+    "tab.recent": "Recent",
+    "tab.settings": "Settings",
+    "tab.status": "Status",
+  },
+  zh: {
+    "chrome.hint": "←/→ 切页 · ↑/↓ 移动 · Enter 选择 · Tab 跳字段 · Esc 关闭",
+    "field.autoExport": "自动导出",
+    "field.confirmStore": "存储前确认",
+    "field.dataDir": "数据目录",
+    "field.eventPresentation": "事件与页脚提示",
+    "field.excludeToolResults": "排除工具输出",
+    "field.globalLimit": "全局召回上限",
+    "field.l0Enabled": "记录会话轨迹",
+    "field.language": "界面语言",
+    "field.limit": "单次召回条数",
+    "field.offlineExtractionEnabled": "离线提取",
+    "field.passiveFeedback": "被动使用反馈",
+    "field.paused": "暂停记忆",
+    "field.privacy": "隐私模式",
+    "field.profileInjection": "注入偏好画像",
+    "field.projectLimit": "项目召回上限",
+    "field.recallPolicy": "召回策略",
+    "field.retrievalMode": "检索方式",
+    "field.searchBackend": "搜索后端",
+    "field.sleep": "立即整理一次",
+    "field.sleepMode": "记忆整理方式",
+    "group.display": "界面与反馈",
+    "group.pipeline": "记忆管道",
+    "group.privacy": "隐私与维护",
+    "group.retrieval": "召回与检索",
+    "group.storage": "存储与提取",
+    "info.bank": "库",
+    "info.disk": "占用",
+    "info.pause": "暂停",
+    "info.pending": "待审",
+    "info.tier": "L0 会话轨迹 → T1 xpi-memo → T2 延后 → T3 延后",
+    "info.today": "今日",
+    "info.total": "总数",
+    "note.autoExport": "定期导出备份",
+    "note.confirmStore": "写入前先问你",
+    "note.dataDir": "只读, 改它要编辑配置",
+    "note.eventPresentation": "页脚展示记忆事件",
+    "note.excludeToolResults": "不记录工具输出",
+    "note.globalLimit": "跨项目的上限",
+    "note.l0Enabled": "保留本轮会话轨迹",
+    "note.language": "面板与提示语言",
+    "note.limit": "每次注入的条数",
+    "note.offlineExtractionEnabled": "无模型也能提取",
+    "note.passiveFeedback": "记录使用反馈",
+    "note.paused": "停用后可随时恢复",
+    "note.privacy": "不写任何持久记忆",
+    "note.profileInjection": "注入偏好画像",
+    "note.projectLimit": "本项目内的上限",
+    "note.recallPolicy": "按价值自动注入",
+    "note.retrievalMode": "hybrid 兼顾语义",
+    "note.searchBackend": "自动选可用后端",
+    "note.sleep": "执行一次记忆整理",
+    "note.sleepMode": "整理时机与方式",
+    "tab.pending": "待审",
+    "tab.recent": "最近",
+    "tab.settings": "设置",
+    "tab.status": "状态",
+  },
+};
+
+/**
+ * One panel string. Falls back selected language → `en` → the key itself, so a
+ * missing entry renders readable text instead of an empty row.
+ */
+export function panelText(key: string, language: PanelLanguage): string {
+  const selected: Record<string, string> | undefined = PANEL_TEXT[language];
+  return selected?.[key] ?? PANEL_TEXT.en[key] ?? key;
+}
+
+/**
  * Persistent two-row Overview info bar: fixed tier ownership, then bank,
  * totals, today, pending, and visible-bank disk usage. It reads the view-model
  * only, so it never runs recall.
  */
 export function infoBarLines(model: ConsoleViewModel, width: number): string[] {
   const { status } = model;
+  const text = (key: string) => panelText(key, model.language);
   const total = (status.counts.global ?? 0) + (status.counts.project ?? 0);
   const inner = Math.max(width - 4, 1);
+  const segments = [
+    `${text("info.bank")}: ${status.currentProject?.bank ?? "global-only"}`,
+    `${text("info.total")}: ${total}`,
+    `${text("info.today")}: ${status.todayStored}`,
+    `${text("info.pending")}: ${status.pendingCandidates}`,
+    `${text("info.disk")}: ${status.diskBytes === null ? "unknown" : humanBytes(status.diskBytes)}`,
+    `${text("info.pause")}: ${status.paused ? "on" : "off"}`,
+  ];
   return [
-    truncateToWidth(
-      "L0 session trace → T1 xpi-memo → T2 deferred → T3 deferred",
-      inner,
-      "…",
-    ),
-    truncateToWidth(
-      [
-        `bank: ${status.currentProject?.bank ?? "global-only"}`,
-        `total: ${total}`,
-        `today: ${status.todayStored}`,
-        `pending: ${status.pendingCandidates}`,
-        `disk: ${status.diskBytes === null ? "unknown" : humanBytes(status.diskBytes)}`,
-        `pause: ${status.paused ? "on" : "off"}`,
-      ].join(" · "),
-      inner,
-      "…",
-    ),
+    truncateToWidth(text("info.tier"), inner, "…"),
+    truncateToWidth(segments.join(" · "), inner, "…"),
   ];
 }
 
@@ -169,10 +322,10 @@ export function tabTitleLines(
   width: number,
 ): string[] {
   const inner = Math.max(width - 4, 1);
-  const label = TAB_TITLES[tab] ?? "";
+  const label = tabTitle(model, tab);
   const left = tab === PENDING_TAB ? `${label} ${model.pending.length}` : label;
   const hint = truncateToWidth(
-    TAB_HINT,
+    panelText("chrome.hint", model.language),
     Math.max(inner - visibleWidth(left) - 2, 1),
     "…",
   );
@@ -209,8 +362,8 @@ export type SettingsFieldId = keyof XpiMemoConfig | "sleep";
 export interface SettingsGroup {
   /** Field ids in this group, in display order. */
   fields: readonly SettingsFieldId[];
+  /** Group id, and the `group.<id>` dictionary key for its name. */
   id: string;
-  label: string;
 }
 
 /**
@@ -221,7 +374,6 @@ export interface SettingsGroup {
 export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
   {
     id: "retrieval",
-    label: "Retrieval",
     fields: [
       "recallPolicy",
       "retrievalMode",
@@ -233,7 +385,6 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
   },
   {
     id: "storage",
-    label: "Storage",
     fields: [
       "confirmStore",
       "autoExport",
@@ -244,7 +395,6 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
   },
   {
     id: "pipeline",
-    label: "Memory runtime",
     fields: [
       "paused",
       "l0Enabled",
@@ -253,7 +403,6 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
   },
   {
     id: "display",
-    label: "Display",
     fields: [
       "language",
       "eventPresentation",
@@ -262,7 +411,6 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
   },
   {
     id: "privacy",
-    label: "Privacy & maintenance",
     fields: [
       "privacy",
       "sleepMode",
@@ -278,7 +426,6 @@ interface SettingsFieldSpec {
    * `config.ts`; this table only surfaces them in the panel.
    */
   environment: string | null;
-  label: string;
   /** Empty for fields the panel never writes, such as the data directory. */
   values: readonly string[];
 }
@@ -291,7 +438,6 @@ interface SettingsFieldSpec {
 const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   autoExport: {
     environment: "XPI_MEMO_AUTO_EXPORT",
-    label: "Auto export",
     values: [
       "off",
       "on",
@@ -299,7 +445,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   confirmStore: {
     environment: "XPI_MEMO_CONFIRM_STORE",
-    label: "Confirm before store",
     values: [
       "off",
       "on",
@@ -307,12 +452,10 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   dataDir: {
     environment: "XPI_MEMO_DATA_DIR",
-    label: "Data directory",
     values: [],
   },
   eventPresentation: {
     environment: "XPI_MEMO_EVENT_PRESENTATION",
-    label: "Event presentation",
     values: [
       "off",
       "on",
@@ -320,7 +463,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   excludeToolResults: {
     environment: "XPI_MEMO_EXCLUDE_TOOL_RESULTS",
-    label: "Exclude tool results",
     values: [
       "off",
       "on",
@@ -328,7 +470,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   globalLimit: {
     environment: "XPI_MEMO_GLOBAL_LIMIT",
-    label: "Global limit",
     values: [
       "1",
       "5",
@@ -338,7 +479,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   l0Enabled: {
     environment: "XPI_MEMO_L0_ENABLED",
-    label: "Session trace",
     values: [
       "off",
       "on",
@@ -346,7 +486,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   language: {
     environment: "XPI_MEMO_LANGUAGE",
-    label: "Language",
     values: [
       "en",
       "zh",
@@ -354,7 +493,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   limit: {
     environment: "XPI_MEMO_LIMIT",
-    label: "Limit",
     values: [
       "1",
       "5",
@@ -364,7 +502,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   offlineExtractionEnabled: {
     environment: "XPI_MEMO_OFFLINE_EXTRACTION_ENABLED",
-    label: "Offline extraction",
     values: [
       "off",
       "on",
@@ -372,7 +509,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   passiveFeedback: {
     environment: "XPI_MEMO_PASSIVE_FEEDBACK",
-    label: "Passive feedback",
     values: [
       "off",
       "on",
@@ -380,7 +516,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   paused: {
     environment: "XPI_MEMO_PAUSED",
-    label: "Pause memory",
     values: [
       "off",
       "on",
@@ -388,7 +523,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   privacy: {
     environment: "XPI_MEMO_PRIVACY",
-    label: "Privacy mode",
     values: [
       "off",
       "on",
@@ -396,7 +530,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   profileInjection: {
     environment: "XPI_MEMO_PROFILE_INJECTION",
-    label: "Preference profile",
     values: [
       "off",
       "on",
@@ -404,7 +537,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   projectLimit: {
     environment: "XPI_MEMO_PROJECT_LIMIT",
-    label: "Project limit",
     values: [
       "1",
       "5",
@@ -414,7 +546,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   recallPolicy: {
     environment: "XPI_MEMO_RECALL_POLICY",
-    label: "Recall policy",
     values: [
       "active",
       "assist",
@@ -423,7 +554,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   retrievalMode: {
     environment: "XPI_MEMO_RETRIEVAL_MODE",
-    label: "Retrieval mode",
     values: [
       "fts5",
       "hybrid",
@@ -431,7 +561,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   searchBackend: {
     environment: "XPI_MEMO_SEARCH_BACKEND",
-    label: "Search backend",
     values: [
       "auto",
       "mnemosyne",
@@ -441,7 +570,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   sleep: {
     environment: null,
-    label: "One-shot sleep",
     values: [
       "off",
       "run",
@@ -449,7 +577,6 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
   },
   sleepMode: {
     environment: "XPI_MEMO_SLEEP_MODE",
-    label: "Sleep mode",
     values: [
       "disabled",
       "dedicated",
@@ -484,9 +611,15 @@ function settingsItem(
   const writable = !locked && spec.values.length > 0;
   return {
     currentValue: settingsValue(id, config),
+    // A pinned field names its variable in the note slot; the label stays the
+    // dictionary key so the row renders in the configured language.
+    ...(environment !== null && locked
+      ? {
+          description: `⊘ ${environment}`,
+        }
+      : {}),
     id,
-    label:
-      locked && environment !== null ? `${spec.label} (${environment})` : spec.label,
+    label: id,
     ...(writable
       ? {
           values: [
@@ -598,30 +731,53 @@ export function clampCursor(cursor: number, total: number): number {
   return Math.max(0, Math.min(cursor, total - 1));
 }
 
-/**
- * One Settings row as panel text, without the surrounding borders. A selected
- * row is painted accent so the cursor stays readable; an unselected field row
- * keeps its label in the default colour and mutes only its value.
- */
+/** Label column width at the 78-column basis. */
+export const LABEL_COLUMN_WIDTH = 22;
+/** Below this the note column is dropped entirely rather than showing `…`. */
+export const MIN_NOTE_COLUMN_WIDTH = 8;
+
+/** One Settings row as panel text, without the surrounding borders. */
 export function settingsRowText(
   row: SettingsRow,
   selected: boolean,
   width: number,
   theme: Pick<Theme, "bold" | "fg">,
+  language: PanelLanguage,
 ): string {
   if (row.kind === "group") {
-    const text = `${row.open ? "▾" : "▸"} ${row.group.label} (${row.count})`;
+    const text = `${row.open ? "▾" : "▸"} ${panelText(`group.${row.group.id}`, language)} (${row.count})`;
     return selected ? theme.fg("accent", text) : theme.bold(text);
   }
-  const label = `  ${row.item.label}`;
+  // A pinned field carries its variable name as the description.
+  const note = row.item.description ?? panelText(`note.${row.item.id}`, language);
+  const value = row.item.currentValue;
+  const budget = width;
+  const valueWidth = visibleWidth(value);
+  // Three columns at the 78-column basis: label 22, note flexible, value right
+  // aligned. Degradation order is note first, then the label, value always kept.
+  let labelWidth = Math.min(LABEL_COLUMN_WIDTH, Math.max(budget - valueWidth - 2, 1));
+  let noteWidth = budget - labelWidth - 1 - valueWidth - 1;
+  if (noteWidth < MIN_NOTE_COLUMN_WIDTH) {
+    noteWidth = 0;
+    labelWidth = Math.max(budget - valueWidth - 1, 1);
+  }
+  const label = truncateToWidth(
+    `  ${panelText(`field.${row.item.id}`, language)}`,
+    labelWidth,
+    "…",
+  );
+  const noteText = noteWidth === 0 ? "" : truncateToWidth(note, noteWidth, "…");
   const gap = Math.max(
-    width - visibleWidth(label) - visibleWidth(row.item.currentValue),
+    budget - visibleWidth(label) - visibleWidth(noteText) - valueWidth,
     1,
   );
-  const padding = " ".repeat(gap);
   return selected
-    ? theme.fg("accent", `${label}${padding}${row.item.currentValue}`)
-    : `${label}${padding}${theme.fg("muted", row.item.currentValue)}`;
+    ? theme.fg("accent", `${label}${noteText}${padding(gap)}${value}`)
+    : `${label}${theme.fg("dim", noteText)}${padding(gap)}${theme.fg("muted", value)}`;
+}
+
+function padding(count: number): string {
+  return " ".repeat(Math.max(count, 0));
 }
 
 /** Windowed audit lines for the Recent tab, always exactly `rows` long. */
@@ -682,13 +838,16 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
   const { actions, done, keybindings, theme, tui } = options;
   const model: ConsoleViewModel = {
     env: options.env,
+    language: options.config.language,
     pending: options.pending,
     rows: settingsItems(options.config, options.env),
     status: options.status,
     statusJson: options.statusJson,
   };
-  // Height is fixed at open time; the render guard only ever shrinks it.
-  let { body, height } = panelLayout(options.terminalRows);
+  // Height is fixed at open time; the render guard only ever shrinks it. The
+  // open-time source is the real terminal, not the caller's snapshot, so a
+  // component built on a stale snapshot still honours the 70% budget.
+  let { body, height } = panelLayout(tui.terminal.rows);
   let tab = PENDING_TAB;
   let recentRow = 0;
 
@@ -773,7 +932,7 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
       body = Math.min(body, guard.body);
       height = Math.min(height, guard.height);
       const inner = Math.max(width - 4, 1);
-      const lines = [
+      const lines: string[] = [
         theme.fg("borderAccent", `╭${"─".repeat(Math.max(width - 2, 1))}╮`),
         `│ ${padRow(theme.bold(tabTitleLines(model, tab, width)[0] ?? ""), inner)} │`,
       ];
@@ -783,6 +942,9 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
       lines.push(`│ ${padRow(theme.fg("dim", info[0] ?? ""), inner)} │`);
       lines.push(`│ ${padRow(theme.fg("muted", info[1] ?? ""), inner)} │`);
       lines.push(theme.fg("borderAccent", `╰${"─".repeat(Math.max(width - 2, 1))}╯`));
+      // Cap the rendered height at the budget. The body list, info bar and
+      // border always add up to more than `height` on tall terminals, so the
+      // tail is trimmed rather than the panel stretching to the viewport.
       return lines.slice(0, height);
     },
   };
@@ -795,7 +957,13 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
     return rows
       .slice(settingsStart, settingsStart + body)
       .map((row, index) =>
-        settingsRowText(row, settingsStart + index === cursor, width, theme),
+        settingsRowText(
+          row,
+          settingsStart + index === cursor,
+          width,
+          theme,
+          model.language,
+        ),
       );
   }
 
@@ -945,11 +1113,15 @@ export async function openConsole(
       }),
     {
       overlay: true,
-      // No maxHeight: the component renders a fixed number of rows, so it
-      // cannot exceed the viewport.
       overlayOptions: {
         anchor: "center",
         width: "70%",
+        margin: {
+          bottom: OVERLAY_MARGIN_BOTTOM,
+          left: 2,
+          right: 2,
+          top: 2,
+        },
       },
     },
   );
