@@ -1,0 +1,13 @@
+# semantic-ui-map — tui-console-panel
+#
+# 双码分工：短码 P1-2-B1 给人念，全路径 chat.composer.send-btn 给机器认。
+# 本文件跨保真度共享：同一元素在 wireframe 与 hifi 阶段的 id / short 不变，
+# 只有 fidelities 各指一处。字段说明见 docs/semantic-ui-map-schema.md。
+meta:
+  project: tui-console-panel
+  version: 2
+  type: spa
+  updated: 2026-09-15 22:10
+  annotate_default: true
+pages: {}
+elements: {}

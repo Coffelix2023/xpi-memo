@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html class="dark" lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>XpiMemo 配置面板 — TUI 原型 v1</title>
+    <script>
+      /* 首帧前应用主题与语言, 避免切换闪烁; 读取失败就退回暗色 + 简体中文 */
+      (function () {
+        try {
+          var prefs = JSON.parse(localStorage.getItem("xpi-memo-proto") || "{}");
+          if (prefs.theme === "light") document.documentElement.classList.remove("dark");
+          if (prefs.lang === "en") document.documentElement.lang = "en";
+        } catch (error) {
+          /* localStorage 不可用 (隐私模式) 时保持 HTML 里的默认值 */
+        }
+      })();
+    </script>
+    <style>
+      /* ============================================================
+         Design tokens — 数值逐字取自 <项目根>/THEMES.md (shadcn oklch)。
+         本文件不新增色值;下面的 --term-* 只做语义重命名,不改数值:
+           --term-accent        <- --primary           选中行 / 激活 tab / 焦点
+           --term-border        <- --border            普通边框与分割线
+           --term-border-accent <- --primary           面板外框
+           --term-muted         <- --muted-foreground  次要信息 (当前值、计数)
+           --term-dim           <- --muted-foreground  弱化提示 (键位、说明)
+           --term-panel         <- --popover           浮层背景
+           --term-bg            <- --background        舞台背景
+           --term-danger        <- --destructive       保存失败 / 危险动作
+         ============================================================ */
+      :root {
+        --background: oklch(0.9818 0.0054 95.0986);
+        --foreground: oklch(0.3438 0.0269 95.7226);
+        --card: oklch(0.9818 0.0054 95.0986);
+        --card-foreground: oklch(0.1908 0.0020 106.5859);
+        --popover: oklch(1.0000 0 0);
+        --popover-foreground: oklch(0.2671 0.0196 98.9390);
+        --primary: oklch(0.6171 0.1375 39.0427);
+        --primary-foreground: oklch(1.0000 0 0);
+        --secondary: oklch(0.9245 0.0138 92.9892);
+        --secondary-foreground: oklch(0.4334 0.0177 98.6048);
+        --muted: oklch(0.9341 0.0153 90.2390);
+        --muted-foreground: oklch(0.6059 0.0075 97.4233);
+        --accent: oklch(0.9245 0.0138 92.9892);
+        --accent-foreground: oklch(0.2671 0.0196 98.9390);
+        --destructive: oklch(0.1908 0.0020 106.5859);
+        --destructive-foreground: oklch(1.0000 0 0);
+        --border: oklch(0.8847 0.0069 97.3627);
+        --input: oklch(0.7621 0.0156 98.3528);
+        --ring: oklch(0.6171 0.1375 39.0427);
+        --radius: 0.5rem;
+        --shadow-color: oklch(0 0 0);
+        --font-mono: JetBrains Mono, ui-monospace, monospace;
+      }
+
+      .dark {
+        --background: oklch(0.2679 0.0036 106.6427);
+        --foreground: oklch(0.8074 0.0142 93.0137);
+        --card: oklch(0.2679 0.0036 106.6427);
+        --card-foreground: oklch(0.9818 0.0054 95.0986);
+        --popover: oklch(0.3085 0.0035 106.6039);
+        --popover-foreground: oklch(0.9211 0.0040 106.4781);
+        --primary: oklch(0.6724 0.1308 38.7559);
+        --primary-foreground: oklch(1.0000 0 0);
+        --secondary: oklch(0.9818 0.0054 95.0986);
+        --secondary-foreground: oklch(0.3085 0.0035 106.6039);
+        --muted: oklch(0.2213 0.0038 106.7070);
+        --muted-foreground: oklch(0.7713 0.0169 99.0657);
+        --accent: oklch(0.2130 0.0078 95.4245);
+        --accent-foreground: oklch(0.9663 0.0080 98.8792);
+        --destructive: oklch(0.6368 0.2078 25.3313);
+        --destructive-foreground: oklch(1.0000 0 0);
+        --border: oklch(0.3618 0.0101 106.8928);
+        --input: oklch(0.4336 0.0113 100.2195);
+        --ring: oklch(0.6724 0.1308 38.7559);
+        --radius: 0.5rem;
+        --shadow-color: oklch(0 0 0);
+        --font-mono: JetBrains Mono, ui-monospace, monospace;
+      }
+
+      /* 语义重命名 + 由 token 派生 (不引入新色值) */
+      :root,
+      .dark {
+        --term-accent: var(--primary);
+        --term-border: var(--border);
+        --term-border-accent: var(--primary);
+        --term-muted: var(--muted-foreground);
+        /* dim 是 muted 向背景靠拢的派生值, 保证弱于 muted 又不脱出主题 */
+        --term-dim: color-mix(in oklab, var(--muted-foreground) 62%, var(--background));
+        --term-panel: var(--popover);
+        --term-bg: var(--background);
+        --term-danger: var(--destructive);
+        --term-selected: var(--accent);
+        --term-on-selected: var(--accent-foreground);
+        --term-row-h: 20px;
+        --term-font-size: 14px;
+        --term-cols: 78;
+        --term-body-rows: 15;
+      }
+
+      /* ---------- 网格与排版 ---------- */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--term-bg);
+        color: var(--foreground);
+        font-family: var(--font-mono);
+        font-size: var(--term-font-size);
+        line-height: var(--term-row-h);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+        min-height: 100vh;
+        padding: 20px 16px 32px;
+      }
+
+      .stage {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        max-width: 100%;
+        overflow-x: auto;
+      }
+
+      /* ---------- 终端面板: 78 字符定宽网格 ---------- */
+      .term {
+        width: calc(var(--term-cols) * 1ch);
+        max-width: 100%;
+        overflow: hidden;
+        background: var(--term-panel);
+        border-radius: calc(var(--radius) + 2px);
+        box-shadow:
+          0 1px 2px color-mix(in oklab, var(--shadow-color) 8%, transparent),
+          0 8px 24px -12px color-mix(in oklab, var(--shadow-color) 45%, transparent);
+      }
+
+      .term.is-narrow {
+        --term-cols: 40;
+      }
+
+      .row {
+        white-space: pre;
+        height: var(--term-row-h);
+        overflow: hidden;
+      }
+
+      .body {
+        display: flex;
+        flex-direction: column;
+        height: calc(var(--term-body-rows) * var(--term-row-h));
+        overflow: hidden;
+      }
+
+      /* ---------- 行与列: 左右边框字符连续, 中间内容用 flex/grid 对齐 ---------- */
+      .row.lined {
+        display: flex;
+        align-items: center;
+      }
+
+      .bar {
+        flex: none;
+        color: var(--term-border-accent);
+      }
+
+      .content {
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        padding: 0 1ch;
+        overflow: hidden;
+      }
+
+      .content.between {
+        justify-content: space-between;
+        gap: 2ch;
+      }
+
+      .tabs-left {
+        display: flex;
+        flex: none;
+        gap: 1ch;
+      }
+
+      /* ---------- 字段行三列: 标签 / 当前值 / 备注 ---------- */
+      .field-grid {
+        display: grid;
+        grid-template-columns: 22ch 20ch 1fr;
+        gap: 0 1ch;
+        align-items: center;
+        width: 100%;
+      }
+
+      .f-label,
+      .f-value,
+      .f-note {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+
+      /* ---------- 语义色: 全部指向 --term-* 映射 ---------- */
+      .c-accent {
+        color: var(--term-accent);
+      }
+
+      .c-muted {
+        color: var(--term-muted);
+      }
+
+      .c-dim {
+        color: var(--term-dim);
+      }
+
+      .c-danger {
+        color: var(--term-danger);
+      }
+
+      .c-bold {
+        font-weight: 700;
+      }
+
+      /* 选中行只染内容区, 左右边框保持连续 */
+      .row.sel .content {
+        background: var(--term-selected);
+        color: var(--term-on-selected);
+      }
+
+      .row.sel .content .c-accent,
+      .row.sel .content .c-muted,
+      .row.sel .content .c-dim {
+        color: var(--term-on-selected);
+      }
+
+      /* ---------- 窄终端 40 列降级 ---------- */
+      .term.is-narrow .field-grid {
+        grid-template-columns: 14ch 1fr;
+      }
+
+      .term.is-narrow .f-note {
+        display: none;
+      }
+
+      /* 只留激活 tab, 否则 4 个 tab 加键位提示放不进 40 列 */
+      .term.is-narrow .tabs-left span:not(.c-accent) {
+        display: none;
+      }
+
+      /* ---------- 原型控制栏与说明 (不属于 TUI 产物) ---------- */
+      .toolbar,
+      .hintbar,
+      .foot {
+        width: calc(var(--term-cols) * 1ch + 2px);
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px 18px;
+        padding: 10px 12px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+      }
+
+      .ctl-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .ctl-label {
+        color: var(--muted-foreground);
+        font-size: 12px;
+      }
+
+      .ctl-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+
+      .ctl-btn {
+        font-family: inherit;
+        font-size: 12px;
+        line-height: 1;
+        padding: 5px 9px;
+        color: var(--foreground);
+        background: var(--background);
+        border: 1px solid var(--border);
+        border-radius: calc(var(--radius) - 2px);
+        cursor: pointer;
+      }
+
+      .ctl-btn:hover {
+        background: var(--accent);
+        color: var(--accent-foreground);
+      }
+
+      .ctl-btn.is-active {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: var(--primary-foreground);
+      }
+
+      .ctl-btn:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 1px;
+      }
+
+      .hintbar {
+        padding: 8px 12px;
+        color: var(--muted-foreground);
+        background: var(--card);
+        border: 1px dashed var(--border);
+        border-radius: calc(var(--radius) - 2px);
+        font-size: 12px;
+        line-height: 1.7;
+      }
+
+      .foot {
+        color: var(--muted-foreground);
+        font-size: 12px;
+        line-height: 1.8;
+      }
+
+      .foot strong {
+        color: var(--foreground);
+        font-weight: 700;
+      }
+
+      /* 焦点环: 只在键盘导航时出现, 不抢视觉 */
+      .term:focus-visible {
+        outline: 2px solid var(--term-accent);
+        outline-offset: 2px;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <!-- ============ 语义区块 1: 原型控制栏 (不属于 TUI 产物) ============ -->
+      <header class="toolbar" role="toolbar" aria-label="原型控制">
+        <div class="ctl-group">
+          <span class="ctl-label" id="lbl-state">状态视图</span>
+          <div class="ctl-buttons" id="state-buttons" role="radiogroup" aria-labelledby="lbl-state">
+            <!-- 由脚本注入 6 个状态按钮 -->
+          </div>
+        </div>
+        <div class="ctl-group">
+          <button class="ctl-btn" id="btn-theme" type="button" aria-label="切换亮暗主题">
+            <span id="theme-icon">◐</span><span id="theme-text">亮色</span>
+          </button>
+          <button class="ctl-btn" id="btn-lang" type="button" aria-label="切换界面语言">
+            <span id="lang-text">EN</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- ============ 语义区块 2: 终端舞台, 内含 78×20 面板 ============ -->
+      <main class="stage">
+        <div class="term" id="term" role="application" aria-label="XpiMemo TUI 配置面板原型">
+          <!-- 面板 chrome: 顶边框 → tab 栏 → body(15行) → info×2 → 底边框 -->
+          <div class="row edge" id="r-top"></div>
+          <div class="row" id="r-tabs"></div>
+          <div class="body" id="r-body"></div>
+          <div class="row" id="r-info1"></div>
+          <div class="row" id="r-info2"></div>
+          <div class="row edge" id="r-bottom"></div>
+        </div>
+
+        <!-- ============ 语义区块 3: 行内说明气泡 (警告/失败提示) ============ -->
+        <aside class="hintbar" id="hintbar" role="status" aria-live="polite" hidden></aside>
+      </main>
+
+      <!-- ============ 语义区块 4: 原型说明与键位对照 ============ -->
+      <footer class="foot" id="foot"></footer>
+    </div>
+
+    <script>
+      /* ============================================================
+         原型脚本 — 无构建、无依赖、零外部请求。
+         几何契约 (对应 src/console.ts 与 src/status-panel.ts):
+           COLS      78 = PANEL_WIDTH
+           BODY_ROWS 15 = PANEL_HEIGHT(20) - PANEL_CHROME_ROWS(5)
+           行构成: 顶边框 1 + tab 栏 1 + body 15 + info 2 + 底边框 1 = 20
+         ============================================================ */
+      (function () {
+        "use strict";
+
+        /* ---------- i18n: zh-CN / en ---------- */
+        window.__i18n = {
+          "zh-CN": {
+            "tab.pending": "待审",
+            "tab.recent": "最近",
+            "tab.settings": "设置",
+            "tab.status": "状态",
+            "chrome.keys": "←/→ ↑/↓ Enter Esc",
+            "chrome.keysShort": "←/→ ↑/↓ ⏎ Esc",
+            "info.tier": "L0 会话轨迹 → T1 xpi-memo → T2 延后 → T3 延后",
+            "info.bank": "库",
+            "info.total": "总数",
+            "info.today": "今日",
+            "info.pending": "待审",
+            "info.disk": "占用",
+            "group.retrieval": "召回与检索",
+            "group.storage": "存储与提取",
+            "group.pipeline": "记忆管道",
+            "group.display": "界面与反馈",
+            "group.privacy": "隐私与维护",
+            "field.recallPolicy": "召回策略",
+            "field.retrievalMode": "检索方式",
+            "field.searchBackend": "搜索后端",
+            "field.limit": "单次召回条数",
+            "field.globalLimit": "全局召回上限",
+            "field.projectLimit": "项目召回上限",
+            "field.confirmStore": "存储前确认",
+            "field.autoExport": "自动导出",
+            "field.offlineExtractionEnabled": "离线提取",
+            "field.excludeToolResults": "排除工具输出",
+            "field.dataDir": "数据目录",
+            "field.paused": "暂停记忆",
+            "field.l0Enabled": "记录会话轨迹",
+            "field.profileInjection": "注入偏好画像",
+            "field.language": "界面语言",
+            "field.eventPresentation": "事件与页脚提示",
+            "field.passiveFeedback": "被动使用反馈",
+            "field.privacy": "隐私模式",
+            "field.sleepMode": "记忆整理方式",
+            "field.sleep": "立即整理一次",
+            "note.recallPolicy": "按价值自动注入",
+            "note.retrievalMode": "hybrid 兼顾语义",
+            "note.searchBackend": "自动选可用后端",
+            "note.limit": "每次注入的条数",
+            "note.globalLimit": "跨项目的上限",
+            "note.projectLimit": "本项目内的上限",
+            "note.confirmStore": "写入前先问你",
+            "note.autoExport": "定期导出备份",
+            "note.offlineExtractionEnabled": "无模型也能提取",
+            "note.excludeToolResults": "不记录工具输出",
+            "note.dataDir": "只读, 改它要编辑配置",
+            "note.paused": "停用后可随时恢复",
+            "note.l0Enabled": "保留本轮会话轨迹",
+            "note.profileInjection": "注入偏好画像",
+            "note.language": "面板与提示语言",
+            "note.eventPresentation": "页脚展示记忆事件",
+            "note.passiveFeedback": "记录使用反馈",
+            "note.privacy": "不写任何持久记忆",
+            "note.sleepMode": "整理时机与方式",
+            "note.sleep": "执行一次记忆整理",
+            "view.default": "默认",
+            "view.collapsed": "全折叠",
+            "view.expanded": "全展开",
+            "view.env": "环境锁定",
+            "view.narrow": "窄 40 列",
+            "view.error": "保存失败",
+            "viewHint.default": "默认态: 只展开首组。看零文档可读性 —— 标签 / 当前值 / 备注三列。",
+            "viewHint.collapsed": "全折叠: 5 个组头加 10 行留白。看字段归属是否仍一眼可见。",
+            "viewHint.expanded": "全展开: 25 行内容挤进 15 行 body。看 ↑/↓ 滚动的窗口跟随。",
+            "viewHint.env": "环境锁定: paused / language / confirmStore 已由环境变量设置, 备注位改显变量名。",
+            "viewHint.narrow": "窄 40 列: 三列降为两列, 备注列隐藏, 非激活 tab 收起。",
+            "viewHint.error": "保存失败: info bar 首行换成错误说明, 其余结构不动。",
+            "error.save": "保存失败: 无法写入配置 (EACCES) · 按 Enter 重试",
+            "foot.body": "<strong>是什么</strong>: /xpi-memo 命令弹出的 Settings tab 重设计原型, 78×20 字符网格。<br><strong>怎么用</strong>: 上方按钮切换状态视图; 键位沿用现役 ←/→ ↑/↓ Enter Esc。<br><strong>下一步</strong>: 确认分组与三列可读性后, 才动 src/console.ts。",
+            "theme.toLight": "亮色",
+            "theme.toDark": "暗色",
+            "lang.switch": "EN",
+            "escape.hint": "Esc 会关闭面板 (原型不关闭)",
+            "action.fired": "已触发: ",
+            "info.pause": "暂停",
+            "body.placeholder": "分组内容待填充 (任务 1.4 / 1.5)"
+          },
+          en: {
+            "tab.pending": "Pending",
+            "tab.recent": "Recent",
+            "tab.settings": "Settings",
+            "tab.status": "Status",
+            "chrome.keys": "←/→ ↑/↓ Enter Esc",
+            "chrome.keysShort": "←/→ ↑/↓ ⏎ Esc",
+            "info.tier": "L0 session trace → T1 xpi-memo → T2 deferred → T3 deferred",
+            "info.bank": "bank",
+            "info.total": "total",
+            "info.today": "today",
+            "info.pending": "pending",
+            "info.disk": "disk",
+            "group.retrieval": "Retrieval",
+            "group.storage": "Storage",
+            "group.pipeline": "Pipeline",
+            "group.display": "Display",
+            "group.privacy": "Privacy",
+            "field.recallPolicy": "Recall policy",
+            "field.retrievalMode": "Retrieval mode",
+            "field.searchBackend": "Search backend",
+            "field.limit": "Recall limit",
+            "field.globalLimit": "Global limit",
+            "field.projectLimit": "Project limit",
+            "field.confirmStore": "Confirm store",
+            "field.autoExport": "Auto export",
+            "field.offlineExtractionEnabled": "Offline extraction",
+            "field.excludeToolResults": "Tool results",
+            "field.dataDir": "Data dir",
+            "field.paused": "Pause memory",
+            "field.l0Enabled": "Session trace",
+            "field.profileInjection": "Preference profile",
+            "field.language": "Language",
+            "field.eventPresentation": "Event presentation",
+            "field.passiveFeedback": "Passive feedback",
+            "field.privacy": "Privacy mode",
+            "field.sleepMode": "Sleep mode",
+            "field.sleep": "Run sleep now",
+            "note.recallPolicy": "Auto-inject by value",
+            "note.retrievalMode": "Hybrid adds semantics",
+            "note.searchBackend": "Pick first available",
+            "note.limit": "Rows injected per turn",
+            "note.globalLimit": "Cap across projects",
+            "note.projectLimit": "Cap inside this project",
+            "note.confirmStore": "Ask before writing",
+            "note.autoExport": "Periodic export backup",
+            "note.offlineExtractionEnabled": "Works without a model",
+            "note.excludeToolResults": "Do not log tool output",
+            "note.dataDir": "Read-only, edit config file",
+            "note.paused": "Resume any time",
+            "note.l0Enabled": "Keep this session's trace",
+            "note.profileInjection": "Inject preference profile",
+            "note.language": "Panel and hint language",
+            "note.eventPresentation": "Show events in footer",
+            "note.passiveFeedback": "Record usage feedback",
+            "note.privacy": "Persist no memory at all",
+            "note.sleepMode": "When and how to tidy",
+            "note.sleep": "Run one consolidation",
+            "view.default": "Default",
+            "view.collapsed": "Collapsed",
+            "view.expanded": "Expanded",
+            "view.env": "Env locked",
+            "view.narrow": "Narrow 40",
+            "view.error": "Save error",
+            "viewHint.default": "Default: only the first group is open. Checks the label / value / note read.",
+            "viewHint.collapsed": "Collapsed: 5 group headers plus 10 blank rows. Checks group ownership stays obvious.",
+            "viewHint.expanded": "Expanded: 25 rows squeezed into a 15-row body. Checks the scroll window follows the cursor.",
+            "viewHint.env": "Env locked: paused / language / confirmStore are set in the env, so the note slot shows the variable name.",
+            "viewHint.narrow": "Narrow 40: three columns fall back to two, the note column hides, inactive tabs collapse.",
+            "viewHint.error": "Save error: the first info-bar row becomes an error line, nothing else moves.",
+            "error.save": "Save failed: cannot write config (EACCES) · press Enter to retry",
+            "foot.body": "<strong>What</strong>: a redesign prototype of the Settings tab behind /xpi-memo, on a 78x20 character grid.<br><strong>How</strong>: switch state views with the buttons above; keys stay as shipped (left/right, up/down, Enter, Esc).<br><strong>Next</strong>: once grouping and the three-column read are settled, edit src/console.ts.",
+            "theme.toLight": "Light",
+            "theme.toDark": "Dark",
+            "lang.switch": "中文",
+            "escape.hint": "Esc closes the panel (the prototype stays open)",
+            "action.fired": "Fired: ",
+            "info.pause": "pause",
+            "body.placeholder": "group content pending (tasks 1.4 / 1.5)"
+          }
+        };
+
+        /* ---------- 几何 ---------- */
+        var COLS = 78;
+        var BODY_ROWS = 15;
+        var INNER = COLS - 2;
+        var TAB_KEYS = ["pending", "recent", "settings", "status"];
+
+        /* ---------- 状态 ---------- */
+        var state = {
+          lang: "zh-CN",
+          theme: "dark",
+          tab: 2,
+          view: "default",
+          cursor: 0,
+          scroll: 0,
+          /* 折叠的分组 id: 默认只展开首组 (召回与检索) */
+          collapsed: { storage: true, pipeline: true, display: true, privacy: true },
+          /* 当前已设置的环境变量 (对应 src/console.ts 的 Boolean(env[name]));
+             为空表示全部可改; "env 锁定" 视图会打开其中几个 */
+          envLocked: {}
+        };
+
+        /* ---------- 演示数据 (对应 MemoryStatus 的可见字段) ---------- */
+        var DATA = {
+          bank: "xpi-memo",
+          total: 166,
+          today: 14,
+          pending: 3,
+          disk: "420.5 KB",
+          paused: false
+        };
+
+        /* ---------- DOM 句柄 ---------- */
+        var el = {
+          term: document.getElementById("term"),
+          top: document.getElementById("r-top"),
+          tabs: document.getElementById("r-tabs"),
+          body: document.getElementById("r-body"),
+          info1: document.getElementById("r-info1"),
+          info2: document.getElementById("r-info2"),
+          bottom: document.getElementById("r-bottom"),
+          buttons: document.getElementById("state-buttons"),
+          hintbar: document.getElementById("hintbar"),
+          foot: document.getElementById("foot"),
+          themeButton: document.getElementById("btn-theme"),
+          themeText: document.getElementById("theme-text"),
+          langButton: document.getElementById("btn-lang"),
+          langText: document.getElementById("lang-text")
+        };
+
+        /* ---------- 文案 ---------- */
+        function t(key) {
+          var dict = window.__i18n[state.lang] || window.__i18n["zh-CN"];
+          return dict[key] === undefined ? key : dict[key];
+        }
+
+        /* ---------- HTML 片段 ---------- */
+        var BAR = '<span class="bar">│</span>';
+
+        function sp(cls, text) {
+          return '<span class="' + cls + '">' + text + "</span>";
+        }
+
+        function content(inner, extra) {
+          return '<div class="content' + (extra ? " " + extra : "") + '">' + inner + "</div>";
+        }
+
+        function lined(inner, rowCls) {
+          return (
+            '<div class="row lined' + (rowCls ? " " + rowCls : "") + '">' + BAR + inner + BAR + "</div>"
+          );
+        }
+
+        function edgeRow(left, right) {
+          return '<div class="row edge">' + left + new Array(INNER + 1).join("─") + right + "</div>";
+        }
+
+        /* ---------- chrome 渲染 ---------- */
+        function renderTabs() {
+          var items = TAB_KEYS.map(function (key, index) {
+            var count = key === "pending" ? " " + DATA.pending : "";
+            var cls = index === state.tab ? "c-accent c-bold" : "c-dim";
+            return sp(cls, "[" + t("tab." + key) + count + "]");
+          }).join("");
+          return lined(
+            content(
+              '<div class="tabs-left">' +
+                items +
+                "</div>" +
+                sp("c-dim", t(state.view === "narrow" ? "chrome.keysShort" : "chrome.keys")),
+              "between"
+            )
+          );
+        }
+
+        function renderInfo1() {
+          if (state.view === "error") {
+            return lined(content(sp("c-danger", t("error.save"))));
+          }
+          return lined(content(sp("c-dim", t("info.tier"))));
+        }
+
+        function renderInfo2() {
+          function pair(label, value) {
+            return sp("c-muted", t("info." + label) + ": ") + sp("c-bold", String(value));
+          }
+          var parts = [
+            pair("bank", DATA.bank),
+            pair("total", DATA.total),
+            pair("today", DATA.today),
+            pair("pending", DATA.pending),
+            pair("disk", DATA.disk),
+            pair("pause", DATA.paused ? "on" : "off")
+          ];
+          return lined(content(parts.join(sp("c-dim", " · "))));
+        }
+
+        /* ---------- 分组与字段 ----------
+           19 个 config 字段逐项对应 src/config.ts 的 XpiMemoConfig,
+           外加 1 个 sleep 动作 (非 config 项)。
+           env 取自 src/console.ts 的 settingsItems();本版新纳入的 10 个字段
+           现役没有 XPI_MEMO_* 变量名, env 记 null (见 plan.md 未决 1)。 */
+        var GROUPS = [
+          {
+            id: "retrieval",
+            fields: [
+              { key: "recallPolicy", value: "high-value-auto", values: ["active", "assist", "high-value-auto"], env: "XPI_MEMO_RECALL_POLICY" },
+              { key: "retrievalMode", value: "hybrid", values: ["fts5", "hybrid"], env: "XPI_MEMO_RETRIEVAL_MODE" },
+              { key: "searchBackend", value: "auto", values: ["auto", "mnemosyne", "ripgrep", "qmd"], env: "XPI_MEMO_SEARCH_BACKEND" },
+              { key: "limit", value: "5", values: ["1", "5", "10", "20"], env: "XPI_MEMO_LIMIT" },
+              { key: "globalLimit", value: "5", values: ["1", "5", "10", "20"], env: "XPI_MEMO_GLOBAL_LIMIT" },
+              { key: "projectLimit", value: "5", values: ["1", "5", "10", "20"], env: "XPI_MEMO_PROJECT_LIMIT" }
+            ]
+          },
+          {
+            id: "storage",
+            fields: [
+              { key: "confirmStore", value: "off", values: ["off", "on"], env: "XPI_MEMO_CONFIRM_STORE" },
+              { key: "autoExport", value: "on", values: ["off", "on"], env: null },
+              { key: "offlineExtractionEnabled", value: "off", values: ["off", "on"], env: null },
+              { key: "excludeToolResults", value: "off", values: ["off", "on"], env: null },
+              { key: "dataDir", value: "~/.pi/agent/xpi-memo", values: [], env: null, readOnly: true }
+            ]
+          },
+          {
+            id: "pipeline",
+            fields: [
+              { key: "paused", value: "off", values: ["off", "on"], env: "XPI_MEMO_PAUSED" },
+              { key: "l0Enabled", value: "on", values: ["off", "on"], env: null },
+              { key: "profileInjection", value: "on", values: ["off", "on"], env: null }
+            ]
+          },
+          {
+            id: "display",
+            fields: [
+              { key: "language", value: "zh", values: ["en", "zh"], env: "XPI_MEMO_LANGUAGE" },
+              { key: "eventPresentation", value: "on", values: ["off", "on"], env: null },
+              { key: "passiveFeedback", value: "on", values: ["off", "on"], env: null }
+            ]
+          },
+          {
+            id: "privacy",
+            fields: [
+              { key: "privacy", value: "off", values: ["off", "on"], env: null },
+              { key: "sleepMode", value: "disabled", values: ["disabled", "dedicated", "session-model", "mechanical"], env: null },
+              { key: "sleep", value: "run", values: [], env: null, action: true }
+            ]
+          }
+        ];
+
+        /* ---------- 行列表: 组头 + 未折叠组内的字段 ---------- */
+        function flatRows() {
+          var out = [];
+          GROUPS.forEach(function (group) {
+            out.push({ count: group.fields.length, id: group.id, type: "group" });
+            if (!state.collapsed[group.id]) {
+              group.fields.forEach(function (field) {
+                out.push({ field: field, group: group.id, type: "field" });
+              });
+            }
+          });
+          return out;
+        }
+
+        /* ---------- 滚动窗口: 光标始终留在可见区, 窗口不越界 ---------- */
+        function windowStart(cursor, total) {
+          var start = state.scroll;
+          if (cursor < start) start = cursor;
+          if (cursor >= start + BODY_ROWS) start = cursor - BODY_ROWS + 1;
+          return Math.max(0, Math.min(start, Math.max(total - BODY_ROWS, 0)));
+        }
+
+        /* ---------- 组头行 ---------- */
+        function renderGroupRow(row, selected) {
+          var arrow = state.collapsed[row.id] ? "▸" : "▾";
+          return lined(
+            content(
+              sp("c-accent", arrow) + " " + sp("c-bold", t("group." + row.id)) + " " +
+                sp("c-dim", "(" + row.count + ")")
+            ),
+            selected ? "sel" : ""
+          );
+        }
+
+        /* ---------- 字段行: 任务 1.5 补三列布局与 env 锁定标记 ---------- */
+        /* ---------- 字段行: 标签 / 当前值 / 备注 三列 ----------
+           env 有名字且该变量已设置 => 锁定: 标签走 dim, 备注位改显变量名
+           action        => 非 config 的一次性动作, 值用 accent 标出 Enter 可执行
+           readOnly      => 只读路径 (dataDir), 值走 muted
+           三者都不满足 => 普通可改字段 */
+        function renderFieldRow(row, selected) {
+          var f = row.field;
+          var locked = Boolean(f.env && state.envLocked[f.key]);
+          var labelCls = "f-label " + (locked ? "c-dim" : "c-muted");
+          var valueCls =
+            "f-value " + (f.action ? "c-accent" : f.readOnly ? "c-muted" : "c-bold");
+          return lined(
+            content(
+              '<div class="field-grid">' +
+                sp(labelCls, t("field." + f.key)) +
+                sp(valueCls, f.action ? "↵ " + f.value : f.value) +
+                sp("f-note c-dim", locked ? "⊘ " + f.env : t("note." + f.key)) +
+                "</div>"
+            ),
+            selected ? "sel" : ""
+          );
+        }
+
+        /* ---------- body 渲染 ---------- */
+        function renderBodyLines() {
+          var rows = flatRows();
+          state.cursor = Math.max(0, Math.min(state.cursor, rows.length - 1));
+          state.scroll = windowStart(state.cursor, rows.length);
+          var out = [];
+          for (var i = state.scroll; i < Math.min(state.scroll + BODY_ROWS, rows.length); i++) {
+            var row = rows[i];
+            var selected = i === state.cursor;
+            out.push(
+              row.type === "group" ? renderGroupRow(row, selected) : renderFieldRow(row, selected)
+            );
+          }
+          while (out.length < BODY_ROWS) out.push(lined(content("")));
+          return out;
+        }
+
+        /* ---------- 状态视图: 只改数据, 不改结构 ---------- */
+        var VIEWS = ["default", "collapsed", "expanded", "env", "narrow", "error"];
+
+        function applyView(view) {
+          state.view = view;
+          state.cursor = 0;
+          state.scroll = 0;
+          state.envLocked = {};
+          /* 默认只展开首组 */
+          state.collapsed = { storage: true, pipeline: true, display: true, privacy: true };
+          if (view === "collapsed") {
+            state.collapsed = {
+              retrieval: true,
+              storage: true,
+              pipeline: true,
+              display: true,
+              privacy: true
+            };
+          } else if (view === "expanded") {
+            state.collapsed = {};
+          } else if (view === "env") {
+            /* 对应 src/console.ts 的 Boolean(env[name]): 变量已设置才只读 */
+            state.envLocked = { confirmStore: true, language: true, paused: true };
+          }
+          render();
+        }
+
+        function renderStateButtons() {
+          el.buttons.innerHTML = VIEWS.map(function (view) {
+            var active = view === state.view;
+            return (
+              '<button type="button" class="ctl-btn' + (active ? " is-active" : "") +
+              '" role="radio" aria-checked="' + active + '" data-view="' + view + '">' +
+              t("view." + view) +
+              "</button>"
+            );
+          }).join("");
+        }
+
+        function renderHint() {
+          el.hintbar.hidden = false;
+          el.hintbar.textContent = t("viewHint." + state.view);
+        }
+
+        function renderFoot() {
+          el.foot.innerHTML = t("foot.body");
+        }
+
+        /* ---------- 总渲染 ---------- */
+        function render() {
+          el.term.classList.toggle("is-narrow", state.view === "narrow");
+          el.top.innerHTML = edgeRow("╭", "╮");
+          el.tabs.innerHTML = renderTabs();
+          el.body.innerHTML = renderBodyLines().join("");
+          el.info1.innerHTML = renderInfo1();
+          el.info2.innerHTML = renderInfo2();
+          el.bottom.innerHTML = edgeRow("╰", "╯");
+          renderStateButtons();
+          renderHint();
+          renderFoot();
+        }
+
+        /* ---------- 视图按钮: 事件委托, 容器本身不被 innerHTML 替换 ---------- */
+        el.buttons.addEventListener("click", function (event) {
+          var button = event.target.closest("[data-view]");
+          if (button) applyView(button.dataset.view);
+        });
+
+        /* ---------- 光标移动 ---------- */
+        function moveCursor(step) {
+          var rows = flatRows();
+          state.cursor = (state.cursor + step + rows.length) % rows.length;
+          render();
+        }
+
+        /* Tab 只在字段行之间跳, 跳过组头 */
+        function nextField(step) {
+          var rows = flatRows();
+          var index = state.cursor;
+          for (var i = 0; i < rows.length; i++) {
+            index = (index + step + rows.length) % rows.length;
+            if (rows[index].type === "field") break;
+          }
+          state.cursor = index;
+          render();
+        }
+
+        /* 在 values 里循环到下一个取值; 原型只改内存, 不落盘 */
+        function cycleValue(field) {
+          if (!field.values || field.values.length === 0) return;
+          var index = field.values.indexOf(field.value);
+          field.value = field.values[(index + 1) % field.values.length];
+        }
+
+        function noteFired(text) {
+          el.hintbar.textContent = t("viewHint." + state.view) + "  ▸  " + t("action.fired") + text;
+        }
+
+        /* Enter: 组头折叠展开 / 动作行提示 / 普通字段循环取值 */
+        function activateRow() {
+          var row = flatRows()[state.cursor];
+          if (!row) return;
+          var fired = "";
+          if (row.type === "group") {
+            state.collapsed[row.id] = !state.collapsed[row.id];
+          } else if (row.field.action) {
+            fired = t("field." + row.field.key);
+          } else {
+            cycleValue(row.field);
+          }
+          render();
+          if (fired) noteFired(fired);
+        }
+
+        /* ---------- 主题与语言: 写 localStorage, 下次打开由 <head> 首帧前应用 ---------- */
+        var PREFS_KEY = "xpi-memo-proto";
+
+        function savePrefs() {
+          try {
+            localStorage.setItem(
+              PREFS_KEY,
+              JSON.stringify({ lang: state.lang, theme: state.theme })
+            );
+          } catch (error) {
+            /* localStorage 不可用时只在本会话内生效 */
+          }
+        }
+
+        function applyChrome() {
+          document.documentElement.classList.toggle("dark", state.theme === "dark");
+          document.documentElement.lang = state.lang;
+          el.themeText.textContent = t("theme." + (state.theme === "dark" ? "toLight" : "toDark"));
+          el.langText.textContent = t("lang.switch");
+        }
+
+        function loadPrefs() {
+          try {
+            var prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+            if (prefs.theme === "light" || prefs.theme === "dark") state.theme = prefs.theme;
+            if (prefs.lang === "zh-CN" || prefs.lang === "en") state.lang = prefs.lang;
+          } catch (error) {
+            /* 偏好损坏时退回 HTML 里的默认值 */
+          }
+        }
+
+        el.themeButton.addEventListener("click", function () {
+          state.theme = state.theme === "dark" ? "light" : "dark";
+          applyChrome();
+          savePrefs();
+        });
+
+        el.langButton.addEventListener("click", function () {
+          state.lang = state.lang === "zh-CN" ? "en" : "zh-CN";
+          applyChrome();
+          savePrefs();
+          render();
+        });
+
+        /* ---------- 键位: 与现役 TAB_HINT 对齐 ---------- */
+        document.addEventListener("keydown", function (event) {
+          if (event.metaKey || event.ctrlKey || event.altKey) return;
+          if (event.key === "Tab") {
+            event.preventDefault();
+            nextField(event.shiftKey ? -1 : 1);
+            return;
+          }
+          var handlers = {
+            ArrowDown: function () {
+              moveCursor(1);
+            },
+            ArrowUp: function () {
+              moveCursor(-1);
+            },
+            ArrowLeft: function () {
+              state.tab = (state.tab + TAB_KEYS.length - 1) % TAB_KEYS.length;
+              render();
+            },
+            ArrowRight: function () {
+              state.tab = (state.tab + 1) % TAB_KEYS.length;
+              render();
+            },
+            Enter: activateRow,
+            Escape: function () {
+              noteFired(t("escape.hint"));
+            }
+          };
+          var handler = handlers[event.key];
+          if (!handler) return;
+          event.preventDefault();
+          handler();
+        });
+
+        loadPrefs();
+        applyChrome();
+        render();
+      })();
+    </script>
+  </body>
+</html>
