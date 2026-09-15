@@ -15,7 +15,7 @@ coverage/
 # c6x-config
 # .pi/
 # **/openspec/
-.pi-lens.json
+# .pi-lens.json
 # plans/
 # **/notes
 # **/feedback/
