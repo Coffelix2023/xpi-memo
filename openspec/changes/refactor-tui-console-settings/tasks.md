@@ -22,7 +22,27 @@
 - [x] 4.2 让 `Enter` 按行类型分派：组头折叠/展开、可写字段循环取值、锁定字段 no-op、`sleep` 动作行触发既有确认流程；验证单测逐条覆盖这四种分派
 - [x] 4.3 让 `Tab` / `Shift+Tab` 只在字段行之间跳并跳过组头；验证单测覆盖从组头出发的两个方向都落到字段行
 
-## 5. Verification
+## 5. Verification (first pass)
 
 - [x] 5.1 更新 `src/console.test.ts` 中受分组结构影响的既有断言；验证全量 `pnpm test` 通过
 - [x] 5.2 运行 `pnpm typecheck`、`pnpm -w run lint`、`pnpm test` 并确认三项全部通过
+
+## 6. Panel geometry budget
+
+- [x] 6.1 把 `panelLayout` 的高度改成 `min(PANEL_HEIGHT, floor(terminalRows × 70%))`，body 仍由 height 反推；验证更新后的 `panelLayout` / `bodyRows` 单测覆盖大终端落在 20 行、小终端按 70% 收紧、且 `MIN_BODY_ROWS` 仍生效
+- [x] 6.2 在 `openConsole` 的 `overlayOptions` 补上底部留白（`margin.bottom >= 4`）；验证 overlay 单测断言 margin 存在且 `bottom` 不小于 4
+
+## 7. Panel language
+
+- [x] 7.1 建立面板文案字典（chrome / 组名 / 字段标签 / 字段备注，`zh-CN` 与 `en` 两份），语言取自 `config.language`；验证单测断言两种语言下每个键都取到非空值
+- [x] 7.2 让面板渲染改走字典，并实现缺键回退（选中语言 → `en` → 键名）；验证单测抽掉一个键后仍渲染出非空文本且不抛错
+
+## 8. Field note column
+
+- [x] 8.1 字段行改三列「标签 / 当前值 / 备注」，备注取自原型的 `note.*` 文案；验证渲染输出三部分都在，且 78 列下三列位置对齐
+- [x] 8.2 实现窄终端降级：先丢备注列，再截断 label，值保持可见；验证单测在 40 列下断言备注消失而 label 与 value 仍在
+
+## 9. Verification (second pass)
+
+- [x] 9.1 更新受高度预算、三列与语言影响的既有断言；验证 `pnpm exec vitest run src/` 全绿
+- [x] 9.2 运行 `pnpm typecheck`、`pnpm -w run lint`、`pnpm exec vitest run src/` 并确认三项全部通过

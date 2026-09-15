@@ -1,6 +1,6 @@
 ## Purpose
 
-定义 `/xpi-memo` 弹出面板如何组织与呈现设置字段，让扩展用户在不读文档的情况下判断字段归属、当前值来自哪里，以及自己的改动会落到哪一类行为上。
+定义 `/xpi-memo` 弹出面板如何组织与呈现设置字段，让扩展用户在不读文档的情况下判断字段归属、每个开关改的是什么、当前值来自哪里，以及面板以哪种语言说话。
 
 ## ADDED Requirements
 
@@ -100,9 +100,41 @@ Settings 视图 MUST 允许用户折叠与展开每个分组，且默认打开�
 - **THEN** the field MUST still display its current value
 - **AND THEN** it MUST NOT be presented as a value the user can cycle
 
-### Requirement: The panel MUST keep its existing geometry contract
+### Requirement: Every field MUST carry a note explaining what it changes
 
-面板 MUST 保持既有的几何契约：宽度基准、chrome 行数，以及 body 的行数下限。分组不得改变其中任何一项。
+面板 MUST 为每个可配置字段呈现一句说明其后果的备注，使 `hybrid`、`on`、`disabled` 这类值不需要额外文档即可理解。
+
+#### Scenario: Reading a field row
+
+- **WHEN** a user reads a field row
+- **THEN** the row MUST show the field's label, its current value, and a note describing what the field changes
+- **AND THEN** the three parts MUST stay visually distinguishable
+
+#### Scenario: The row is narrower than the three parts
+
+- **WHEN** the panel is narrower than the sum of the three parts
+- **THEN** the row MUST degrade without breaking column alignment
+- **AND THEN** the label and the value MUST stay readable
+
+### Requirement: Panel text MUST follow the configured language
+
+面板自身的 chrome、字段标签与字段备注 MUST 跟随生效配置中的语言，而不是固定为某一种语言。
+
+#### Scenario: A user switches the configured language
+
+- **WHEN** the effective configuration selects a language
+- **THEN** the panel's group names, field labels, and field notes MUST render in that language
+- **AND THEN** the switch MUST take effect without editing panel source
+
+#### Scenario: A string has no translation
+
+- **WHEN** a panel string has no entry for the selected language
+- **THEN** the panel MUST still render a readable fallback for that string
+- **AND THEN** it MUST NOT render an empty row or crash
+
+### Requirement: The panel MUST honor the documented geometry budget
+
+面板 MUST 遵守 `TUI-DESIGN.md` 定义的高度与留白预算，而不是随终端高度无限增长。宽度基准与 chrome 行数保持不变。
 
 #### Scenario: Standard terminal
 
@@ -110,8 +142,20 @@ Settings 视图 MUST 允许用户折叠与展开每个分组，且默认打开�
 - **THEN** every row MUST fit the existing 78-column basis
 - **AND THEN** the left and right border characters MUST stay continuous on every row
 
+#### Scenario: A tall terminal
+
+- **WHEN** the terminal offers more rows than the documented panel height allows
+- **THEN** the panel MUST occupy the smaller of the documented panel height and the documented share of the terminal
+- **AND THEN** it MUST NOT stretch to fill the terminal
+
 #### Scenario: A short terminal
 
 - **WHEN** the terminal offers very few usable rows
 - **THEN** the body MUST still provide at least the existing minimum row count
 - **AND THEN** the panel MUST NOT overflow the usable viewport
+
+#### Scenario: Clearing the input area
+
+- **WHEN** the panel is anchored in the viewport
+- **THEN** it MUST leave the documented bottom margin clear
+- **AND THEN** it MUST NOT cover the conversation input region
