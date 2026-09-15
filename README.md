@@ -77,6 +77,9 @@ Environment variables:
 - `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED` = `true|false` (default `false`)
 - `XPI_MEMO_RETRIEVAL_MODE`
 - `XPI_MEMO_SLEEP_MODE` = `dedicated|session-model|mechanical|disabled` (default `disabled`; fail-closed)
+- `XPI_MEMO_PROFILE_INJECTION` = `true|false` (default `true`; `false` omits the derived preference-profile block)
+- `XPI_MEMO_EVENT_PRESENTATION` = `true|false` (default `true`; `false` silences footer/status lifecycle events)
+- `XPI_MEMO_PASSIVE_FEEDBACK` = `true|false` (default `true`; `false` stops passive usage-feedback writes)
 
 See [GUIDE.md](./GUIDE.md) for the full config table with defaults and effects.
 

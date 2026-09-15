@@ -172,6 +172,19 @@ User config lives at `~/.config/xpi-memo/config.json` (or set keys via the conso
 | `offlineExtractionEnabled` | `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED` | `false` | Gated offline extraction at session shutdown; disabled by default |
 | `retrievalMode` | `XPI_MEMO_RETRIEVAL_MODE` | `hybrid` | `fts5` / `hybrid` |
 | `sleepMode` | `XPI_MEMO_SLEEP_MODE` | `disabled` | Sleep execution mode: `dedicated` / `session-model` / `mechanical` / `disabled`. Fail-closed: no explicit mode means `SLEEP_DISABLED`; a fallback is never labeled `dedicated` |
+| `profileInjection` | `XPI_MEMO_PROFILE_INJECTION` | `true` | Bounded derived preference-profile block in the recall context; `false` omits the block only — recall is unchanged |
+| `eventPresentation` | `XPI_MEMO_EVENT_PRESENTATION` | `true` | Footer lifecycle-event line and `/xpi-memo-status` event summaries; `false` keeps L0/audit writes and `trace` reads |
+| `passiveFeedback` | `XPI_MEMO_PASSIVE_FEEDBACK` | `true` | Rate-limited `used` feedback on recall/injection; `false` keeps explicit feedback and corrections |
+
+### Disabling runtime surfaces (rollback)
+
+The `evolve-memory-runtime` surfaces can be disabled independently. Turning all three off is the supported rollback: it leaves L0 capture, T1 governance, recall, export, forget and disabled sleep working exactly as before, and it never touches stored data — re-enabling restores the previous behavior.
+
+| Surface | Disable with | What still works |
+| --- | --- | --- |
+| Preference profile injection | `profileInjection: false` | Recall still injects governed memories; projection stays available for status/diagnostics |
+| Lifecycle event presentation | `eventPresentation: false` | L0/audit records keep being written; `/xpi-memo-status` keeps backend, counts and doctor evidence |
+| Passive usage feedback | `passiveFeedback: false` | Explicit `helpful`/`wrong`/`irrelevant` feedback and corrections keep working |
 
 ## Data roots and CLI cross-checks
 
