@@ -57,6 +57,7 @@ If that shows rows while a bare `mnemosyne stats` does not, you are looking at t
 ## Offline extraction (gated enrichment)
 
 - **Disabled by default.** `offlineExtractionEnabled` (or `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED=true`) must be set explicitly.
+- **Model choice.** By default extraction reuses the session's chat model. Set `offlineExtractionModel` in the config file (or `XPI_MEMO_OFFLINE_EXTRACTION_MODEL`) to `provider/model-id` to use a cheaper model; the Settings tab shows the current value read-only. An unknown id falls back to the session model.
 - Extraction runs only at **session shutdown**, reads the last 200 L0 events, and has a 15 s timeout. Slow or failing runners never block the session; check `/xpi-memo-status` `observability.activation.extraction` for outcome counts.
 - Per-session budgets (1 execution / 20 proposals / 5 000 chars) stop further work on exhaustion; `extraction-budget.json` records only counts, never content.
 - Proposals always carry `l0-conclusion` evidence. High-confidence (≥0.9) short session context stores directly; everything else becomes a candidate for review.

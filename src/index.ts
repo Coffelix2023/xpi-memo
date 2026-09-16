@@ -89,7 +89,10 @@ import {
   offlineExtractionOutcome,
   runOfflineExtraction,
 } from "./offline-extraction.ts";
-import { createSessionModelRunner } from "./offline-extraction-runner.ts";
+import {
+  createSessionModelRunner,
+  matchOfflineExtractionModel,
+} from "./offline-extraction-runner.ts";
 import {
   createMnemosyneAdapter,
   type ExactMemoryReader,
@@ -575,18 +578,26 @@ function createRuntime(
 }
 
 /**
- * Default session-model runner (tasks 2.1–2.3): the fallback used only when no
- * runner was injected. Returns undefined whenever the session has no active
- * model, which keeps "no model" a bounded `unavailable` diagnostic instead of
- * a failed model call.
+ * Default extraction runner (tasks 2.1–2.3): the fallback used only when no
+ * runner was injected. The model comes from `offlineExtractionModel` — the
+ * `"session-model"` sentinel keeps using the session's chat model — and the
+ * runner is undefined whenever that resolves to nothing, which keeps "no model"
+ * a bounded `unavailable` diagnostic instead of a failed model call.
  */
 function sessionModelRunnerFor(
   ctx: ExtensionContext,
+  config: ReturnType<typeof loadConfig>["config"],
 ): OfflineExtractionRunner | undefined {
-  if (!ctx.model || !ctx.modelRegistry) return undefined;
+  if (!ctx.modelRegistry) return undefined;
+  const model = matchOfflineExtractionModel(
+    config.offlineExtractionModel,
+    ctx.model,
+    () => ctx.modelRegistry.getAll(),
+  );
+  if (!model) return undefined;
   return createSessionModelRunner({
     client: ctx.modelRegistry,
-    model: ctx.model,
+    model,
     timeoutMs: DEFAULT_OFFLINE_EXTRACTION_TIMEOUT_MS,
   });
 }
@@ -650,7 +661,7 @@ async function runOfflineExtractionForLifecycle(
     limits,
     maxEvents: DEFAULT_OFFLINE_EXTRACTION_MAX_EVENTS,
     maxInputChars: DEFAULT_OFFLINE_EXTRACTION_MAX_INPUT_CHARS,
-    runner: dependencies.offlineExtractionRunner ?? sessionModelRunnerFor(ctx),
+    runner: dependencies.offlineExtractionRunner ?? sessionModelRunnerFor(ctx, config),
     sessionId,
     timeoutMs: DEFAULT_OFFLINE_EXTRACTION_TIMEOUT_MS,
   });

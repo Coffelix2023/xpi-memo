@@ -67,6 +67,8 @@ Activation is wired to L0 provenance: the input hook records a `user_message` ev
 
 Provider-neutral: the runner is injected by the host (`dependencies.offlineExtractionRunner`), so no model dependency lives in the module. Disabled by default (`offlineExtractionEnabled: false`). When enabled it runs at `session_shutdown` and `session_before_compact`, sharing one per-session ledger. The ledger records `consumedThrough` so the same L0 range is never consumed twice, and still enforces one execution, 20 proposals, and 5,000 proposal characters per session. Compact and shutdown failures are best-effort and never block the lifecycle. Disable with `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED=false`.
 
+The extraction model is configurable: `offlineExtractionModel` (or `XPI_MEMO_OFFLINE_EXTRACTION_MODEL`) takes `"session-model"` — the default, meaning the session's chat model — or a `provider/model-id` (a bare model id also works) resolved against the model registry. An id that resolves to nothing falls back to the session model, so a typo never silently disables extraction.
+
 ### Recall ranking (`recall-ranking.ts`)
 
 Pure backend-agnostic post-processing for automatic injection: standing vs contextual roles from the canonical taxonomy, query-intent weighting (`detectQueryIntent`), recency decay (30-day half-life), scope priority, superseded filtering, content deduplication, and per-role item + character budgets. Returns `null` when nothing survives so the caller omits the memory block. Explicit `xpi_memo_recall` output is untouched.

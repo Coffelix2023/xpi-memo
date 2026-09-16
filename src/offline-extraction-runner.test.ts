@@ -4,8 +4,10 @@ import { createL0Event } from "./l0/types.js";
 import { OFFLINE_EXTRACTION_TIMEOUT_MESSAGE } from "./offline-extraction.js";
 import {
   createSessionModelRunner,
+  matchOfflineExtractionModel,
   type OfflineExtractionModelClient,
   type OfflineExtractionRunnerOutput,
+  SESSION_MODEL_SENTINEL,
 } from "./offline-extraction-runner.js";
 
 /**
@@ -218,5 +220,63 @@ describe("createSessionModelRunner", () => {
       unavailable: "no-model",
     });
     expect(complete).not.toHaveBeenCalled();
+  });
+});
+
+/** Model-selection tests for the configurable offline extraction model. */
+describe("matchOfflineExtractionModel", () => {
+  const catalogue = [
+    {
+      id: "sonnet",
+      provider: "anthropic",
+    },
+    {
+      id: "sonnet",
+      provider: "bedrock",
+    },
+    {
+      id: "gpt-5",
+      provider: "openai",
+    },
+  ];
+  const session = {
+    id: "session-chat",
+    provider: "local",
+  };
+
+  it("keeps the session model for the sentinel and never reads the catalogue", () => {
+    const read = vi.fn(() => catalogue);
+    expect(matchOfflineExtractionModel(SESSION_MODEL_SENTINEL, session, read)).toBe(
+      session,
+    );
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("matches a provider-qualified id and a bare id", () => {
+    expect(
+      matchOfflineExtractionModel("bedrock/sonnet", session, () => catalogue)?.provider,
+    ).toBe("bedrock");
+    expect(
+      matchOfflineExtractionModel("gpt-5", session, () => catalogue)?.provider,
+    ).toBe("openai");
+  });
+
+  it("falls back to the session model for an unknown or unusable value", () => {
+    for (const configured of [
+      "does-not-exist",
+      "openai/does-not-exist",
+      "",
+      "/sonnet",
+    ]) {
+      expect(matchOfflineExtractionModel(configured, session, () => catalogue)).toBe(
+        session,
+      );
+    }
+  });
+
+  it("stays undefined when neither the config nor the session supplies a model", () => {
+    expect(
+      matchOfflineExtractionModel("does-not-exist", undefined, () => catalogue),
+    ).toBeUndefined();
   });
 });

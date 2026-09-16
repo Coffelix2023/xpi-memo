@@ -21,6 +21,7 @@ export const DEFAULT_XPI_MEMO_CONFIG = {
   language: "en",
   limit: 5,
   offlineExtractionEnabled: false,
+  offlineExtractionModel: "session-model",
   passiveFeedback: true,
   paused: false,
   privacy: false,
@@ -59,6 +60,11 @@ export interface XpiMemoConfig {
   language: Language;
   limit: number;
   offlineExtractionEnabled: boolean;
+  /**
+   * Model used by gated offline extraction: `"session-model"` reuses the chat
+   * model, anything else is a `provider/model-id` or a bare model id.
+   */
+  offlineExtractionModel: string;
   /** Runtime surface: passive usage feedback writes. */
   passiveFeedback: boolean;
   paused: boolean;
@@ -85,6 +91,7 @@ export interface UserConfig {
   language?: unknown;
   limit?: unknown;
   offlineExtractionEnabled?: unknown;
+  offlineExtractionModel?: unknown;
   passiveFeedback?: unknown;
   paused?: unknown;
   privacy?: unknown;
@@ -188,6 +195,7 @@ const WRITABLE_KEYS = new Set([
   "language",
   "limit",
   "offlineExtractionEnabled",
+  "offlineExtractionModel",
   "paused",
   "passiveFeedback",
   "privacy",
@@ -208,6 +216,7 @@ const ENV_KEYS: Record<string, string> = {
   language: "XPI_MEMO_LANGUAGE",
   limit: "XPI_MEMO_LIMIT",
   offlineExtractionEnabled: "XPI_MEMO_OFFLINE_EXTRACTION_ENABLED",
+  offlineExtractionModel: "XPI_MEMO_OFFLINE_EXTRACTION_MODEL",
   passiveFeedback: "XPI_MEMO_PASSIVE_FEEDBACK",
   paused: "XPI_MEMO_PAUSED",
   privacy: "XPI_MEMO_PRIVACY",
@@ -346,6 +355,20 @@ function resolveSleepMode(
   return DEFAULT_XPI_MEMO_CONFIG.sleepMode;
 }
 
+/**
+ * Offline extraction model: the session sentinel, a `provider/model-id`, or a
+ * bare model id. Free text by design, so it fails closed to the sentinel when
+ * neither the environment nor the config file supplies a usable string.
+ */
+function resolveOfflineExtractionModel(
+  environmentValue: string | undefined,
+  userValue: unknown,
+): string {
+  if (environmentValue !== undefined) return environmentValue;
+  if (nonEmptyString(userValue)) return userValue.trim();
+  return DEFAULT_XPI_MEMO_CONFIG.offlineExtractionModel;
+}
+
 export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
   const env = options.env ?? process.env;
   const configHome =
@@ -421,6 +444,10 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
       boolean(user.config.offlineExtractionEnabled)
         ? user.config.offlineExtractionEnabled
         : DEFAULT_XPI_MEMO_CONFIG.offlineExtractionEnabled,
+    ),
+    offlineExtractionModel: resolveOfflineExtractionModel(
+      envString(env, "XPI_MEMO_OFFLINE_EXTRACTION_MODEL"),
+      user.config.offlineExtractionModel,
     ),
     passiveFeedback: envBool(
       "XPI_MEMO_PASSIVE_FEEDBACK",

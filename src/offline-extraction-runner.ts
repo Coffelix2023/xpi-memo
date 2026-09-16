@@ -24,6 +24,41 @@ import { OFFLINE_EXTRACTION_TIMEOUT_MESSAGE } from "./offline-extraction.js";
 /** Output token budget for one extraction call (~4k characters). */
 export const DEFAULT_OFFLINE_EXTRACTION_MAX_OUTPUT_TOKENS = 1200;
 
+/** Config value meaning "use the session's chat model". */
+export const SESSION_MODEL_SENTINEL = "session-model";
+
+/** Anything the matcher needs from a model: an id and its provider. */
+export interface OfflineExtractionModelRef {
+  id: string;
+  provider: string;
+}
+
+/**
+ * Resolve the configured extraction model against the model catalogue.
+ *
+ * `"session-model"`, an unknown id, or an unparsable value all fall back to the
+ * session model: a typo degrades to the previous behaviour instead of silently
+ * switching extraction off. Accepts `provider/model-id` or a bare model id.
+ * The catalogue is a thunk so the sentinel path never reads the registry.
+ */
+export function matchOfflineExtractionModel<T extends OfflineExtractionModelRef>(
+  configured: string,
+  sessionModel: T | undefined,
+  catalogue: () => readonly T[],
+): T | undefined {
+  if (configured === SESSION_MODEL_SENTINEL) return sessionModel;
+  const separator = configured.indexOf("/");
+  const provider = separator > 0 ? configured.slice(0, separator) : undefined;
+  const id = separator > 0 ? configured.slice(separator + 1) : configured;
+  if (id === "") return sessionModel;
+  return (
+    catalogue().find(
+      (model) =>
+        model.id === id && (provider === undefined || model.provider === provider),
+    ) ?? sessionModel
+  );
+}
+
 /**
  * Confidence assigned to an entry the model returned without a usable number.
  * Midpoint is deliberate: it routes the proposal to the candidate lifecycle

@@ -323,6 +323,60 @@ describe("XpiMemo configuration", () => {
     }).config.offlineExtractionEnabled;
     expect(invalid).toBe(false);
   });
+  it("resolves offlineExtractionModel from the environment, user config and default", () => {
+    const configHome = createTemporaryDirectory();
+    expect(
+      loadConfig({
+        configHome,
+        env: {},
+      }).config.offlineExtractionModel,
+    ).toBe("session-model");
+
+    // A user-set id survives a save of an unrelated setting: the key is writable.
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        offlineExtractionModel: "anthropic/sonnet",
+      }),
+    );
+    expect(
+      loadConfig({
+        configHome,
+        env: {},
+      }).config.offlineExtractionModel,
+    ).toBe("anthropic/sonnet");
+    saveUserConfig({
+      configHome,
+      env: {},
+      values: {
+        paused: true,
+      },
+    });
+    expect(
+      JSON.parse(readFileSync(configPath(configHome), "utf8")).offlineExtractionModel,
+    ).toBe("anthropic/sonnet");
+
+    // The environment wins, and a blank value never replaces the default.
+    expect(
+      loadConfig({
+        configHome,
+        env: {
+          XPI_MEMO_OFFLINE_EXTRACTION_MODEL: "openai/gpt-5",
+        },
+      }).config.offlineExtractionModel,
+    ).toBe("openai/gpt-5");
+    expect(
+      loadConfig({
+        configHome,
+        env: {
+          XPI_MEMO_OFFLINE_EXTRACTION_MODEL: "   ",
+        },
+      }).config.offlineExtractionModel,
+    ).toBe("anthropic/sonnet");
+  });
   it("uses XDG_CONFIG_HOME and falls back to the home config directory", () => {
     const xdgConfigHome = createTemporaryDirectory();
     mkdirSync(join(xdgConfigHome, "xpi-memo"), {
