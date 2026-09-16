@@ -37,11 +37,11 @@ export interface ConsoleActions {
 }
 
 /**
- * Panel chrome is 6 rows: border top, tab title row, field-description row, two
- * info-bar rows, border bottom. The body is whatever the height budget left,
- * floored at 3 rows.
+ * Panel chrome is 8 rows: border top carrying the title, tab bar, two
+ * field-detail rows, two info-bar rows, the key-hint footer, border bottom.
+ * The body is whatever the height budget left, floored at 3 rows.
  */
-export const PANEL_CHROME_ROWS = 6;
+export const PANEL_CHROME_ROWS = 8;
 export const MIN_BODY_ROWS = 3;
 /**
  * Documented height budget (`TUI-DESIGN.md`): a 24-row panel, never more than
@@ -167,9 +167,85 @@ type PanelLanguage = XpiMemoConfig["language"];
 
 const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
   en: {
+    "choice.autoExport": "Recommend: on · off=no backup · on=periodic Markdown export",
+    "choice.confirmStore":
+      "Recommend: off · off=store silently · on=ask before every write",
+    "choice.dataDir": "Read-only · change it in the config file or XPI_MEMO_DATA_DIR",
+    "choice.eventPresentation":
+      "Recommend: on · off=hide memory events · on=show them in the Pi footer",
+    "choice.excludeToolResults":
+      "Recommend: off · off=log tool output · on=keep it out of memory",
+    "choice.globalLimit": "Recommend: 5 · 1/5/10/20 rows per turn across all projects",
+    "choice.l0Enabled":
+      "Recommend: on · off=drop this session · on=keep its trace for recall",
+    "choice.language": "Recommend: yours · en=English panel · zh=中文面板",
+    "choice.limit":
+      "Recommend: 5 · 1/5/10/20 memory rows the Agent may inject per turn",
+    "choice.offlineExtractionEnabled":
+      "Recommend: off · off=rules only · on=extract without a model",
+    "choice.offlineExtractionModel":
+      "Read-only · session-model reuses the chat model, or name one explicitly",
+    "choice.passiveFeedback":
+      "Recommend: on · off=no usage signal · on=rank recall by what you used",
+    "choice.paused": "Recommend: off · off=memory runs · on=stop all memory work",
+    "choice.privacy": "Recommend: off · off=store memory · on=persist nothing at all",
+    "choice.profileInjection":
+      "Recommend: on · off=no profile · on=inject your preference profile",
+    "choice.projectLimit": "Recommend: 5 · 1/5/10/20 rows per turn inside this project",
+    "choice.recallPolicy":
+      "Recommend: high-value-auto · active=ask · assist=useful · high-value-auto=auto-inject",
+    "choice.retrievalMode":
+      "Recommend: hybrid · fts5=keywords only · hybrid=adds semantic search",
+    "choice.searchBackend":
+      "Recommend: auto · auto=first · ripgrep=no setup · mnemosyne=semantic · qmd=local index",
+    "choice.sleep": "On demand · off=idle · run=consolidate now, then confirm",
+    "choice.sleepMode":
+      "Recommend: disabled (off) · dedicated=own model · session-model=chat · mechanical=rules",
     "chrome.hint":
-      "←/→ tab · ↑/↓ move · Space change · Enter save/select · Tab field · Esc close",
+      "←/→ tab · ↑/↓ move · Space change · Enter save · Tab field · Esc close",
     "chrome.saved": "Saved · configuration written",
+    "detail.autoExport":
+      "Periodic Markdown backup of the bank · human-only · Space toggles on/off, Enter saves",
+    "detail.confirmStore":
+      "Ask you before the Agent stores a memory · Space toggles on/off, Enter saves",
+    "detail.dataDir":
+      "Where memories live on disk · human-only · read-only, edit the config file",
+    "detail.eventPresentation":
+      "Memory events in the Pi footer · human-only · Space toggles on/off, Enter saves",
+    "detail.excludeToolResults":
+      "Keep tool output out of the Agent's memory · Space toggles on/off, Enter saves",
+    "detail.globalLimit":
+      "Agent cap across all projects · Space cycles 1/5/10/20, Enter saves",
+    "detail.l0Enabled":
+      "Keep this session's trace for Agent recall · Space toggles on/off, Enter saves",
+    "detail.language":
+      "Language of this panel · human-only · Space switches en/zh, Enter saves",
+    "detail.limit":
+      "Rows the Agent may inject per turn · Space cycles 1/5/10/20, Enter saves",
+    "detail.offlineExtractionEnabled":
+      "Extract memories without a model · affects Agent recall · Space toggles, Enter saves",
+    "detail.offlineExtractionModel":
+      "Model for offline extraction · human-only · read-only, edit the config file",
+    "detail.passiveFeedback":
+      "Ranking signal for the Agent's recall · Space toggles on/off, Enter saves",
+    "detail.paused":
+      "Stop all memory work for the Agent · Space toggles on/off, Enter saves",
+    "detail.privacy":
+      "Persist nothing · the Agent reads no memory · Space toggles on/off, Enter saves",
+    "detail.profileInjection":
+      "Inject your preference profile into the Agent's context · Space toggles, Enter saves",
+    "detail.projectLimit":
+      "Agent cap inside this project · Space cycles 1/5/10/20, Enter saves",
+    "detail.recallPolicy":
+      "When the Agent recalls memory on its own · Space cycles, Enter saves",
+    "detail.retrievalMode":
+      "How the Agent searches memory · Space cycles fts5/hybrid, Enter saves",
+    "detail.searchBackend":
+      "Engine that runs the Agent's recall · Space cycles, Enter saves",
+    "detail.sleep":
+      "One consolidation you trigger now · human-only · Space, then confirm",
+    "detail.sleepMode":
+      "When the Agent consolidates memory · Space cycles, Enter saves",
     "field.autoExport": "Auto export",
     "field.confirmStore": "Confirm store",
     "field.dataDir": "Data dir",
@@ -230,9 +306,61 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "tab.status": "Status",
   },
   zh: {
+    "choice.autoExport": "推荐: on · off=不备份 · on=定期导出 Markdown",
+    "choice.confirmStore": "推荐: off · off=直接写入 · on=每次写入前问你",
+    "choice.dataDir": "只读 · 改配置文件或 XPI_MEMO_DATA_DIR",
+    "choice.eventPresentation": "推荐: on · off=不显示事件 · on=页脚显示记忆事件",
+    "choice.excludeToolResults": "推荐: off · off=记录工具输出 · on=不写入记忆",
+    "choice.globalLimit": "推荐: 5 · 1/5/10/20 是所有项目的每轮上限",
+    "choice.l0Enabled": "推荐: on · off=不留轨迹 · on=保留本轮轨迹供召回",
+    "choice.language": "推荐: 你的母语 · en=English · zh=中文",
+    "choice.limit": "推荐: 5 · 1/5/10/20 是 Agent 每轮可注入的条数",
+    "choice.offlineExtractionEnabled": "推荐: off · off=只用规则 · on=无模型也能提取",
+    "choice.offlineExtractionModel":
+      "只读 · session-model 复用当前聊天模型, 也可写具体模型 id",
+    "choice.passiveFeedback": "推荐: on · off=不记录 · on=按实际使用排序召回",
+    "choice.paused": "推荐: off · off=记忆工作 · on=全部停止",
+    "choice.privacy": "推荐: off · off=正常写入 · on=不落任何持久记忆",
+    "choice.profileInjection": "推荐: on · off=不注入 · on=注入你的偏好画像",
+    "choice.projectLimit": "推荐: 5 · 1/5/10/20 是本项目内的每轮上限",
+    "choice.recallPolicy":
+      "推荐: high-value-auto · active=先问你 · assist=有用才召回 · high-value-auto=自动注入",
+    "choice.retrievalMode": "推荐: hybrid · fts5=纯关键词 · hybrid=加语义检索",
+    "choice.searchBackend":
+      "推荐: auto · auto=取首个可用 · ripgrep=零配置 · mnemosyne=语义 · qmd=本地索引",
+    "choice.sleep": "按需 · off=不整理 · run=立即整理一次并确认",
+    "choice.sleepMode":
+      "推荐: disabled(关闭) · dedicated=独立模型 · session-model=聊天模型 · mechanical=机械",
     "chrome.hint":
       "←/→ 切页 · ↑/↓ 移动 · Space 切换 · Enter 保存/选择 · Tab 跳字段 · Esc 关闭",
     "chrome.saved": "已保存 · 配置已写入",
+    "detail.autoExport":
+      "定期把记忆库导出成 Markdown 备份 · 只与你有关 · 空格切换 on/off, Enter 保存",
+    "detail.confirmStore": "Agent 写记忆前先问你 · 空格切换 on/off, Enter 保存",
+    "detail.dataDir": "记忆在磁盘上的位置 · 只读, 改配置文件或环境变量",
+    "detail.eventPresentation":
+      "在 Pi 页脚显示记忆事件 · 只与你有关 · 空格切换 on/off, Enter 保存",
+    "detail.excludeToolResults": "不把工具输出写进记忆 · 空格切换 on/off, Enter 保存",
+    "detail.globalLimit":
+      "所有项目的总上限 · 限制 Agent 注入 · 空格切换 1/5/10/20, Enter 保存",
+    "detail.l0Enabled": "保留本轮会话轨迹供以后召回 · 空格切换 on/off, Enter 保存",
+    "detail.language": "面板与提示的语言 · 只与你有关 · 空格切换 en/zh, Enter 保存",
+    "detail.limit": "Agent 每轮注入的条数 · 空格切换 1/5/10/20, Enter 保存",
+    "detail.offlineExtractionEnabled":
+      "无模型时也能提取记忆 · 影响 Agent 召回 · 空格切换 on/off, Enter 保存",
+    "detail.offlineExtractionModel": "离线提取用的模型 · 只读, 改配置文件或环境变量",
+    "detail.passiveFeedback": "记录哪些召回记忆真被用到 · 空格切换 on/off, Enter 保存",
+    "detail.paused": "全项目停用记忆 · Agent 不再读取 · 空格切换 on/off, Enter 保存",
+    "detail.privacy": "开启后不写任何持久记忆 · 空格切换 on/off, Enter 保存",
+    "detail.profileInjection":
+      "把你的偏好画像注入 Agent 上下文 · 空格切换 on/off, Enter 保存",
+    "detail.projectLimit":
+      "本项目内的上限 · 限制 Agent 注入 · 空格切换 1/5/10/20, Enter 保存",
+    "detail.recallPolicy": "Agent 何时自行召回记忆 · 空格切换策略, Enter 保存",
+    "detail.retrievalMode": "Agent 检索记忆的方式 · 空格切换 fts5/hybrid, Enter 保存",
+    "detail.searchBackend": "召回使用哪个搜索引擎 · 空格切换, Enter 保存",
+    "detail.sleep": "由你触发的一次记忆整理 · 只与你有关 · 空格后确认, 不写配置",
+    "detail.sleepMode": "Agent 何时整理记忆 · 空格切换整理方式, Enter 保存",
     "field.autoExport": "自动导出",
     "field.confirmStore": "存储前确认",
     "field.dataDir": "数据目录",
@@ -327,23 +455,38 @@ export function infoBarLines(model: ConsoleViewModel, width: number): string[] {
   ];
 }
 
-/** Title row: active tab on the left, key hints on the right. */
-export function tabTitleLines(
+/** Product title, rendered in the top border in both languages at once. */
+export const PANEL_TITLE = "xpi-memo · pi 的 DNA 记忆体 / pi's DNA memory";
+
+/**
+ * Top border with `PANEL_TITLE` embedded: the documented TUI pattern, so the
+ * title costs no body row. The fill is measured with `visibleWidth`, which
+ * counts CJK glyphs as two columns, so the right corner stays in the same
+ * column on every row.
+ */
+export function titleBorder(width: number, theme: Pick<Theme, "fg">): string {
+  const inner = Math.max(width - 2, 1);
+  const label = truncateToWidth(`─ ${PANEL_TITLE} `, inner, "…");
+  const fill = "─".repeat(Math.max(inner - visibleWidth(label), 0));
+  return theme.fg("borderAccent", `╭${label}${fill}╮`);
+}
+/** Tab bar: every tab label, so ←/→ has visible destinations. */
+export function tabBarLines(
   model: ConsoleViewModel,
   tab: number,
   width: number,
+  theme: Pick<Theme, "fg">,
 ): string[] {
   const inner = Math.max(width - 4, 1);
-  const label = tabTitle(model, tab);
-  const left = tab === PENDING_TAB ? `${label} ${model.pending.length}` : label;
-  const hint = truncateToWidth(
-    panelText("chrome.hint", model.language),
-    Math.max(inner - visibleWidth(left) - 2, 1),
-    "…",
-  );
-  const gap = " ".repeat(Math.max(inner - visibleWidth(left) - visibleWidth(hint), 1));
+  const labels = TAB_TITLE_KEYS.map((_, index) => {
+    const label =
+      index === PENDING_TAB
+        ? `${tabTitle(model, index)} ${model.pending.length}`
+        : tabTitle(model, index);
+    return index === tab ? theme.fg("accent", label) : theme.fg("muted", label);
+  });
   return [
-    `${left}${gap}${hint}`,
+    truncateToWidth(labels.join(" · "), inner, "…"),
   ];
 }
 
@@ -657,6 +800,33 @@ function settingsValue(id: SettingsFieldId, config: XpiMemoConfig): string {
   return value ? "on" : "off";
 }
 
+/**
+ * Panel value → persisted config value, typed by the field's own configured
+ * value. A boolean switch must never reach `saveUserConfig` as `Number("on")`:
+ * `NaN` serializes to `null`, which the next load rejects, so the setting looks
+ * saved and silently reverts. Typing off the config also keeps a field added
+ * later correct without touching this code.
+ */
+export function settingsSaveValue(
+  id: string,
+  value: string,
+  config: XpiMemoConfig,
+): ConsoleSettings {
+  // `SettingsFieldId` is a subset of the config's keys, so this lookup is sound
+  // for every id the panel can pass; the key is widened only for indexing.
+  const current = config[id as keyof XpiMemoConfig];
+  if (typeof current === "boolean")
+    return {
+      [id]: value === "on",
+    } as ConsoleSettings;
+  if (typeof current === "number")
+    return {
+      [id]: Number(value),
+    } as ConsoleSettings;
+  return {
+    [id]: value,
+  } as ConsoleSettings;
+}
 /** One row the Settings tab can show: a group header or a field. */
 export type SettingsRow =
   | {
@@ -964,15 +1134,21 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
       height = Math.min(height, guard.height);
       const inner = Math.max(width - 4, 1);
       const lines: string[] = [
-        theme.fg("borderAccent", `╭${"─".repeat(Math.max(width - 2, 1))}╮`),
-        `│ ${padRow(theme.bold(tabTitleLines(model, tab, width)[0] ?? ""), inner)} │`,
+        titleBorder(width, theme),
+        `│ ${padRow(tabBarLines(model, tab, width, theme)[0] ?? "", inner)} │`,
       ];
       for (const row of fit(bodyRowsFor(inner), body))
         lines.push(`│ ${padRow(row, inner)} │`);
-      lines.push(`│ ${padRow(theme.fg("muted", describeRow()), inner)} │`);
+      for (const row of detailLines())
+        lines.push(`│ ${padRow(theme.fg("muted", row), inner)} │`);
       const info = infoBarLines(model, width);
       lines.push(`│ ${padRow(theme.fg("dim", info[0] ?? ""), inner)} │`);
       lines.push(`│ ${padRow(theme.fg("muted", info[1] ?? ""), inner)} │`);
+      // Key hints sit on the last line before the border, in the same dim
+      // style as the footer status line.
+      lines.push(
+        `│ ${padRow(theme.fg("dim", panelText("chrome.hint", model.language)), inner)} │`,
+      );
       lines.push(theme.fg("borderAccent", `╰${"─".repeat(Math.max(width - 2, 1))}╯`));
       // Cap the rendered height at the budget. The body list, info bar and
       // border always add up to more than `height` on tall terminals, so the
@@ -1058,15 +1234,28 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
   }
 
   /**
-   * Text for the description row: the save notice first, otherwise the note of
-   * the row under the cursor. Only the Settings tab has field notes.
+   * The two fixed detail rows for the row under the cursor: what the field
+   * does and who it is for, then the recommended value with the meaning of
+   * every option. Group headers and the non-Settings tabs explain nothing,
+   * so both rows stay blank and the detail area never changes height.
    */
-  function describeRow(): string {
-    if (savedNotice) return panelText("chrome.saved", model.language);
-    if (tab !== SETTINGS_TAB) return "";
+  function detailLines(): string[] {
+    if (savedNotice)
+      return [
+        panelText("chrome.saved", model.language),
+        "",
+      ];
+    const blank = [
+      "",
+      "",
+    ];
+    if (tab !== SETTINGS_TAB) return blank;
     const row = settingsRows(model.rows, collapsed)[cursor];
-    if (row === undefined || row.kind === "group") return "";
-    return row.item.description ?? panelText(`note.${row.item.id}`, model.language);
+    if (row === undefined || row.kind === "group") return blank;
+    return [
+      panelText(`detail.${row.item.id}`, model.language),
+      panelText(`choice.${row.item.id}`, model.language),
+    ];
   }
 
   function bodyRowsFor(width: number): string[] {
@@ -1108,11 +1297,7 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
         });
       return;
     }
-    if (id === "paused" || id === "confirmStore")
-      actions.save({
-        [id]: value === "on",
-      } as ConsoleSettings);
-    else if (id === "language") {
+    if (id === "language") {
       // The panel renders its own labels, and `model.language` is what they read,
       // so the row must land in the view-model or the panel keeps the old
       // language until it is reopened.
@@ -1122,18 +1307,7 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
         } as ConsoleSettings);
         model.language = value;
       }
-    } else if (
-      id === "recallPolicy" ||
-      id === "retrievalMode" ||
-      id === "searchBackend"
-    )
-      actions.save({
-        [id]: value,
-      } as ConsoleSettings);
-    else
-      actions.save({
-        [id]: Number(value),
-      } as ConsoleSettings);
+    } else actions.save(settingsSaveValue(id, value, options.config));
     tui.requestRender();
   }
 }

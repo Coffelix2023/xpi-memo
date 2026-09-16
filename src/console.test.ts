@@ -1,10 +1,14 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getKeybindings, type SettingItem, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import type { XpiMemoConfig } from "./config.js";
-import { DEFAULT_XPI_MEMO_CONFIG } from "./config.js";
+import { DEFAULT_XPI_MEMO_CONFIG, loadConfig, saveUserConfig } from "./config.js";
 import {
   bodyRows,
   type ConsoleComponentOptions,
+  type ConsoleSettings,
   type ConsoleViewModel,
   clampCursor,
   createConsoleComponent,
@@ -37,9 +41,11 @@ import {
   settingsItems,
   settingsRows,
   settingsRowText,
+  settingsSaveValue,
   statusLines,
   statusWindow,
-  tabTitleLines,
+  tabBarLines,
+  titleBorder,
 } from "./console.js";
 import type { PendingCandidate } from "./pending-candidate.js";
 import type { MemoryStatus } from "./status.js";
@@ -50,12 +56,24 @@ const keybindings = getKeybindings();
 const NOTE_TO_VALUE_PATTERN = /semantics( +)hybrid$/;
 /** A description row must hold no copy at all. */
 const LETTER_PATTERN = /[A-Za-z]/;
+/** Splits an option legend into `value` tokens, ignoring `=` and separators. */
+const LEGEND_TOKEN_PATTERN = /[^A-Za-z0-9-]+/;
 
 /** Identity theme: every style call returns its text unchanged. */
 const THEME = {
   bold: (text: string) => text,
   fg: (_color: string, text: string) => text,
 };
+
+/**
+ * Accent-painted body rows only. The tab bar paints the active tab label with
+ * the same accent, so a raw accent tally would count it as a second cursor.
+ */
+function accentedRows(accented: readonly string[]): string[] {
+  return accented.filter(
+    (text) => text.startsWith("▾") || text.startsWith("▸") || text.startsWith("  "),
+  );
+}
 
 function status(overrides: Partial<MemoryStatus> = {}): MemoryStatus {
   return {
@@ -190,28 +208,29 @@ describe("4.1 console panel layout (fixed height)", () => {
   it("caps the height at the documented budget and tightens on small terminals", () => {
     // A tall terminal gets the documented 24-row panel, not the whole viewport.
     expect(panelLayout(50)).toEqual({
-      body: 18,
+      body: 16,
       height: 24,
     });
     expect(panelLayout(100)).toEqual({
-      body: 18,
+      body: 16,
       height: 24,
     });
     // A short terminal is squeezed to 70% of its rows.
     expect(panelLayout(24)).toEqual({
-      body: 10,
+      body: 8,
       height: 16,
     });
     // The viewport clamp wins before the 3-row body floor can.
     expect(panelLayout(8)).toEqual({
-      body: 2,
+      body: 0,
       height: 8,
     });
     expect(panelLayout(9)).toEqual({
-      body: 3,
+      body: 1,
       height: 9,
     });
-    expect(panelLayout(6).body + PANEL_CHROME_ROWS).toBe(6);
+    // Below chrome + the body floor the panel can only show its frame.
+    expect(panelLayout(6).body).toBe(0);
     // The body floor survives every budget path that outlives the chrome.
     expect(bodyRows(6)).toBe(MIN_BODY_ROWS);
     expect(bodyRows(11)).toBe(MIN_BODY_ROWS);
@@ -257,6 +276,18 @@ describe("4.1 console panel layout (fixed height)", () => {
     expect(panel.render(70)).toHaveLength(PANEL_HEIGHT);
     tui.terminal.rows = 9;
     expect(panel.render(70).length).toBeLessThanOrEqual(9);
+  });
+
+  it("embeds the bilingual title in the top border without breaking the frame", () => {
+    const line = titleBorder(PANEL_WIDTH, THEME);
+    expect(line).toContain("xpi-memo");
+    expect(line).toContain("pi 的 DNA 记忆体");
+    expect(line).toContain("pi's DNA memory");
+    expect(visibleWidth(line)).toBe(PANEL_WIDTH);
+    const rendered = component().render(PANEL_WIDTH);
+    expect(rendered[0]).toBe(line);
+    // Every row keeps the same visible width, so the right border stays aligned.
+    for (const row of rendered) expect(visibleWidth(row)).toBe(PANEL_WIDTH);
   });
 
   it("fit pads/truncates to exactly rows lines", () => {
@@ -414,21 +445,23 @@ describe("4.3 console Overview info bar", () => {
       expect(visibleWidth(line)).toBeLessThanOrEqual(16);
   });
 
-  it("no tab body renders Overview; tab titles carry the tab name", () => {
+  it("the tab bar lists every tab and no tab body renders Overview", () => {
+    const every = [
+      "Pending",
+      "Recent",
+      "Settings",
+      "Status",
+    ];
     for (const tab of [
       PENDING_TAB,
       RECENT_TAB,
       SETTINGS_TAB,
+      STATUS_TAB,
     ] as const) {
-      expect(tabTitleLines(viewModel(), tab, 70)[0]).toContain(
-        [
-          "Pending",
-          "Recent",
-          "Settings",
-        ][tab],
-      );
-      // "Overview" as a literal never appears in the tab title row.
-      expect(tabTitleLines(viewModel(), tab, 70)[0]).not.toContain("Overview");
+      const row = tabBarLines(viewModel(), tab, 70, THEME)[0] ?? "";
+      // Every destination is on screen, so ←/→ is discoverable.
+      for (const name of every) expect(row).toContain(name);
+      expect(row).not.toContain("Overview");
     }
   });
 
@@ -442,7 +475,8 @@ describe("4.3 console Overview info bar", () => {
     expect(infoBarLines(zh, 90)[0]).toContain("L0 会话轨迹");
     expect(infoBarLines(zh, 90)[1]).toContain("库: project-demo");
     expect(infoBarLines(zh, 90)[1]).toContain("待审: 1");
-    expect(tabTitleLines(zh, SETTINGS_TAB, 70)[0]).toContain("设置");
+    expect(tabBarLines(zh, SETTINGS_TAB, 70, THEME)[0]).toContain("设置");
+    expect(tabBarLines(zh, PENDING_TAB, 70, THEME)[0]).toContain("待审 2");
     expect(infoBarLines(viewModel(), 90)[0]).toContain("L0 session trace");
   });
 
@@ -766,6 +800,7 @@ describe("4.6 Settings tab", () => {
     // Keys the panel renders: chrome, tabs, groups, fields, notes and info bar.
     const keys = [
       "chrome.hint",
+      "chrome.saved",
       "info.bank",
       "info.disk",
       "info.pause",
@@ -781,6 +816,8 @@ describe("4.6 Settings tab", () => {
       ...SETTINGS_GROUPS.flatMap((group) => group.fields).flatMap((id) => [
         `field.${id}`,
         `note.${id}`,
+        `detail.${id}`,
+        `choice.${id}`,
       ]),
     ];
     for (const language of [
@@ -795,6 +832,130 @@ describe("4.6 Settings tab", () => {
     }
     // The two languages really differ, so the switch is observable.
     expect(panelText("field.limit", "zh")).not.toBe(panelText("field.limit", "en"));
+  });
+
+  it("every detail row explains the field and every choice row names its options", () => {
+    const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {});
+    for (const language of [
+      "en",
+      "zh",
+    ] as const) {
+      for (const item of items) {
+        const detail = panelText(`detail.${item.id}`, language);
+        const choice = panelText(`choice.${item.id}`, language);
+        // Both rows must fit the 90-column inner width of the 94-column panel.
+        expect(
+          visibleWidth(detail),
+          `${language} detail.${item.id}`,
+        ).toBeLessThanOrEqual(90);
+        expect(
+          visibleWidth(choice),
+          `${language} choice.${item.id}`,
+        ).toBeLessThanOrEqual(90);
+        // The detail row is an explanation, not the note column read back.
+        expect(detail).not.toBe(panelText(`note.${item.id}`, language));
+        // Every enumerated value is named in the option legend.
+        const tokens = choice.split(LEGEND_TOKEN_PATTERN);
+        for (const value of item.values ?? [])
+          expect(tokens, `${language} choice.${item.id} is missing ${value}`).toContain(
+            value,
+          );
+      }
+    }
+  });
+
+  it("types a saved value from the field's configured type, never NaN", () => {
+    const config = DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig;
+    // `sleep` is a one-shot action row with no configured value to type off.
+    const ids = SETTINGS_GROUPS.flatMap((group) => group.fields).filter(
+      (id) => id !== "sleep",
+    );
+    for (const id of ids) {
+      const current = config[id];
+      // Numbers take a numeric string, everything else a name; a boolean field
+      // resolves `"on"`-style input to a real boolean either way.
+      const value = typeof current === "number" ? "10" : "hybrid";
+      const saved = settingsSaveValue(id, value, config) as Record<string, unknown>;
+      expect(typeof saved[id], id).toBe(typeof current);
+    }
+    // The reported bug: a boolean switch reached the file as Number("on").
+    expect(settingsSaveValue("offlineExtractionEnabled", "on", config)).toEqual({
+      offlineExtractionEnabled: true,
+    });
+    expect(settingsSaveValue("offlineExtractionEnabled", "off", config)).toEqual({
+      offlineExtractionEnabled: false,
+    });
+    expect(settingsSaveValue("limit", "10", config)).toEqual({
+      limit: 10,
+    });
+    expect(settingsSaveValue("retrievalMode", "fts5", config)).toEqual({
+      retrievalMode: "fts5",
+    });
+  });
+
+  it("Space on a boolean switch saves a boolean instead of NaN", () => {
+    const save = vi.fn();
+    const panel = component({
+      actions: actions({
+        save,
+      }),
+      terminalRows: 20,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    // Walk down to the Storage header and unfold it.
+    for (let i = 0; i < 7; i += 1) panel.handleInput("\u001b[B");
+    expect(panel.getSettingsCursor()).toBe(7);
+    panel.handleInput(" ");
+    // Tab walks the group: confirmStore, autoExport, offline extraction.
+    for (let i = 0; i < 3; i += 1) panel.handleInput("\t");
+    expect(panel.getSettingsCursor()).toBe(10);
+    // Offline extraction is off by default: Space turns it on and saves.
+    panel.handleInput(" ");
+    expect(save).toHaveBeenLastCalledWith({
+      offlineExtractionEnabled: true,
+    });
+    const payload = (save.mock.calls.at(-1)?.[0] ?? {}) as Record<string, unknown>;
+    expect(typeof payload.offlineExtractionEnabled).toBe("boolean");
+    // Space again turns it back off, still as a boolean.
+    panel.handleInput(" ");
+    expect(save).toHaveBeenLastCalledWith({
+      offlineExtractionEnabled: false,
+    });
+  });
+
+  it("a boolean switch survives the round trip to the config file", () => {
+    const configHome = mkdtempSync(join(tmpdir(), "xpi-memo-panel-"));
+    const save = vi.fn((values: ConsoleSettings) => {
+      saveUserConfig({
+        configHome,
+        env: {},
+        values,
+      });
+    });
+    const panel = component({
+      actions: actions({
+        save,
+      }),
+      terminalRows: 20,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    for (let i = 0; i < 7; i += 1) panel.handleInput("\u001b[B");
+    panel.handleInput(" "); // unfold Storage
+    for (let i = 0; i < 3; i += 1) panel.handleInput("\t");
+    panel.handleInput(" "); // offline extraction: off -> on
+    // The reported symptom: the file kept `null` and the setting reverted.
+    expect(
+      loadConfig({
+        configHome,
+        env: {},
+      }).config.offlineExtractionEnabled,
+    ).toBe(true);
+    rmSync(configHome, {
+      force: true,
+      recursive: true,
+    });
   });
 
   it("a missing translation falls back to en and never renders empty", () => {
@@ -1022,8 +1183,9 @@ describe("4.6 Settings tab", () => {
     expect(body).toContain("▸ Storage (6)");
     expect(body).toContain("▸ Pipeline (3)");
     // Exactly one row carries the cursor, and it is the first group header.
-    expect(accented).toHaveLength(1);
-    expect(accented[0]).toContain("Retrieval");
+    const cursors = accentedRows(accented);
+    expect(cursors).toHaveLength(1);
+    expect(cursors[0]).toContain("Retrieval");
   });
 
   it("the new Settings path keeps the panel geometry contract", () => {
@@ -1033,7 +1195,9 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
     const lines = panel.render(78);
-    // 6 chrome rows + 18 body rows at the 24-row budget.
+    // 8 chrome rows + 16 body rows at the 24-row budget.
+    // The key hints must survive the documented 78-column basis in full.
+    expect(lines.at(-2)).toContain("Esc close");
     expect(lines.length).toBe(PANEL_HEIGHT);
     expect(panel.getBodyRows()).toBe(PANEL_HEIGHT - PANEL_CHROME_ROWS);
     // Every row fits the 78-column render width the caller asked for.
@@ -1205,7 +1369,7 @@ describe("4.6 Settings tab", () => {
   it("the window follows the cursor when the sequence outgrows the body", () => {
     const accented: string[] = [];
     const panel = component({
-      // body = 5 rows, but the default view is 11 rows long.
+      // body = 2 rows, but the default view is 11 rows long.
       terminalRows: 10,
       theme: {
         bold: (text: string) => text,
@@ -1219,14 +1383,14 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C"); // → Settings
     accented.length = 0;
     panel.render(78);
-    expect(accented).toHaveLength(1);
-    expect(accented[0] ?? "").toContain("Retrieval");
+    expect(accentedRows(accented)).toHaveLength(1);
+    expect(accentedRows(accented)[0] ?? "").toContain("Retrieval");
     // Walking to the last row must drag the window with it.
     for (let i = 0; i < 10; i += 1) panel.handleInput("\u001b[B");
     accented.length = 0;
     panel.render(78);
-    expect(accented).toHaveLength(1);
-    expect(accented[0] ?? "").toContain("Privacy");
+    expect(accentedRows(accented)).toHaveLength(1);
+    expect(accentedRows(accented)[0] ?? "").toContain("Privacy");
   });
 
   it("Space folds and unfolds a group header without saving", () => {
@@ -1338,21 +1502,27 @@ describe("4.6 Settings tab", () => {
     expect(panel.getSettingsCursor()).toBe(6);
   });
 
-  it("describes the field under the cursor in the row above the info bar", () => {
+  it("describes the field under the cursor in the two rows above the info bar", () => {
     const panel = component({
       terminalRows: 50,
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    // Row order: body, description, two info-bar rows, bottom border.
     const onHeader = panel.render(PANEL_WIDTH);
-    expect(onHeader.at(-4)).not.toMatch(LETTER_PATTERN);
+    expect(onHeader.at(-6)).not.toMatch(LETTER_PATTERN);
     panel.handleInput("\t"); // → Recall policy
     const onField = panel.render(PANEL_WIDTH);
-    expect(onField.at(-4)).toContain("Auto-inject by value");
-    // The info bar keeps its two rows underneath the description.
-    expect(onField.at(-3)).toContain("L0 session trace");
-    expect(onField.at(-2)).toContain("bank: project-demo");
+    // The detail rows explain the field instead of echoing its note column.
+    expect(onField.at(-6)).toContain("When the Agent recalls memory on its own");
+    expect(onField.at(-6)).not.toContain("Auto-inject by value");
+    expect(onField.at(-5)).toContain("Recommend: high-value-auto");
+    // The row itself still shows label, note and value in the body.
+    expect(onField.slice(2, -6).join("\n")).toContain("Auto-inject by value");
+    // The info bar keeps its two rows underneath the detail rows.
+    expect(onField.at(-4)).toContain("L0 session trace");
+    expect(onField.at(-3)).toContain("bank: project-demo");
+    // The key hints are the last row before the bottom border.
+    expect(onField.at(-2)).toContain("Esc");
     expect(onField).toHaveLength(PANEL_HEIGHT);
   });
 
