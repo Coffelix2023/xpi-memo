@@ -6,6 +6,19 @@ export const FOOTER_PAUSED = "○ memo off";
 
 const timers = new WeakMap<object, ReturnType<typeof setTimeout>>();
 
+/**
+ * `ctx.ui` throws once the session is replaced or reloaded. A deferred status
+ * write that lands after that has no footer left to update, so it must not
+ * take the whole process down.
+ */
+function safeSetStatus(ctx: ExtensionContext, value: string | undefined): void {
+  try {
+    ctx.ui.setStatus("xpi-memo", value);
+  } catch {
+    // Stale ctx after newSession/fork/switchSession/reload — nothing to draw on.
+  }
+}
+
 export function footerText(paused: boolean, pulse = false): string {
   if (paused) return FOOTER_PAUSED;
   return pulse ? FOOTER_PULSE : FOOTER_ACTIVE;
@@ -18,12 +31,12 @@ export function setFooterStatus(
 ): void {
   const previous = timers.get(ctx);
   if (previous) clearTimeout(previous);
-  ctx.ui.setStatus("xpi-memo", footerText(paused, pulse));
+  safeSetStatus(ctx, footerText(paused, pulse));
   if (!pulse || paused) return;
   timers.set(
     ctx,
     setTimeout(() => {
-      ctx.ui.setStatus("xpi-memo", footerText(false));
+      safeSetStatus(ctx, footerText(false));
       timers.delete(ctx);
     }, 1_000),
   );
@@ -33,7 +46,7 @@ export function clearFooterStatus(ctx: ExtensionContext): void {
   const timer = timers.get(ctx);
   if (timer) clearTimeout(timer);
   timers.delete(ctx);
-  ctx.ui.setStatus("xpi-memo", undefined);
+  safeSetStatus(ctx, undefined);
 }
 
 /**
@@ -58,11 +71,11 @@ export function setFooterEventStatus(
   if (paused) return;
   const previous = timers.get(ctx);
   if (previous) clearTimeout(previous);
-  ctx.ui.setStatus("xpi-memo", footerEventText(event));
+  safeSetStatus(ctx, footerEventText(event));
   timers.set(
     ctx,
     setTimeout(() => {
-      ctx.ui.setStatus("xpi-memo", footerText(false));
+      safeSetStatus(ctx, footerText(false));
       timers.delete(ctx);
     }, EVENT_HOLD_MS),
   );
