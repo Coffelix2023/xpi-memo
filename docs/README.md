@@ -50,7 +50,7 @@
 
 `archive/` 之外仍有三处文字指向本页映射表里的旧路径：
 
-- `.pi/fast-fixes/archived/**`
+- `.pi/fast-fixes/archived/**`（自 `2ec9f31` 起该目录不再入库，只在本地保留；内容仍可从 Git 历史取回）
 - `docs/task-report/**`
 - `openspec/changes/archive/**`
 
