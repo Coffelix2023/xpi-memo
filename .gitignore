@@ -13,7 +13,7 @@ __pycache__/
 coverage/
 
 # c6x-config
-# .pi/
+.pi/xpi-kuma/
 # **/openspec/
 # .pi-lens.json
 # plans/
