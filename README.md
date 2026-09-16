@@ -1,5 +1,7 @@
 # xpi-memo
 
+[English](./README.md) · [简体中文](./README.zh-CN.md)
+
 Super memory tool combining [mnemosyne](https://github.com/topics/vector-database) vector search with pi-memory architecture: L0 session-trace, T1 governed memory, Markdown export, pluggable search.
 
 A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension.
@@ -46,6 +48,19 @@ brew install ripgrep               # full-text search (macOS); dnf install ripgr
 - `/xpi-memo-export [--session <id>] [--force] [--validate]` — Export L0 events to Markdown
 - `/xpi-memo-export --repo [--reimport]` — Export governed project memory to `.pi/memory/<kind>.md` / re-import discovered entries as governed candidates
 
+### Console keys
+
+| Key | Action |
+| --- | --- |
+| `←` / `→` | Previous / next tab; stops at the first and last tab (no wrap-around) |
+| `↑` / `↓` | Move the cursor inside the active list |
+| `Space` | Settings: fold or unfold a group header, or cycle the field under the cursor to its next value |
+| `Enter` | Settings: save the panel's configuration (the panel stays open); Pending: review the selected candidate |
+| `Tab` / `Shift+Tab` | Settings: jump to the next / previous field, skipping group headers |
+| `Esc` / `Ctrl-C` | Close the panel |
+
+Field rows are laid out as `label / note / value`; putting the cursor on a field shows that field's full note on the line above the info bar.
+
 ### Tools
 
 - `xpi_memo_remember` — Store memory
@@ -75,6 +90,7 @@ Environment variables:
 - `XPI_MEMO_SEARCH_BACKEND` = `auto|mnemosyne|ripgrep|qmd`
 - `XPI_MEMO_RECALL_POLICY` = `active|assist|high-value-auto`
 - `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED` = `true|false` (default `false`)
+- `XPI_MEMO_OFFLINE_EXTRACTION_MODEL` = `session-model` (default) or `provider/model-id` (bare `model-id` also works; an unknown id falls back to the session model; read-only in the console)
 - `XPI_MEMO_RETRIEVAL_MODE`
 - `XPI_MEMO_SLEEP_MODE` = `dedicated|session-model|mechanical|disabled` (default `disabled`; fail-closed)
 - `XPI_MEMO_PROFILE_INJECTION` = `true|false` (default `true`; `false` omits the derived preference-profile block)
