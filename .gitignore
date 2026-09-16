@@ -20,3 +20,5 @@ coverage/
 # **/notes
 # **/feedback/
 **/references
+**/fast-fixes
+**/.codegraph
