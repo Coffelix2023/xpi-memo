@@ -220,12 +220,14 @@
       ]
     },
     {
-      // 测试文件与评测脚本的中文话术被误判为高熵字符串,非真实密钥
+      // 测试文件、评测脚本与面板字典的中文话术被误判为高熵字符串,非真实密钥
+      // (src/console.ts 的 PANEL_TEXT 全是面向用户的中英文案)
       "includes": [
         "**/*.test.ts",
         "**/*.test.tsx",
         "scripts/t2-eval.ts",
-        "scripts/t2-contract-check.ts"
+        "scripts/t2-contract-check.ts",
+        "src/console.ts"
       ],
       "linter": {
         "rules": {
