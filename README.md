@@ -59,7 +59,7 @@ brew install ripgrep               # full-text search (macOS); dnf install ripgr
 | `Tab` / `Shift+Tab` | Settings: jump to the next / previous field, skipping group headers |
 | `Esc` / `Ctrl-C` | Close the panel |
 
-Field rows are laid out as `label / note / value`; putting the cursor on a field shows that field's full note on the line above the info bar.
+Field rows are laid out as `label / note / value`. Putting the cursor on a field fills the two rows above the info bar: what the field does and who it is for, then the recommended value and the meaning of every option. The title sits in the top border and the key hints sit on the last row above the bottom border.
 
 ### Tools
 

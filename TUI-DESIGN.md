@@ -61,6 +61,7 @@ dimensions:
   preferredWidth: 94        # 默认面板宽度 (列)，Pi TUI overlay 会按视口夹紧
   minWidth: 40              # 窄终端最小宽度
   panelHeight: 24           # 默认固定高度 (行)
+  chromeRows: 8             # /xpi-memo 设置面板的固定 chrome 行数；body = panelHeight - chromeRows
   maxHeight: "70%"          # 屏幕占用最大高度比
   margin:
     top: 2
@@ -89,6 +90,29 @@ dimensions:
 ╰─ ↑/↓ scroll · Esc / Enter close ────────────────────────────────────╯ (Footer: 操作提示)
 ```
 
+### `/xpi-memo` 设置面板的固定 chrome (8 行)
+
+`src/console.ts` 的 `PANEL_CHROME_ROWS = 8`。顺序固定，所以 body 高度永远可预测；
+光标的移动只会改变内容，不会让面板跳动。
+
+```text
+╭─ xpi-memo · pi 的 DNA 记忆体 / pi's DNA memory ───────────╮  1 顶边框 (内嵌双语标题，不占 body)
+│ 待审 2 · 最近 · 设置 · 状态                                │  2 标签栏 (←/→ 的全部目的地)
+│  …body…                                                   │  body = panelHeight − 8，下限 3 行
+│  召回策略        按价值自动注入       high-value-auto      │
+│ Agent 何时自行召回记忆 · 空格切换策略, Enter 保存           │  3 详解第 1 行：作用 · 谁用 · 怎么用
+│ 推荐: high-value-auto · active=先问你 · assist=有用才召回   │  4 详解第 2 行：推荐值 + 选项含义
+│ L0 会话轨迹 → T1 xpi-memo → T2 延后 → T3 延后              │  5 info bar 1
+│ 库: demo · 总数: 7 · 今日: 2 · 待审: 1 · 占用: 4.0 KB      │  6 info bar 2
+│ ←/→ 切页 · ↑/↓ 移动 · Space 切换 · Enter 保存 · Esc 关闭    │  7 快捷键行 (dim，与页脚同风格)
+╰────────────────────────────────────────────────────────────╯  8 底边框
+```
+
+- 标题内嵌顶边框 (TUI 惯例)：标题因此不额外消耗 body 行。
+- 快捷键行必须在 info bar 之下、底边框之上，并用 `theme.fg("dim", …)`，与页脚状态行同风格。
+- 详解区恒为 2 行：字段行渲染 `detail.<id>` (作用/谁用/怎么用) 与 `choice.<id>` (推荐值 + 每个选项的含义)；
+  组头行与非 Settings 页两行皆空，几何不随光标变化。
+
 ---
 
 ## 4. Do's & Don'ts 规则清单
@@ -99,6 +123,7 @@ dimensions:
 - ✅ TUI 模式必须使用 `truncateToWidth` 进行宽度处理，确保无论带不带 ANSI 配色，右边框 `│` 都在同一列对齐。
 - ✅ TUI Overlay 配置必须使用 `anchor: "center"` 与 `margin.bottom >= 4`，保证弹窗远离输入提示区。
 - ✅ 统一支持 `Esc` 与 `Enter` 快捷键退出。
+- ✅ Settings 详解行必须解释字段本身（作用 / 谁用 / 推荐值 / 选项含义），禁止直接复用行内 note 文案。
 
 ### Don'ts (禁止项)
 
