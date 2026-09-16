@@ -58,9 +58,9 @@ palette:
 
 dimensions:
   anchor: "center"          # 必须居中，严禁固定 bottom-right 贴底
-  preferredWidth: 78        # 默认面板宽度 (列)
+  preferredWidth: 94        # 默认面板宽度 (列)，Pi TUI overlay 会按视口夹紧
   minWidth: 40              # 窄终端最小宽度
-  panelHeight: 20           # 默认固定高度 (行)
+  panelHeight: 24           # 默认固定高度 (行)
   maxHeight: "70%"          # 屏幕占用最大高度比
   margin:
     top: 2

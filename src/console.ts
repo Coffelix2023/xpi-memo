@@ -37,16 +37,19 @@ export interface ConsoleActions {
 }
 
 /**
- * Panel chrome is 5 rows: border top, tab title row, two info-bar rows, border
- * bottom. The body is whatever the height budget left, floored at 3 rows.
+ * Panel chrome is 6 rows: border top, tab title row, field-description row, two
+ * info-bar rows, border bottom. The body is whatever the height budget left,
+ * floored at 3 rows.
  */
-export const PANEL_CHROME_ROWS = 5;
+export const PANEL_CHROME_ROWS = 6;
 export const MIN_BODY_ROWS = 3;
 /**
- * Documented height budget (`TUI-DESIGN.md`): a 20-row panel, never more than
+ * Documented height budget (`TUI-DESIGN.md`): a 24-row panel, never more than
  * 70% of the terminal, so a tall viewport no longer gets a full-height panel.
  */
-export const PANEL_HEIGHT = 20;
+export const PANEL_HEIGHT = 24;
+/** Documented overlay width in columns; the overlay clamps it to the viewport. */
+export const PANEL_WIDTH = 94;
 export const PANEL_MAX_HEIGHT_SHARE = 0.7;
 /** `TUI-DESIGN.md` Do's: the overlay must clear the input area by at least this. */
 export const OVERLAY_MARGIN_BOTTOM = 4;
@@ -99,8 +102,9 @@ export const RECENT_TAB = 1;
 export const SETTINGS_TAB = 2;
 export const STATUS_TAB = 3;
 
+/** Tab step that stops at the first and last tab instead of wrapping around. */
 export function nextTab(current: number, step: number): number {
-  return (((current + step) % TAB_COUNT) + TAB_COUNT) % TAB_COUNT;
+  return Math.max(0, Math.min(current + step, TAB_COUNT - 1));
 }
 
 /** Index inside a list, wrapping at both ends. Empty lists stay at 0. */
@@ -163,7 +167,9 @@ type PanelLanguage = XpiMemoConfig["language"];
 
 const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
   en: {
-    "chrome.hint": "←/→ tab · ↑/↓ move · Enter select · Tab field · Esc close",
+    "chrome.hint":
+      "←/→ tab · ↑/↓ move · Space change · Enter save/select · Tab field · Esc close",
+    "chrome.saved": "Saved · configuration written",
     "field.autoExport": "Auto export",
     "field.confirmStore": "Confirm store",
     "field.dataDir": "Data dir",
@@ -174,6 +180,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.language": "Language",
     "field.limit": "Recall limit",
     "field.offlineExtractionEnabled": "Offline extraction",
+    "field.offlineExtractionModel": "Offline model",
     "field.passiveFeedback": "Passive feedback",
     "field.paused": "Pause memory",
     "field.privacy": "Privacy mode",
@@ -206,6 +213,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "note.language": "Panel and hint language",
     "note.limit": "Rows injected per turn",
     "note.offlineExtractionEnabled": "Works without a model",
+    "note.offlineExtractionModel": "Read-only, edit the config file",
     "note.passiveFeedback": "Record usage feedback",
     "note.paused": "Resume any time",
     "note.privacy": "Persist no memory at all",
@@ -222,7 +230,9 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "tab.status": "Status",
   },
   zh: {
-    "chrome.hint": "←/→ 切页 · ↑/↓ 移动 · Enter 选择 · Tab 跳字段 · Esc 关闭",
+    "chrome.hint":
+      "←/→ 切页 · ↑/↓ 移动 · Space 切换 · Enter 保存/选择 · Tab 跳字段 · Esc 关闭",
+    "chrome.saved": "已保存 · 配置已写入",
     "field.autoExport": "自动导出",
     "field.confirmStore": "存储前确认",
     "field.dataDir": "数据目录",
@@ -233,6 +243,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.language": "界面语言",
     "field.limit": "单次召回条数",
     "field.offlineExtractionEnabled": "离线提取",
+    "field.offlineExtractionModel": "离线提取模型",
     "field.passiveFeedback": "被动使用反馈",
     "field.paused": "暂停记忆",
     "field.privacy": "隐私模式",
@@ -265,6 +276,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "note.language": "面板与提示语言",
     "note.limit": "每次注入的条数",
     "note.offlineExtractionEnabled": "无模型也能提取",
+    "note.offlineExtractionModel": "只读, 改它要编辑配置",
     "note.passiveFeedback": "记录使用反馈",
     "note.paused": "停用后可随时恢复",
     "note.privacy": "不写任何持久记忆",
@@ -389,6 +401,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
       "confirmStore",
       "autoExport",
       "offlineExtractionEnabled",
+      "offlineExtractionModel",
       "excludeToolResults",
       "dataDir",
     ],
@@ -506,6 +519,12 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
       "off",
       "on",
     ],
+  },
+  // Read-only in the panel: a model id is free text, and the row shows the
+  // configured one plus the hint to edit the config file or the environment.
+  offlineExtractionModel: {
+    environment: "XPI_MEMO_OFFLINE_EXTRACTION_MODEL",
+    values: [],
   },
   passiveFeedback: {
     environment: "XPI_MEMO_PASSIVE_FEEDBACK",
@@ -731,10 +750,14 @@ export function clampCursor(cursor: number, total: number): number {
   return Math.max(0, Math.min(cursor, total - 1));
 }
 
-/** Label column width at the 78-column basis. */
+/** Label column width at the documented 94-column basis. */
 export const LABEL_COLUMN_WIDTH = 22;
 /** Below this the note column is dropped entirely rather than showing `…`. */
 export const MIN_NOTE_COLUMN_WIDTH = 8;
+/** Fixed separator between the label and the note column. */
+export const LABEL_NOTE_GAP = 2;
+/** Fixed separator between the note and the value column. */
+export const NOTE_VALUE_GAP = 1;
 
 /** One Settings row as panel text, without the surrounding borders. */
 export function settingsRowText(
@@ -753,13 +776,14 @@ export function settingsRowText(
   const value = row.item.currentValue;
   const budget = width;
   const valueWidth = visibleWidth(value);
-  // Three columns at the 78-column basis: label 22, note flexible, value right
-  // aligned. Degradation order is note first, then the label, value always kept.
+  // Three columns at the documented 94-column basis: label 22, a 2-space
+  // separator, the note flexible, a 1-space separator, then the right-aligned
+  // value. Degradation order is note first, then the label; value always kept.
   let labelWidth = Math.min(LABEL_COLUMN_WIDTH, Math.max(budget - valueWidth - 2, 1));
-  let noteWidth = budget - labelWidth - 1 - valueWidth - 1;
+  let noteWidth = budget - labelWidth - LABEL_NOTE_GAP - valueWidth - NOTE_VALUE_GAP;
   if (noteWidth < MIN_NOTE_COLUMN_WIDTH) {
     noteWidth = 0;
-    labelWidth = Math.max(budget - valueWidth - 1, 1);
+    labelWidth = Math.max(budget - valueWidth - NOTE_VALUE_GAP, 1);
   }
   const label = truncateToWidth(
     `  ${panelText(`field.${row.item.id}`, language)}`,
@@ -767,13 +791,16 @@ export function settingsRowText(
     "…",
   );
   const noteText = noteWidth === 0 ? "" : truncateToWidth(note, noteWidth, "…");
+  // The separator is fixed, so only the trailing gap absorbs the slack left by
+  // a truncated label or note.
+  const noteSection = noteText === "" ? "" : `${padding(LABEL_NOTE_GAP)}${noteText}`;
   const gap = Math.max(
-    budget - visibleWidth(label) - visibleWidth(noteText) - valueWidth,
-    1,
+    budget - visibleWidth(label) - visibleWidth(noteSection) - valueWidth,
+    NOTE_VALUE_GAP,
   );
   return selected
-    ? theme.fg("accent", `${label}${noteText}${padding(gap)}${value}`)
-    : `${label}${theme.fg("dim", noteText)}${padding(gap)}${theme.fg("muted", value)}`;
+    ? theme.fg("accent", `${label}${noteSection}${padding(gap)}${value}`)
+    : `${label}${theme.fg("dim", noteSection)}${padding(gap)}${theme.fg("muted", value)}`;
 }
 
 function padding(count: number): string {
@@ -873,6 +900,8 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
   const collapsed = new Set(SETTINGS_GROUPS.slice(1).map((group) => group.id));
   let cursor = 0;
   let settingsStart = 0;
+  /** Set by the save action, cleared by the next keystroke that navigates. */
+  let savedNotice = false;
   const recentText = new Text("", 0, 0);
 
   return {
@@ -882,6 +911,8 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
     getSettingsCursor: () => cursor,
     getTab: () => tab,
     handleInput(data: string): void {
+      // Any keystroke other than the one that saved clears the save notice.
+      savedNotice = false;
       // The panel owns Escape and ←/→; the lists never see them.
       if (keybindings.matches(data, "tui.select.cancel") || data === "\u001b") {
         done();
@@ -938,6 +969,7 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
       ];
       for (const row of fit(bodyRowsFor(inner), body))
         lines.push(`│ ${padRow(row, inner)} │`);
+      lines.push(`│ ${padRow(theme.fg("muted", describeRow()), inner)} │`);
       const info = infoBarLines(model, width);
       lines.push(`│ ${padRow(theme.fg("dim", info[0] ?? ""), inner)} │`);
       lines.push(`│ ${padRow(theme.fg("muted", info[1] ?? ""), inner)} │`);
@@ -982,7 +1014,7 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
     cursor = index;
   }
 
-  /** Enter: fold a group header, cycle a writable field, ignore the rest. */
+  /** Space: fold a group header, cycle a writable field, ignore the rest. */
   function settingsActivate(): void {
     const rows = settingsRows(model.rows, collapsed);
     const row = rows[cursor];
@@ -1015,7 +1047,26 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
   function settingsHandleInput(data: string): void {
     if (keybindings.matches(data, "tui.select.up")) settingsMove(-1);
     else if (keybindings.matches(data, "tui.select.down")) settingsMove(1);
-    else if (data === "\r" || data === "\n") settingsActivate();
+    else if (data === " ") settingsActivate();
+    else if (data === "\r" || data === "\n") settingsSave();
+  }
+
+  /** Enter: persist the panel's state. The panel stays open. */
+  function settingsSave(): void {
+    actions.save({});
+    savedNotice = true;
+  }
+
+  /**
+   * Text for the description row: the save notice first, otherwise the note of
+   * the row under the cursor. Only the Settings tab has field notes.
+   */
+  function describeRow(): string {
+    if (savedNotice) return panelText("chrome.saved", model.language);
+    if (tab !== SETTINGS_TAB) return "";
+    const row = settingsRows(model.rows, collapsed)[cursor];
+    if (row === undefined || row.kind === "group") return "";
+    return row.item.description ?? panelText(`note.${row.item.id}`, model.language);
   }
 
   function bodyRowsFor(width: number): string[] {
@@ -1061,8 +1112,17 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
       actions.save({
         [id]: value === "on",
       } as ConsoleSettings);
-    else if (
-      id === "language" ||
+    else if (id === "language") {
+      // The panel renders its own labels, and `model.language` is what they read,
+      // so the row must land in the view-model or the panel keeps the old
+      // language until it is reopened.
+      if (value === "en" || value === "zh") {
+        actions.save({
+          language: value,
+        } as ConsoleSettings);
+        model.language = value;
+      }
+    } else if (
       id === "recallPolicy" ||
       id === "retrievalMode" ||
       id === "searchBackend"
@@ -1115,7 +1175,7 @@ export async function openConsole(
       overlay: true,
       overlayOptions: {
         anchor: "center",
-        width: "70%",
+        width: PANEL_WIDTH,
         margin: {
           bottom: OVERLAY_MARGIN_BOTTOM,
           left: 2,

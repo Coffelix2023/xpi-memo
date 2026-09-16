@@ -13,14 +13,17 @@ import {
   groupHeaderIndex,
   humanBytes,
   infoBarLines,
+  LABEL_NOTE_GAP,
   listMaxVisible,
   MIN_BODY_ROWS,
   moveRow,
+  NOTE_VALUE_GAP,
   nextTab,
   OVERLAY_MARGIN_BOTTOM,
   openConsole,
   PANEL_CHROME_ROWS,
   PANEL_HEIGHT,
+  PANEL_WIDTH,
   PENDING_TAB,
   panelLayout,
   panelText,
@@ -42,6 +45,11 @@ import type { PendingCandidate } from "./pending-candidate.js";
 import type { MemoryStatus } from "./status.js";
 
 const keybindings = getKeybindings();
+
+/** Trailing `note ... value` gap of one Settings row, as rendered. */
+const NOTE_TO_VALUE_PATTERN = /semantics( +)hybrid$/;
+/** A description row must hold no copy at all. */
+const LETTER_PATTERN = /[A-Za-z]/;
 
 /** Identity theme: every style call returns its text unchanged. */
 const THEME = {
@@ -180,27 +188,31 @@ describe("4.1 console panel layout (fixed height)", () => {
   });
 
   it("caps the height at the documented budget and tightens on small terminals", () => {
-    // A tall terminal gets the documented 20-row panel, not the whole viewport.
+    // A tall terminal gets the documented 24-row panel, not the whole viewport.
     expect(panelLayout(50)).toEqual({
-      body: 15,
-      height: 20,
+      body: 18,
+      height: 24,
     });
     expect(panelLayout(100)).toEqual({
-      body: 15,
-      height: 20,
+      body: 18,
+      height: 24,
     });
     // A short terminal is squeezed to 70% of its rows.
     expect(panelLayout(24)).toEqual({
-      body: 11,
+      body: 10,
       height: 16,
     });
-    // The 3-row body floor still wins over the share, and the viewport clamps.
+    // The viewport clamp wins before the 3-row body floor can.
     expect(panelLayout(8)).toEqual({
-      body: 3,
+      body: 2,
       height: 8,
     });
+    expect(panelLayout(9)).toEqual({
+      body: 3,
+      height: 9,
+    });
     expect(panelLayout(6).body + PANEL_CHROME_ROWS).toBe(6);
-    // The body floor survives every budget path.
+    // The body floor survives every budget path that outlives the chrome.
     expect(bodyRows(6)).toBe(MIN_BODY_ROWS);
     expect(bodyRows(11)).toBe(MIN_BODY_ROWS);
   });
@@ -277,7 +289,7 @@ describe("4.1 console panel layout (fixed height)", () => {
 
 // 4.2 — directional navigation only
 describe("4.2 console directional navigation", () => {
-  it("switches tabs with ←/→ and wraps", () => {
+  it("switches tabs with ←/→ and stops at both ends", () => {
     const done = vi.fn();
     const panel = component({
       done,
@@ -289,10 +301,13 @@ describe("4.2 console directional navigation", () => {
     expect(panel.getTab()).toBe(SETTINGS_TAB);
     panel.handleInput("\u001b[C"); // → Status
     expect(panel.getTab()).toBe(STATUS_TAB);
-    panel.handleInput("\u001b[C"); // → wrap to Pending
-    expect(panel.getTab()).toBe(PENDING_TAB);
-    panel.handleInput("\u001b[D"); // ← wrap from 0
+    // The last tab absorbs further right presses instead of wrapping.
+    panel.handleInput("\u001b[C");
     expect(panel.getTab()).toBe(STATUS_TAB);
+    for (let i = 0; i < 5; i += 1) panel.handleInput("\u001b[D"); // ←
+    // Four steps reach the first tab; the extra one must not jump to the end.
+    expect(panel.getTab()).toBe(PENDING_TAB);
+    expect(done).not.toHaveBeenCalled();
   });
 
   it("recent ↑/↓ move inside the tab with wrap and never leave it", () => {
@@ -352,9 +367,10 @@ describe("4.2 console directional navigation", () => {
     expect(done).toHaveBeenCalledOnce();
   });
 
-  it("navigation pure functions: nextTab wrap, moveRow wrap", () => {
-    expect(nextTab(0, -1)).toBe(STATUS_TAB);
-    expect(nextTab(STATUS_TAB, 1)).toBe(PENDING_TAB);
+  it("navigation pure functions: nextTab clamps, moveRow wraps", () => {
+    expect(nextTab(0, -1)).toBe(PENDING_TAB);
+    expect(nextTab(STATUS_TAB, 1)).toBe(STATUS_TAB);
+    expect(nextTab(RECENT_TAB, 1)).toBe(SETTINGS_TAB);
     expect(moveRow(0, -1, 3)).toBe(2);
     expect(moveRow(2, 1, 3)).toBe(0);
     expect(moveRow(0, 1, 0)).toBe(0);
@@ -663,6 +679,7 @@ describe("4.6 Settings tab", () => {
       "confirmStore",
       "autoExport",
       "offlineExtractionEnabled",
+      "offlineExtractionModel",
       "excludeToolResults",
       "dataDir",
       "paused",
@@ -831,6 +848,36 @@ describe("4.6 Settings tab", () => {
     expect(row.startsWith("  Retrieval mode")).toBe(true);
   });
 
+  it("separates the label, note and value columns by fixed gaps", () => {
+    const item: SettingItem = {
+      currentValue: "hybrid",
+      id: "retrievalMode",
+      label: "retrievalMode",
+    };
+    const row = settingsRowText(
+      {
+        groupId: "retrieval",
+        item,
+        kind: "field",
+      },
+      false,
+      78,
+      THEME,
+      "en",
+    );
+    // `  Retrieval mode` (22 wide) then the fixed 2-space separator.
+    expect(row.startsWith(`  Retrieval mode${" ".repeat(LABEL_NOTE_GAP)}Hybrid`)).toBe(
+      true,
+    );
+    // The value stays right-aligned behind at least the fixed 1-space gap; the
+    // slack left by a short note lands in that gap.
+    const trailing = NOTE_TO_VALUE_PATTERN.exec(row);
+    expect(trailing).not.toBeNull();
+    expect((trailing?.[1] ?? "").length).toBeGreaterThanOrEqual(NOTE_VALUE_GAP);
+    expect(row.endsWith("hybrid")).toBe(true);
+    expect(visibleWidth(row)).toBe(78);
+  });
+
   it("a narrow row drops the note column before the label or the value", () => {
     const item: SettingItem = {
       currentValue: "high-value-auto",
@@ -897,8 +944,8 @@ describe("4.6 Settings tab", () => {
     );
     expect(allCollapsed).toHaveLength(5);
     expect(allCollapsed.every((row) => row.kind === "group")).toBe(true);
-    // Fully expanded: 5 headers + all 20 rows.
-    expect(settingsRows(items, new Set())).toHaveLength(25);
+    // Fully expanded: 5 headers + all 21 field rows.
+    expect(settingsRows(items, new Set())).toHaveLength(26);
   });
 
   it("cursorWindowStart keeps the cursor visible inside the sequence", () => {
@@ -972,7 +1019,7 @@ describe("4.6 Settings tab", () => {
     const body = lines.slice(2, 17).join("\n");
     // Default view: the first group is open, the remaining four are folded.
     expect(body).toContain("▾ Retrieval (6)");
-    expect(body).toContain("▸ Storage (5)");
+    expect(body).toContain("▸ Storage (6)");
     expect(body).toContain("▸ Pipeline (3)");
     // Exactly one row carries the cursor, and it is the first group header.
     expect(accented).toHaveLength(1);
@@ -986,10 +1033,10 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
     const lines = panel.render(78);
-    // 5 chrome rows + 15 body rows at the 20-row budget.
+    // 6 chrome rows + 18 body rows at the 24-row budget.
     expect(lines.length).toBe(PANEL_HEIGHT);
     expect(panel.getBodyRows()).toBe(PANEL_HEIGHT - PANEL_CHROME_ROWS);
-    // Every row fits the 78-column basis.
+    // Every row fits the 78-column render width the caller asked for.
     for (const line of lines) expect(visibleWidth(line)).toBe(78);
     // Border characters stay continuous around every body row.
     expect(lines[0]?.startsWith("╭")).toBe(true);
@@ -1009,7 +1056,7 @@ describe("4.6 Settings tab", () => {
     expect(tall.render(78).length).toBe(PANEL_HEIGHT);
   });
 
-  it("Tab walks Settings fields and Enter changes + saves values", () => {
+  it("Tab walks Settings fields and Space changes + saves values", () => {
     const save = vi.fn();
     const panel = component({
       actions: actions({
@@ -1022,19 +1069,19 @@ describe("4.6 Settings tab", () => {
     expect(panel.getTab()).toBe(SETTINGS_TAB);
     // The cursor starts on a group header, so Tab is what reaches a field.
     panel.handleInput("\t");
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     expect(save).toHaveBeenLastCalledWith({
       recallPolicy: "active",
     });
     // Tab walks down one field: Recall policy → Retrieval mode.
     panel.handleInput("\t");
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     expect(save).toHaveBeenLastCalledWith({
       retrievalMode: "fts5",
     });
     // Shift+Tab walks back up to the previous field.
     panel.handleInput("\u001b[Z");
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     expect(save).toHaveBeenLastCalledWith({
       recallPolicy: "assist",
     });
@@ -1051,13 +1098,13 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C"); // → Settings
     // Tab skips the header; Limit is the fourth field of the first group.
     for (let i = 0; i < 4; i += 1) panel.handleInput("\t");
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     expect(save).toHaveBeenLastCalledWith({
       limit: 10,
     });
   });
 
-  it("env-locked settings stay read-only: Enter never saves", () => {
+  it("env-locked settings stay read-only: Space never saves them", () => {
     const save = vi.fn();
     const panel = component({
       actions: actions({
@@ -1070,11 +1117,11 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
     panel.handleInput("\t"); // → Recall policy, pinned by the environment
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     expect(save).not.toHaveBeenCalled();
     // A field no environment variable pins stays writable.
     panel.handleInput("\t"); // → Retrieval mode
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     expect(save).toHaveBeenLastCalledWith({
       retrievalMode: "fts5",
     });
@@ -1096,9 +1143,9 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C"); // → Settings
     // The row sequence wraps, so one ↑ reaches the last group header.
     panel.handleInput("\u001b[A");
-    panel.handleInput("\r"); // unfold Privacy & maintenance
+    panel.handleInput(" "); // unfold Privacy & maintenance
     for (let i = 0; i < 3; i += 1) panel.handleInput("\t"); // → One-shot sleep
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     await Promise.resolve();
     await Promise.resolve();
     expect(confirm).toHaveBeenCalledWith(
@@ -1124,9 +1171,9 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
     panel.handleInput("\u001b[A");
-    panel.handleInput("\r"); // unfold Privacy & maintenance
+    panel.handleInput(" "); // unfold Privacy & maintenance
     for (let i = 0; i < 3; i += 1) panel.handleInput("\t"); // → One-shot sleep
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
@@ -1182,7 +1229,7 @@ describe("4.6 Settings tab", () => {
     expect(accented[0] ?? "").toContain("Privacy");
   });
 
-  it("Enter folds and unfolds a group header without saving", () => {
+  it("Space folds and unfolds a group header without saving", () => {
     const save = vi.fn();
     const panel = component({
       actions: actions({
@@ -1193,20 +1240,44 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
     // Folding keeps the cursor on the header it just folded.
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     expect(save).not.toHaveBeenCalled();
     expect(panel.getSettingsCursor()).toBe(0);
     // A fully folded sequence has no field row for Tab to reach.
     panel.handleInput("\t");
     expect(panel.getSettingsCursor()).toBe(0);
     // Unfolding brings the fields back, still with the cursor on the header.
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     expect(panel.getSettingsCursor()).toBe(0);
     panel.handleInput("\t");
     expect(panel.getSettingsCursor()).toBe(1);
   });
 
-  it("Enter cycles a writable field, ignores a locked one, and routes sleep to confirm", async () => {
+  it("Enter saves the whole panel and never closes it", () => {
+    const save = vi.fn();
+    const done = vi.fn();
+    const panel = component({
+      actions: actions({
+        save,
+      }),
+      done,
+      terminalRows: 20,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    // Enter persists the panel's current state instead of cycling a value.
+    panel.handleInput("\r");
+    expect(save).toHaveBeenLastCalledWith({});
+    expect(panel.getTab()).toBe(SETTINGS_TAB);
+    expect(done).not.toHaveBeenCalled();
+    expect(panel.getSettingsCursor()).toBe(0);
+    // The save notice takes over the description row and clears on navigation.
+    expect(panel.render(94).join("\n")).toContain("Saved");
+    panel.handleInput("\u001b[B");
+    expect(panel.render(94).join("\n")).not.toContain("Saved");
+  });
+
+  it("Space cycles a writable field, ignores a locked one, and routes sleep to confirm", async () => {
     const save = vi.fn();
     const confirm = vi.fn(async () => false);
     const sleep = vi.fn(async () => undefined);
@@ -1224,25 +1295,25 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
 
-    // Writable field: Enter cycles to the next value and saves it.
+    // Writable field: Space cycles to the next value and saves it.
     panel.handleInput("\t"); // → Recall policy
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     expect(save).toHaveBeenLastCalledWith({
       recallPolicy: "active",
     });
 
-    // Locked field: its values were omitted, so Enter is a no-op.
+    // Locked field: its values were omitted, so Space is a no-op.
     save.mockClear();
     panel.handleInput("\t"); // → Retrieval mode, pinned by the environment
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     expect(save).not.toHaveBeenCalled();
 
     // Action row: walk back to the header and wrap up to the last group.
     for (let i = 0; i < 3; i += 1) panel.handleInput("\u001b[A");
     expect(panel.getSettingsCursor()).toBe(10);
-    panel.handleInput("\r"); // unfold Privacy & maintenance
+    panel.handleInput(" "); // unfold Privacy & maintenance
     for (let i = 0; i < 3; i += 1) panel.handleInput("\t"); // → One-shot sleep
-    panel.handleInput("\r");
+    panel.handleInput(" ");
     await Promise.resolve();
     await Promise.resolve();
     expect(confirm).toHaveBeenCalledWith(
@@ -1265,6 +1336,51 @@ describe("4.6 Settings tab", () => {
     // Backward wraps around the headers to the previous field row.
     panel.handleInput("\u001b[Z");
     expect(panel.getSettingsCursor()).toBe(6);
+  });
+
+  it("describes the field under the cursor in the row above the info bar", () => {
+    const panel = component({
+      terminalRows: 50,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    // Row order: body, description, two info-bar rows, bottom border.
+    const onHeader = panel.render(PANEL_WIDTH);
+    expect(onHeader.at(-4)).not.toMatch(LETTER_PATTERN);
+    panel.handleInput("\t"); // → Recall policy
+    const onField = panel.render(PANEL_WIDTH);
+    expect(onField.at(-4)).toContain("Auto-inject by value");
+    // The info bar keeps its two rows underneath the description.
+    expect(onField.at(-3)).toContain("L0 session trace");
+    expect(onField.at(-2)).toContain("bank: project-demo");
+    expect(onField).toHaveLength(PANEL_HEIGHT);
+  });
+
+  it("switching the language field re-renders the panel in the new language", () => {
+    const save = vi.fn();
+    const panel = component({
+      actions: actions({
+        save,
+      }),
+      terminalRows: 50,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    expect(panel.render(PANEL_WIDTH).join("\n")).toContain("Retrieval");
+    // Display is the fourth header: retrieval, storage and pipeline come first.
+    for (let i = 0; i < 9; i += 1) panel.handleInput("\u001b[B");
+    expect(panel.getSettingsCursor()).toBe(9);
+    panel.handleInput(" "); // fold Display open, cursor stays on the header
+    panel.handleInput("\t"); // → Language, its first field
+    panel.handleInput(" "); // en → zh
+    expect(save).toHaveBeenLastCalledWith({
+      language: "zh",
+    });
+    // The panel must switch immediately, without reopening /xpi-memo.
+    const zh = panel.render(PANEL_WIDTH).join("\n");
+    expect(zh).toContain("召回与检索");
+    expect(zh).toContain("界面语言");
+    expect(zh).not.toContain("Retrieval");
   });
 });
 
@@ -1296,7 +1412,8 @@ describe("console overlay wiring", () => {
     ];
     expect(opts.overlay).toBe(true);
     expect(opts.overlayOptions.anchor).toBe("center");
-    expect(opts.overlayOptions.width).toBe("70%");
+    expect(opts.overlayOptions.width).toBe(PANEL_WIDTH);
+    expect(PANEL_WIDTH).toBe(94);
     // `TUI-DESIGN.md`: the panel must clear the conversation input area.
     const margin = opts.overlayOptions.margin as {
       bottom: number;
