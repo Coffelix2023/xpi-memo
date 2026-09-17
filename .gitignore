@@ -22,3 +22,6 @@ coverage/
 **/references
 **/fast-fixes
 **/.codegraph
+docs/evaluation-reports/
+docs/archive/
+docs/task-report/
