@@ -65,6 +65,7 @@ interface ProsePayload {
   bank?: unknown;
   content?: unknown;
   error?: unknown;
+  filePath?: unknown;
   injectedMemoryIds?: unknown;
   input?: unknown;
   isError?: unknown;
@@ -117,10 +118,14 @@ function prose(event: L0Event, filters: ExportFilters): string {
       return `Memory stored [${text(payload.kind)}]: ${text(payload.content)}`;
     case "candidate_created":
       return `Memory candidate created [${text(payload.kind)}]: ${text(payload.content ?? payload.reason)}`;
+    case "candidate_auto_verified":
+      return `Memory candidate auto-verified [${text(payload.kind)}]: ${text(payload.filePath)}`;
     case "candidate_confirmed":
       return `Memory candidate confirmed [${text(payload.kind)}]`;
     case "candidate_rejected":
       return `Memory candidate rejected [${text(payload.kind)}]: ${text(payload.reason)}`;
+    case "tool_verification_failed":
+      return `Memory tool verification failed [${text(payload.kind)}]: ${text(payload.reason)}`;
     case "routing_decision":
       return `Routing decision [${text(payload.kind)}] -> ${text(payload.bank)}`;
     case "routing_rejected":

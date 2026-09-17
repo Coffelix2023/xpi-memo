@@ -640,6 +640,9 @@ describe("activation-loop non-TUI acceptance (tasks 4.1-4.2)", () => {
     const { events } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        // Isolation: verification against the real working tree must not
+        // decide this test's outcome — it pins the queued path explicitly.
+        XPI_MEMO_AUTO_VERIFY: "false",
         XPI_MEMO_DATA_DIR: dataDir,
         XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
       },

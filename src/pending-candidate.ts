@@ -5,7 +5,7 @@ import type { EvidenceRecord } from "./evidence.js";
 import type { MemoryKind } from "./kinds.js";
 import { routeMemoryKind } from "./routing.js";
 
-export const PENDING_CANDIDATE_REASONS = [
+const PENDING_CANDIDATE_REASONS = [
   "project-decision",
   "ambiguous-preference",
   "broad-gotcha",
@@ -43,7 +43,7 @@ export interface PendingCandidate {
   targetScope: "global" | "project" | "session";
 }
 
-function evidenceSummary(evidence: EvidenceRecord): string {
+export function evidenceSummary(evidence: EvidenceRecord): string {
   return `${evidence.type} from ${evidence.source} (${evidence.provenance})`;
 }
 

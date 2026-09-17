@@ -81,6 +81,21 @@ describe("T1 auto-store policy", () => {
     ).toBe(true);
   });
 
+  it("does not auto-store a verified-repository-fact decision (task 6.3)", () => {
+    expect(
+      shouldAutoStore({
+        evidence: createEvidenceRecord({
+          confidence: 0.9,
+          provenance: "activation:offline-extraction",
+          source: "session:s1#12",
+          type: "verified-repository-fact",
+        }),
+        kind: "project_decision",
+        verified: true,
+      }),
+    ).toBe(false);
+  });
+
   it.each([
     [
       "unbounded session context",

@@ -85,6 +85,7 @@ Environment variables:
 - `XPI_MEMO_L0_ENABLED`
 - `XPI_MEMO_LIMIT` / `XPI_MEMO_GLOBAL_LIMIT` / `XPI_MEMO_PROJECT_LIMIT`
 - `XPI_MEMO_AUTO_EXPORT`
+- `XPI_MEMO_AUTO_VERIFY` = `true|false` (default `true`; `false` disables tool-verified auto-admission — every candidate waits for manual review)
 - `XPI_MEMO_EXCLUDE_TOOL_RESULTS`
 - `XPI_MEMO_PRIVACY`
 - `XPI_MEMO_SEARCH_BACKEND` = `auto|mnemosyne|ripgrep|qmd`

@@ -67,6 +67,8 @@ The system MUST preserve the difference between explicit user statements, verifi
 - **WHEN** 有界的离线提取运行被显式开启
 - **THEN** 系统 MUST 产生有界的记忆提案，每条带类别、置信度、证据类型和来源引用
 - **AND THEN** 高置信度低风险结果 MAY 直接存储，其余结果 MUST 走候选生命周期
+- **AND THEN** 候选按 kind 分流:可工具验证的(gene/constraint)走自动验证并存储路径,不可验证的(decision)走待审队列
+- **AND THEN** 自动验证通过的候选直接入库,不进入待审队列,验证失败的保持待审
 
 #### Scenario: Default runner is used only when explicitly enabled
 

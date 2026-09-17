@@ -585,11 +585,11 @@ async function directStore(
   };
 }
 
-function addCandidate(
+async function addCandidate(
   proposal: OfflineExtractionProposal,
   runtime: OfflineExtractionGovernanceRuntime,
   operation: T1MemoryOperation,
-): OfflineExtractionGovernanceResult {
+): Promise<OfflineExtractionGovernanceResult> {
   const candidate = generatePendingCandidate({
     allowAutoStore: false,
     content: operation.content,
@@ -612,13 +612,24 @@ function addCandidate(
     scope: candidate.targetScope,
     status: added.status,
   });
-  if (added.status === "rejected")
+  if (added.status === "rejected") {
     return reject(
       runtime,
       candidate.kind,
       added.reason ?? "candidate-rejected",
       candidate.targetScope,
     );
+  }
+  // Kind-routed auto-admission (tasks 9.1-9.4): the lifecycle decides
+  // whether this candidate is tool-verified and stored directly.
+  const auto = await runtime.candidates.autoConfirm(candidate.id);
+  if (auto.status === "stored") {
+    return {
+      kind: candidate.kind,
+      status: "stored",
+      targetBank: candidate.targetBank,
+    };
+  }
   return {
     candidateId: candidate.id,
     kind: candidate.kind,
@@ -694,7 +705,7 @@ export async function governOfflineExtractionOutput(
     if (shouldDirectStore(proposal, runtime)) {
       results.push(await directStore(runtime, operation));
     } else {
-      results.push(addCandidate(proposal, runtime, operation));
+      results.push(await addCandidate(proposal, runtime, operation));
     }
     runtime.ledger?.recordProposals(1, proposal.content.length);
   }

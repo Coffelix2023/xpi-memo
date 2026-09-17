@@ -85,6 +85,11 @@ describe("transformer", () => {
       assistant_message: {
         text: "done",
       },
+      candidate_auto_verified: {
+        candidateId: "c1",
+        filePath: "AGENTS.md",
+        kind: "project_gene",
+      },
       candidate_confirmed: {
         candidateId: "c1",
         kind: "global_preference",
@@ -142,6 +147,11 @@ describe("transformer", () => {
       tool_result: {
         output: "contents",
         toolCallId: "t1",
+      },
+      tool_verification_failed: {
+        candidateId: "c1",
+        kind: "project_gene",
+        reason: "no-match",
       },
       user_message: {
         text: "fix the bug",

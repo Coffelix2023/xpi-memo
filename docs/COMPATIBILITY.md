@@ -30,6 +30,7 @@ Tested configurations for xpi-memo releases. "Tested" = the project's own develo
 | Config key | Env var | Default | Notes |
 | --- | --- | --- | --- |
 | `offlineExtractionEnabled` | `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED` | `false` | Gated offline extraction; **disabled by default** so existing installs see zero behavior change until they opt in |
+| — (env-only) | `XPI_MEMO_AUTO_VERIFY` | `true` | `false` disables tool-verified auto-admission; all candidates queue for manual review |
 | `sleepMode` | `XPI_MEMO_SLEEP_MODE` | `disabled` | Sleep execution mode (`dedicated` / `session-model` / `mechanical` / `disabled`); fail-closed — no explicit mode means `SLEEP_DISABLED`, never a silent substitution |
 Unknown config keys are ignored (fail-closed parsing); sensitive keys (`token`, `secret`, `credential`, `apiKey`, `password`) are never written or logged.
 
@@ -43,6 +44,8 @@ Unknown config keys are ignored (fail-closed parsing); sensitive keys (`token`, 
 - Do not continue writes after step 2: an older reader may treat the new event types as unknown, so rollback is not a live downgrade while governed operations are still active.
 
 **Disabled-by-default extraction.** With `offlineExtractionEnabled` left at its default `false`, no extraction runner is invoked, no budget ledger is consumed, and no proposal is generated. Set `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED=true` to opt in. Extraction runs once at `session_shutdown` for the current session only; `session_before_compact` records L0 context but does not trigger another model call. The runner is host-injected and provider-neutral; missing, failed, or timed-out runners degrade silently, consume the per-session execution budget, and expose only bounded status/counters through status and audit. Proposals always use `l0-conclusion` evidence and pass the existing content, routing, and candidate governance; audit never stores proposal bodies. Disable with `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED=false` or pause T1 writes with `XPI_MEMO_PAUSED=true`. Explicit deterministic capture, candidates, recall, and export remain available according to their existing paused contract.
+
+**Tool-verified auto-admission and the existing backlog.** With auto-verification enabled (default), new `project_gene`/`project_constraint` candidates are verified against the working tree (ripgrep fixed-string match, 500 ms timeout, test directories excluded) before entering the pending queue. A passing verification upgrades the evidence from `l0-conclusion` to `verified-repository-fact` and stores the candidate directly into its routed project bank, recording `candidate_auto_verified` + `candidate_confirmed` in L0 and a `tool-verified` audit entry (file path + matched line, keyed by candidate ID). A failed match, a missing `rg`, a timeout, and every non-`tool-verify` kind (e.g. `project_decision`) leave the candidate pending exactly as before. **Existing queued candidates are never auto-migrated**: they keep waiting for manual Store/Later/Reject or for the next extraction run — only new candidates take the new path. To roll the feature back without uninstalling, set `XPI_MEMO_AUTO_VERIFY=false` (for example `XPI_MEMO_AUTO_VERIFY=false pi`); already-stored memories remain and can be removed with the existing forget flow.
 
 ## Feature availability by release
 

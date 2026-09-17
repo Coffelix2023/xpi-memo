@@ -1,3 +1,17 @@
+/**
+ * Evidence classification for T1 memories (developer reference).
+ *
+ * - `explicit-user-statement`: provenance-verified user words (auto-storable).
+ * - `verified-repository-fact`: a repository fact confirmed by tool
+ *   verification against the working tree (auto-storable).
+ * - `l0-conclusion`: model-derived conclusion; every offline-extraction
+ *   proposal carries exactly this type.
+ *
+ * The only sanctioned upgrade is `l0-conclusion` → `verified-repository-fact`,
+ * granted by a passing tool verification — see `EVIDENCE_UPGRADE_WHITELIST` in
+ * evidence-upgrade.ts. Any other conversion, including downgrading an
+ * `explicit-user-statement`, is refused there.
+ */
 export const EVIDENCE_TYPES = [
   "explicit-user-statement",
   "verified-repository-fact",

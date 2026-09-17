@@ -8,9 +8,14 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 
+import type { AuditLog } from "./audit.js";
 import { classifyProhibitedContent } from "./content-policy.js";
+import { upgradeEvidence } from "./evidence-upgrade.js";
+import type { MemoryKind } from "./kinds.js";
+import type { L0Event, L0EventType } from "./l0/types.js";
 import type { MnemosyneAdapter, T1MemoryOperation } from "./operations.js";
 import type { PendingCandidate } from "./pending-candidate.js";
+import { type VerifierFn, verifyCandidateIfNeeded } from "./tool-verification.js";
 
 interface StoredCandidate {
   candidate: PendingCandidate;
@@ -36,7 +41,7 @@ interface CandidateAudit {
 export interface CandidateLifecycleResult {
   memoryId?: string;
   reason?: string;
-  status: "conflict" | "rejected" | "stored" | "unresolved";
+  status: "conflict" | "rejected" | "skipped" | "stored" | "unresolved";
 }
 
 export interface CandidateStore {
@@ -44,6 +49,7 @@ export interface CandidateStore {
     candidate: PendingCandidate,
     operation: T1MemoryOperation,
   ): CandidateLifecycleResult;
+  autoConfirm(candidateId: string): Promise<CandidateLifecycleResult>;
   confirm(candidateId: string): Promise<CandidateLifecycleResult>;
   correct(
     candidateId: string,
@@ -54,15 +60,28 @@ export interface CandidateStore {
   reportConflict(candidateId: string): CandidateLifecycleResult;
 }
 
+/** Minimal L0 surface for lifecycle events; recording is fail-open (task 5.3). */
+interface L0EventRecorder {
+  recordSafe(type: L0EventType, payload: Record<string, unknown>): L0Event | null;
+}
+
 interface CreateCandidateStoreOptions {
   adapter: MnemosyneAdapter;
+  /** Audit log for tool-verification entries (tasks 7.3/7.4); optional. */
+  auditLog?: AuditLog;
   beforeStore?: (operation: T1MemoryOperation) => void;
   commit?: (operation: T1MemoryOperation) => Promise<{
     reason?: string;
     memoryId?: string;
     status: "failed" | "stored" | "unresolved";
   }>;
+  /** Admission-policy env override (XPI_MEMO_AUTO_VERIFY); defaults to process.env. */
+  env?: NodeJS.ProcessEnv;
+  /** L0 recorder for auto-verification events (task 5.3); optional, fail-open. */
+  l0?: L0EventRecorder;
   statePath: string;
+  /** Verifier registry override (tests); defaults to VERIFIERS. */
+  verifiers?: ReadonlyMap<MemoryKind, VerifierFn>;
 }
 
 function emptyState(): CandidateState {
@@ -143,8 +162,12 @@ function notFound(): CandidateLifecycleResult {
 
 export function createCandidateStore({
   adapter,
+  auditLog,
   beforeStore,
   commit,
+  env,
+  l0,
+  verifiers,
   statePath,
 }: CreateCandidateStoreOptions): CandidateStore {
   const state = loadState(statePath);
@@ -194,10 +217,22 @@ export function createCandidateStore({
         status: "rejected",
       };
     }
-    beforeStore?.(stored.operation);
+    return persistConfirmed(stored.operation, candidateId);
+  }
+
+  /**
+   * Shared persistence tail for both confirmation paths: runs the store
+   * hooks, deletes the candidate from the queue on success, and records the
+   * queue-level audit entry.
+   */
+  async function persistConfirmed(
+    operation: T1MemoryOperation,
+    candidateId: string,
+  ): Promise<CandidateLifecycleResult> {
+    beforeStore?.(operation);
     const outcome = commit
-      ? await commit(stored.operation)
-      : await adapter.store(stored.operation).then(() => ({
+      ? await commit(operation)
+      : await adapter.store(operation).then(() => ({
           memoryId: undefined,
           status: "stored" as const,
         }));
@@ -240,6 +275,91 @@ export function createCandidateStore({
         : {}),
       status: "stored",
     };
+  }
+
+  /**
+   * Auto-admission path (change candidate-admission-autopilot, tasks 5.1-5.4):
+   * verify a pending candidate through its kind admission policy, upgrade its
+   * evidence on success, and store it without user interaction. Anything else
+   * (policy skip, verification failure, persistence failure) leaves the
+   * candidate pending with its original evidence.
+   */
+  async function autoConfirm(candidateId: string): Promise<CandidateLifecycleResult> {
+    const stored = state.candidates[candidateId];
+    if (!stored) return notFound();
+    const verification = await verifyCandidateIfNeeded(
+      {
+        content: stored.candidate.content,
+        kind: stored.candidate.kind,
+      },
+      {
+        env,
+        verifiers,
+      },
+    );
+    if (verification.status !== "verified") {
+      if (verification.status === "failed") {
+        // Spec (t1-governance): failed verification is visible in the L0
+        // trace; the candidate itself stays pending for manual review.
+        l0?.recordSafe("tool_verification_failed", {
+          bank: stored.candidate.targetBank,
+          candidateId,
+          kind: stored.candidate.kind,
+          reason: verification.reason,
+          scope: stored.candidate.targetScope,
+        });
+        auditLog?.record("tool-verification-failed", {
+          candidateId,
+          kind: stored.candidate.kind,
+          reason: verification.reason,
+          scope: stored.candidate.targetScope,
+        });
+      }
+      return {
+        reason: verification.reason,
+        status: "skipped",
+      };
+    }
+    const upgraded = upgradeEvidence(stored.candidate, verification);
+    const result = await persistConfirmed(
+      {
+        ...stored.operation,
+        confidence: upgraded.evidence.confidence,
+        provenance: upgraded.evidence.provenance,
+        source: {
+          ...stored.operation.source,
+          evidenceType: upgraded.evidence.type,
+          source: upgraded.evidence.source,
+          timestamp: upgraded.evidence.timestamp,
+        },
+      },
+      candidateId,
+    );
+    if (result.status !== "stored") return result;
+    auditLog?.record("tool-verified", {
+      candidateId,
+      filePath: verification.filePath,
+      kind: stored.candidate.kind,
+      matchedLine: verification.matchedLine,
+      scope: stored.candidate.targetScope,
+      status: "stored",
+    });
+    l0?.recordSafe("candidate_auto_verified", {
+      bank: stored.candidate.targetBank,
+      candidateId,
+      evidenceType: upgraded.evidence.type,
+      filePath: verification.filePath,
+      kind: stored.candidate.kind,
+      scope: stored.candidate.targetScope,
+    });
+    l0?.recordSafe("candidate_confirmed", {
+      bank: stored.candidate.targetBank,
+      candidateId,
+      evidenceType: upgraded.evidence.type,
+      kind: stored.candidate.kind,
+      scope: stored.candidate.targetScope,
+    });
+    return result;
   }
 
   async function reject(candidateId: string): Promise<CandidateLifecycleResult> {
@@ -295,6 +415,7 @@ export function createCandidateStore({
 
   return {
     add,
+    autoConfirm,
     confirm,
     correct,
     list,

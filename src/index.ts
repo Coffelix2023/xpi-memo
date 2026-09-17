@@ -546,6 +546,9 @@ function createRuntime(
     });
   const candidates = createCandidateStore({
     adapter,
+    auditLog: audit,
+    env: dependencies.env,
+    l0,
     statePath: join(configResult.config.dataDir, "candidates.json"),
     async commit(operation) {
       const result = await runT1Write({

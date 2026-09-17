@@ -10,6 +10,7 @@ import {
   DEFAULT_OFFLINE_EXTRACTION_MAX_EVENTS,
   DEFAULT_OFFLINE_EXTRACTION_MAX_INPUT_CHARS,
   DEFAULT_OFFLINE_EXTRACTION_TIMEOUT_MS,
+  normalizeOfflineExtractionOutput,
   type OfflineExtractionRunner,
   runOfflineExtraction,
 } from "./offline-extraction.js";
@@ -307,5 +308,22 @@ describe("offline extraction boundary (task 3.1)", () => {
       }),
     );
     expect(again.status).toBe("budget-exhausted");
+  });
+});
+
+describe("offline extraction evidence normalization (task 8.1)", () => {
+  it("normalizes every proposal to l0-conclusion, discarding runner claims", () => {
+    const { proposals } = normalizeOfflineExtractionOutput([
+      {
+        confidence: 0.8,
+        content: "The extension loads src/index.ts directly.",
+        // Runner claim — the boundary discards it (task 8.1).
+        evidenceType: "explicit-user-statement",
+        kind: "project_gene",
+        sourceReference: "session:s1#12",
+      },
+    ]);
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]?.evidenceType).toBe("l0-conclusion");
   });
 });

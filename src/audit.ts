@@ -21,6 +21,8 @@ export const AUDIT_ACTIONS = [
   "sleep-authorization",
   "cross-layer-promotion",
   "extraction",
+  "tool-verified",
+  "tool-verification-failed",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -34,6 +36,7 @@ export interface AuditMetadata {
   /** Bounded offline-extraction proposal counters; never memory bodies. */
   budgetRejectedCount?: number;
   candidateCount?: number;
+  candidateId?: string;
   /** Bounded exact-ID read capability verdict (change memory-forget-exact-id):
    * a reason code, never a memory body. */
   capability?: string;
@@ -43,6 +46,8 @@ export interface AuditMetadata {
   /** Body-free explicit/passive feedback classification. */
   feedback?: string;
   feedbackMode?: "explicit" | "passive";
+  /** Bounded rg anchor of a tool-verified auto-store (task 7.1). */
+  filePath?: string;
   /** Environment identity state at the failure boundary (task 3.1):
    * git / initialized-local / uninitialized / unknown. */
   identity?: string;
@@ -50,6 +55,8 @@ export interface AuditMetadata {
   injectedCount?: number;
   invalidProposals?: number;
   kind?: string;
+  /** Bounded rg matched line of a tool-verified auto-store (task 7.1). */
+  matchedLine?: string;
   memoryId?: string;
   /** Actual sleep execution mode (task 3.4): dedicated / session-model / mechanical / none / disabled. */
   mode?: string;
@@ -105,9 +112,12 @@ const ALLOWED_METADATA_KEYS = new Set([
   "bank",
   "budgetRejectedCount",
   "candidateCount",
+  "candidateId",
   "confidence",
   "evidenceType",
   "fallback",
+  "filePath",
+  "matchedLine",
   "identity",
   "feedback",
   "feedbackMode",

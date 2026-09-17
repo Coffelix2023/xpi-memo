@@ -37,8 +37,64 @@ describe("bounded T1 audit metadata", () => {
       "sleep-authorization",
       "cross-layer-promotion",
       "extraction",
+      "tool-verified",
+      "tool-verification-failed",
     ]);
   });
+  it("serializes tool-verified verification evidence (task 7.1)", () => {
+    const statePath = join(createTemporaryDirectory(), "audit.json");
+
+    const writer = createAuditLog({
+      statePath,
+    });
+    writer.record("tool-verified", {
+      candidateId: "candidate-1",
+      filePath: "AGENTS.md",
+      kind: "project_gene",
+      matchedLine: "Pi 直接加载 src/index.ts TypeScript 源码。",
+      scope: "project",
+      status: "stored",
+    });
+
+    // A fresh instance proves the entry survives the JSON round-trip,
+    // including the bounded-metadata allowlist filter.
+    const reader = createAuditLog({
+      statePath,
+    });
+    const entry = reader
+      .list()
+      .find((candidate) => candidate.action === "tool-verified");
+    expect(entry).toBeDefined();
+    expect(entry?.metadata.candidateId).toBe("candidate-1");
+    expect(entry?.metadata.filePath).toBe("AGENTS.md");
+    expect(entry?.metadata.matchedLine).toContain("src/index.ts");
+    expect(Number.isNaN(Date.parse(entry?.timestamp ?? ""))).toBe(false);
+  });
+
+  it("serializes tool-verification-failed reasons (task 7.2)", () => {
+    const statePath = join(createTemporaryDirectory(), "audit.json");
+
+    const writer = createAuditLog({
+      statePath,
+    });
+    writer.record("tool-verification-failed", {
+      candidateId: "candidate-2",
+      kind: "project_gene",
+      reason: "no-match",
+      scope: "project",
+    });
+
+    const reader = createAuditLog({
+      statePath,
+    });
+    const entry = reader
+      .list()
+      .find((candidate) => candidate.action === "tool-verification-failed");
+    expect(entry).toBeDefined();
+    expect(entry?.metadata.candidateId).toBe("candidate-2");
+    expect(entry?.metadata.reason).toBe("no-match");
+  });
+
   it.each(AUDIT_ACTIONS)("records bounded metadata for %s", (action) => {
     const statePath = join(createTemporaryDirectory(), "audit.json");
     const audit = createAuditLog({
