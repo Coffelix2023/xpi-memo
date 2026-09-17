@@ -215,6 +215,11 @@ interface ToolDetails {
 export interface XpiMemoDependencies {
   env?: NodeJS.ProcessEnv;
   exactMemoryReader?: ExactMemoryReader;
+  /**
+   * Test injection point for the Pi project-trust verdict. Production
+   * resolves it from `ctx.isProjectTrusted()`; defaults to false.
+   */
+  isProjectTrusted?: () => boolean;
   offlineExtractionRunner?: OfflineExtractionRunner;
   resolveProjectIdentity?: (
     cwd: string,
@@ -292,7 +297,7 @@ async function executeFeedback(
   l0?: L0Coordinator,
   passive = false,
 ): Promise<ReturnType<typeof toolResult>> {
-  const runtime = createRuntime(ctx.cwd, dependencies, l0);
+  const runtime = createRuntime(ctx.cwd, dependencies, trustFor(ctx, dependencies), l0);
   const feedback = params.feedback;
   if (!isExplicitFeedback(feedback))
     return toolResult(
@@ -505,9 +510,19 @@ function realTool<TParams extends TSchema>(
   };
 }
 
+/**
+ * Project-trust verdict for the current session context. Tests inject an
+ * explicit dependency; production reads Pi's `ctx.isProjectTrusted()`. Falls
+ * back to false (conservative) when neither source is available.
+ */
+function trustFor(ctx: ExtensionContext, dependencies: XpiMemoDependencies): boolean {
+  return dependencies.isProjectTrusted?.() ?? ctx.isProjectTrusted?.() ?? false;
+}
+
 function createRuntime(
   cwd: string,
   dependencies: XpiMemoDependencies,
+  trusted: boolean,
   l0Override?: L0Coordinator,
   idempotencyOverride?: MemoryIdempotencyStore,
 ): Runtime {
@@ -517,7 +532,7 @@ function createRuntime(
   const gitProject = (dependencies.resolveProjectIdentity ?? resolveProjectIdentity)(
     cwd,
   );
-  const localProject = gitProject ? null : resolveLocalProjectIdentity(cwd);
+  const localProject = gitProject ? null : resolveLocalProjectIdentity(cwd, trusted);
   const project = gitProject ?? localProject;
   let identity: "git" | "local" | "none";
   if (gitProject) identity = "git";
@@ -682,7 +697,7 @@ async function runOfflineExtractionForLifecycle(
     extractionCounts.proposalsTotal = normalized.proposalsTotal;
     extractionCounts.validProposals = normalized.proposals.length;
     extractionCounts.invalidProposals = normalized.invalid;
-    const runtime = createRuntime(cwd, dependencies, l0);
+    const runtime = createRuntime(cwd, dependencies, trustFor(ctx, dependencies), l0);
     const governed = await governOfflineExtractionOutput(result.output, {
       adapter: runtime.adapter,
       audit,
@@ -853,7 +868,13 @@ async function executeRemember(
 ) {
   let runtime: Runtime | null = null;
   try {
-    runtime = createRuntime(ctx.cwd, dependencies, l0Override, idempotencyOverride);
+    runtime = createRuntime(
+      ctx.cwd,
+      dependencies,
+      trustFor(ctx, dependencies),
+      l0Override,
+      idempotencyOverride,
+    );
     const operation = operationFor(params, runtime, provenance);
     // Task 1.3: one bounded correlation id per remember operation, shared by
     // audit events so each started operation reaches a diagnosable terminal.
@@ -1428,7 +1449,7 @@ async function executeRecall(
   l0?: L0Coordinator,
 ) {
   try {
-    const runtime = createRuntime(ctx.cwd, dependencies);
+    const runtime = createRuntime(ctx.cwd, dependencies, trustFor(ctx, dependencies));
     // Task 1.3: recall operation correlation across its audit events.
     const operationId = randomUUID();
     const limit = params.limit ?? runtime.config.limit;
@@ -1594,7 +1615,7 @@ async function executeSleepTool(
   dependencies: XpiMemoDependencies,
 ) {
   try {
-    const runtime = createRuntime(ctx.cwd, dependencies);
+    const runtime = createRuntime(ctx.cwd, dependencies, trustFor(ctx, dependencies));
     const sleepMode = runtime.config.sleepMode;
     // Fail closed (task 5.1): no configured mode means the CLI is never probed
     // or invoked — the diagnostic names the missing configuration.
@@ -1844,6 +1865,7 @@ function securityForAudit(entries: readonly AuditEntry[]): MemoryStatus["securit
 async function statusForContext(
   cwd: string,
   dependencies: XpiMemoDependencies = {},
+  trusted = false,
 ): Promise<MemoryStatus> {
   const config = loadConfig({
     env: dependencies.env,
@@ -1851,7 +1873,7 @@ async function statusForContext(
   const gitProject = (dependencies.resolveProjectIdentity ?? resolveProjectIdentity)(
     cwd,
   );
-  const localProject = gitProject ? null : resolveLocalProjectIdentity(cwd);
+  const localProject = gitProject ? null : resolveLocalProjectIdentity(cwd, trusted);
   const project = gitProject ?? localProject;
   const run =
     dependencies.run ??
@@ -2218,7 +2240,7 @@ async function recallForContext(
     context: null,
     statusLine: "",
   };
-  const runtime = createRuntime(ctx.cwd, dependencies);
+  const runtime = createRuntime(ctx.cwd, dependencies, trustFor(ctx, dependencies));
   // Task 1.3: auto-injection correlation across its audit events.
   const operationId = randomUUID();
   surface.begin(policy === "active" ? "inject" : "recall");
@@ -2390,8 +2412,12 @@ export default function xpiMemo(
         ctx.ui.notify("Use /xpi-memo-status for JSON status outside the TUI.", "info");
         return;
       }
-      const status = await statusForContext(ctx.cwd, dependencies);
-      const runtime = createRuntime(ctx.cwd, dependencies);
+      const status = await statusForContext(
+        ctx.cwd,
+        dependencies,
+        trustFor(ctx, dependencies),
+      );
+      const runtime = createRuntime(ctx.cwd, dependencies, trustFor(ctx, dependencies));
       await openConsole(
         ctx,
         status,
@@ -2470,7 +2496,11 @@ export default function xpiMemo(
   pi.registerCommand("xpi-memo-status", {
     description: "Show the XpiMemo T1 status (panel in TUI, JSON elsewhere)",
     handler: async (_args, ctx) => {
-      const status = await statusForContext(ctx.cwd, dependencies);
+      const status = await statusForContext(
+        ctx.cwd,
+        dependencies,
+        trustFor(ctx, dependencies),
+      );
       if (ctx.mode === "tui") {
         await openStatusPanel(
           ctx,
@@ -2599,12 +2629,18 @@ export default function xpiMemo(
       }).config;
       // Task 6.1/6.3: project Markdown export / governed re-import.
       if (flags.includes("--repo")) {
-        const runtime = createRuntime(ctx.cwd, dependencies);
+        const runtime = createRuntime(
+          ctx.cwd,
+          dependencies,
+          trustFor(ctx, dependencies),
+        );
         const bank = runtime.context.projectBank;
         // Task 6.4: resolve the export target to the current worktree/project
         // root, never to a subdirectory of the session cwd.
         const gitIdentity = resolveProjectIdentity(ctx.cwd);
-        const localIdentity = gitIdentity ? null : resolveLocalProjectIdentity(ctx.cwd);
+        const localIdentity = gitIdentity
+          ? null
+          : resolveLocalProjectIdentity(ctx.cwd, trustFor(ctx, dependencies));
         const projectRoot = gitIdentity?.root ?? localIdentity?.root ?? ctx.cwd;
         if (!bank) {
           ctx.ui.notify(
@@ -2716,7 +2752,10 @@ export default function xpiMemo(
         );
         return;
       }
-      const existing = resolveLocalProjectIdentity(ctx.cwd);
+      const existing = resolveLocalProjectIdentity(
+        ctx.cwd,
+        trustFor(ctx, dependencies),
+      );
       if (revoke) {
         if (!existing) {
           ctx.ui.notify("No local project identity found; nothing to revoke.", "info");
@@ -2929,6 +2968,7 @@ export default function xpiMemo(
     const runtime = createRuntime(
       ctx.cwd,
       dependencies,
+      trustFor(ctx, dependencies),
       l0ForHooks(),
       idempotencyForHooks(),
     );
@@ -3109,7 +3149,11 @@ export default function xpiMemo(
       Type.Object({}),
       async (_params, ctx) => {
         try {
-          const runtime = createRuntime(ctx.cwd, dependencies);
+          const runtime = createRuntime(
+            ctx.cwd,
+            dependencies,
+            trustFor(ctx, dependencies),
+          );
           const sessionId = l0ForHooks().sessionId();
           if (!sessionId)
             return toolResult(
@@ -3236,7 +3280,11 @@ export default function xpiMemo(
       }),
       async (params, ctx) => {
         try {
-          const runtime = createRuntime(ctx.cwd, dependencies);
+          const runtime = createRuntime(
+            ctx.cwd,
+            dependencies,
+            trustFor(ctx, dependencies),
+          );
           const banks = [
             ...new Set([
               ...(runtime.context.projectBank
@@ -3351,7 +3399,10 @@ export default function xpiMemo(
               : `Already inside Git project "${gitIdentity.label}" (${gitIdentity.id}); local initialization not needed.`,
           );
         }
-        const existing = resolveLocalProjectIdentity(ctx.cwd);
+        const existing = resolveLocalProjectIdentity(
+          ctx.cwd,
+          trustFor(ctx, dependencies),
+        );
         if (params.revoke) {
           if (!existing)
             return toolResult(

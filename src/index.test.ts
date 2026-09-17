@@ -49,6 +49,7 @@ interface RegisteredEvent {
 
 interface TestDependencies {
   env?: NodeJS.ProcessEnv;
+  isProjectTrusted?: () => boolean;
   offlineExtractionRunner?: OfflineExtractionRunner;
   resolveProjectIdentity?: (cwd: string) => {
     id: string;
@@ -613,7 +614,9 @@ describe("xpi-memo bootstrap entrypoint", () => {
 
   it("is idempotent for an already-initialized directory", async () => {
     const root = createTemporaryDirectory();
-    const { commands } = loadExtension();
+    const { commands } = loadExtension({
+      isProjectTrusted: () => true,
+    });
     const initCommand = commands.find(({ name }) => name === "xpi-memo-init");
     if (!initCommand) throw new Error("init command was not registered");
     const notifications: string[] = [];
@@ -707,6 +710,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
         XDG_CONFIG_HOME: dataDir,
         XPI_MEMO_DATA_DIR: dataDir,
       },
+      isProjectTrusted: () => true,
       resolveProjectIdentity: () => null,
     });
     const result = await toolByName(tools, "xpi_memo_init").execute(
@@ -751,6 +755,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
         XDG_CONFIG_HOME: dataDir,
         XPI_MEMO_DATA_DIR: dataDir,
       },
+      isProjectTrusted: () => true,
       resolveProjectIdentity: () => null,
     });
     const initCommand = commands.find(({ name }) => name === "xpi-memo-init");
@@ -2001,6 +2006,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
         XDG_CONFIG_HOME: dataDir,
         XPI_MEMO_DATA_DIR: dataDir,
       },
+      isProjectTrusted: () => true,
       run,
     });
 
@@ -2027,6 +2033,55 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(readFileSync(join(dataDir, "candidates.json"), "utf8")).toContain(
       "project-",
     );
+  });
+
+  it("rejects project memory in an untrusted local project even when metadata is valid", async () => {
+    const dataDir = createTemporaryDirectory();
+    const root = createTemporaryDirectory();
+    initializeLocalProject(root);
+    const run = async (): Promise<string> => "";
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      // No isProjectTrusted injection: default verdict is false.
+      run,
+      resolveProjectIdentity: () => null,
+    });
+
+    const result = await toolByName(tools, "xpi_memo_remember").execute(
+      "remember-untrusted",
+      {
+        content: "Use the initialized project boundary.",
+        kind: "project_decision",
+      },
+      undefined,
+      undefined,
+      createToolContext({
+        cwd: root,
+      }),
+    );
+    const details = result.details as Record<string, unknown>;
+
+    // Existing routing rejection path: the untrusted metadata never becomes
+    // a project bank, so project memory hits the project-identity-required
+    // rejection with the existing identity: "none" audit semantics (2.3).
+    expect(details).toMatchObject({
+      reason: "project-identity-required",
+      scope: "project",
+      status: "routing_rejected",
+    });
+    const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"))
+      .entries as Array<{
+      action: string;
+      metadata: Record<string, unknown>;
+    }>;
+    const rejection = audit.find((entry) => entry.action === "rejection");
+    expect(rejection?.metadata).toMatchObject({
+      identity: "none",
+      status: "routing_rejected",
+    });
   });
   it("queues a project decision as a candidate in non-TUI mode", async () => {
     const dataDir = createTemporaryDirectory();
