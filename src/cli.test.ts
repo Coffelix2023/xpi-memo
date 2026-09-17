@@ -9,14 +9,14 @@ import { type CliSpawner, parseStats, parseStoredId, runMnemosyne } from "./cli.
 
 const fixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "__fixtures__");
 interface FakeChild extends EventEmitter {
-  kill: ReturnType<typeof vi.fn>;
+  kill: ReturnType<typeof vi.fn<(signal: "SIGKILL") => void>>;
   stderr: EventEmitter;
   stdout: EventEmitter;
 }
 
 function createChild(): FakeChild {
   return Object.assign(new EventEmitter(), {
-    kill: vi.fn(),
+    kill: vi.fn<(signal: "SIGKILL") => void>(),
     stderr: new EventEmitter(),
     stdout: new EventEmitter(),
   });
