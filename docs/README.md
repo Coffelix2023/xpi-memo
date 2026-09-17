@@ -13,6 +13,7 @@
 | `GITHUB-GUARD.md` | GitHub 操作护栏 | `AGENTS.md` 第 6 节、`CONTEXT.md` |
 | `l0-contract.md` | L0 事件层契约 | `ARCHITECTURE.md` |
 | `UPSTREAM-FOLLOWUPS.md` | 对上游 Mnemosyne 的跟进请求（不含在 xpi-memo 交付范围） | `TROUBLESHOOTING.md` |
+| `OPEN-GAPS.md` | 本仓库已确认但未闭合的问题与候选方案（不含在交付范围，也不代表承诺实现） | 暂无；由 2026-09-17 的 v1.6.0 发布复核产出 |
 | `RECOVERY.md` | 恢复已删除记忆的操作步骤（原名 `GUIDE.md`） | `TROUBLESHOOTING.md` |
 
 ## 证据与交付记录（保留原位）
