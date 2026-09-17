@@ -3032,17 +3032,18 @@ export default function xpiMemo(
     clearFooterStatus(ctx);
     // Auto-export on session end (Task 9.3): best-effort, never blocks shutdown.
     if (config.autoExport && config.l0Enabled) {
-      try {
-        await exportMarkdown({
-          env: dependencies.env,
-          filters: {
-            excludeToolResults: config.excludeToolResults,
-            privacy: config.privacy,
-          },
-        });
-      } catch {
+      // ponytail: fire-and-forget export — shutdown must not wait on a
+      // multi-second full projection re-read. Ceiling: process exit mid-export
+      // can duplicate daily entries; the next export converges (idempotent).
+      void exportMarkdown({
+        env: dependencies.env,
+        filters: {
+          excludeToolResults: config.excludeToolResults,
+          privacy: config.privacy,
+        },
+      }).catch(() => {
         // Export failure must not block session shutdown.
-      }
+      });
     }
     // Gated offline extraction (task 3.1): best-effort, bounded, never blocks shutdown.
     if (config.offlineExtractionEnabled && config.l0Enabled) {
