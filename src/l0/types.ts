@@ -20,6 +20,7 @@ export const L0_EVENT_TYPES = [
   "candidate_created",
   "candidate_confirmed",
   "tool_verification_failed",
+  "tool_verification_shadow",
   "candidate_rejected",
   "routing_rejected",
   "memory_failed",

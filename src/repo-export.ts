@@ -467,7 +467,6 @@ export async function reimportRepoExport(
       kind: entry.kind,
       rationale: "Imported from repository Markdown; requires T1 write governance.",
       reason: pendingReasonFor(entry.kind),
-      verified: false,
     });
     if (!candidate) {
       rejected += 1;
@@ -492,6 +491,9 @@ export async function reimportRepoExport(
       scope: candidate.targetScope,
       source: evidence.source,
     });
+    // Single admission decision (stabilize 2.3): reimport candidates carry
+    // no repository-fact declaration and stay pending for manual review.
+    await runtime.candidates.admit(candidate.id);
     ledger.ids.push(entry.id);
     ledger.fingerprints.push(fingerprint);
     imported += 1;

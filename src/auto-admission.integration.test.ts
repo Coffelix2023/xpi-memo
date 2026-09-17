@@ -26,7 +26,7 @@ import type {
   MnemosyneRunner,
   T1MemoryOperation,
 } from "./operations.js";
-import type { VerifierFn } from "./tool-verification.js";
+import { VERIFIERS, type VerifierFn } from "./tool-verification.js";
 import type { VerificationResult } from "./types.js";
 
 const temporaryDirectories: string[] = [];
@@ -35,7 +35,8 @@ const GENE_CONTENT = "The extension loads src/index.ts directly.";
 
 const VERIFIED: VerificationResult = {
   filePath: "AGENTS.md",
-  matchedLine: "Pi 直接加载 src/index.ts TypeScript 源码。",
+  excerpt: "Pi 直接加载 src/index.ts TypeScript 源码。",
+  line: 12,
   status: "verified",
   timestamp: "2026-01-02T00:00:00.000Z",
 };
@@ -160,8 +161,46 @@ function findAudit(path: string, action: string) {
 }
 
 describe("offline extraction auto-admission (tasks 9.1-9.4)", () => {
-  it("auto-stores a tool-verified gene proposal into the project bank (task 9.1)", async () => {
+  it("shadow-verifies a gene proposal by default: pending, audited, no T1 write (stabilize 2.1/4.2)", async () => {
     const setup = createRuntime({
+      verifiers: new Map([
+        [
+          "project_gene",
+          async () => VERIFIED,
+        ],
+      ]),
+    });
+
+    const results = await governOfflineExtractionOutput(
+      [
+        proposal("project_gene", GENE_CONTENT),
+      ],
+      setup,
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      kind: "project_gene",
+      status: "candidate",
+    });
+    expect(setup.stored).toHaveLength(0);
+    // The shadow outcome is audited with bounded evidence, not silently skipped.
+    const entry = findAudit(setup.auditPath, "tool-verified");
+    expect(entry?.metadata.candidateId).toBeDefined();
+    expect(entry?.metadata.status).toBe("shadow");
+    expect(entry?.metadata.decision).toBe("shadow-verified");
+    expect(entry?.metadata.filePath).toBe("AGENTS.md");
+    // The candidate survives for manual Store/Later/Reject.
+    const pending = readCandidates(setup.candidatesPath);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.candidate.evidence.type).toBe("l0-conclusion");
+  });
+
+  it("auto-stores a tool-verified gene proposal under explicit opt-in (stabilize 3.2/4.2)", async () => {
+    const setup = createRuntime({
+      env: {
+        XPI_MEMO_AUTO_ADMIT: "true",
+      },
       verifiers: new Map([
         [
           "project_gene",
@@ -191,9 +230,33 @@ describe("offline extraction auto-admission (tasks 9.1-9.4)", () => {
     const entry = findAudit(setup.auditPath, "tool-verified");
     expect(entry?.metadata.candidateId).toBeDefined();
     expect(entry?.metadata.filePath).toBe("AGENTS.md");
+    expect(entry?.metadata.decision).toBe("auto-stored");
     expect(Number.isNaN(Date.parse(entry?.timestamp ?? ""))).toBe(false);
     // Nothing left pending.
     expect(readCandidates(setup.candidatesPath)).toHaveLength(0);
+  });
+
+  it("keeps a gene proposal pending when it has no repository-fact declaration (stabilize 4.2)", async () => {
+    // Real verifier (no mocks): a proposal without a declaration is not
+    // verifiable and must land in the review queue.
+    const setup = createRuntime({
+      verifiers: VERIFIERS,
+    });
+
+    const results = await governOfflineExtractionOutput(
+      [
+        proposal("project_gene", GENE_CONTENT),
+      ],
+      setup,
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ status: "candidate" });
+    expect(readCandidates(setup.candidatesPath)).toHaveLength(1);
+    expect(setup.stored).toHaveLength(0);
+    expect(
+      findAudit(setup.auditPath, "tool-verification-failed")?.metadata.reason,
+    ).toBe("no-declaration");
   });
 
   it("queues a gene proposal whose tool verification failed (task 9.2)", async () => {

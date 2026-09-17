@@ -5,7 +5,6 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { VerifierFn } from "./tool-verification.ts";
 import {
   VERIFIERS,
   verifyCandidateIfNeeded,
@@ -38,215 +37,234 @@ afterEach(() => {
   }
 });
 
-const GENE_CONTENT = "The extension loads src/index.ts TypeScript source directly.";
+const GENE_EXCERPT =
+  "The extension loads src/index.ts TypeScript source directly.";
 
-describe("verifyProjectGene (task 3.2)", () => {
-  it("verifies when the repository contains the claimed fact", async () => {
+function geneFact(overrides: Partial<{ path: string; excerpt: string; revision: string }> = {}) {
+  return {
+    excerpt: overrides.excerpt ?? GENE_EXCERPT,
+    path: overrides.path ?? "docs/architecture.md",
+    ...(overrides.revision ? { revision: overrides.revision } : {}),
+  };
+}
+
+describe("verifyProjectGene (stabilize task 1.2/3.1)", () => {
+  it("verifies a declaration whose file contains the excerpt verbatim", async () => {
     const root = createTemporaryRepository({
-      "docs/architecture.md":
-        "Rationale:\nThe extension loads src/index.ts TypeScript source directly.\n",
+      "docs/architecture.md": `Rationale:\n${GENE_EXCERPT}\n`,
     });
     const result = await verifyProjectGene(
       {
-        content: GENE_CONTENT,
+        content: "The loader reads TypeScript directly.",
         kind: "project_gene",
+        repositoryFact: geneFact(),
       },
-      {
-        root,
-      },
+      { root },
     );
-    expect(result.status).toBe("verified");
-    if (result.status !== "verified") return;
-    expect(result.filePath).toBe(join(root, "docs/architecture.md"));
-    expect(result.matchedLine).toContain("src/index.ts");
-    expect(Number.isNaN(Date.parse(result.timestamp))).toBe(false);
+    expect(result).toMatchObject({
+      excerpt: GENE_EXCERPT,
+      filePath: "docs/architecture.md",
+      line: 2,
+      status: "verified",
+    });
   });
 
-  it("fails with no-match when the repository lacks the claimed fact", async () => {
-    const root = createTemporaryRepository({
-      "docs/architecture.md": "Nothing relevant here.\n",
+  it("fails with no-declaration when the candidate has no repository fact", async () => {
+    const result = await verifyProjectGene({
+      content: "Any prose without a declaration.",
+      kind: "project_gene",
     });
-    const result = await verifyProjectGene(
-      {
-        content: GENE_CONTENT,
-        kind: "project_gene",
-      },
-      {
-        root,
-      },
-    );
-    expect(result).toEqual({
-      reason: "no-match",
+    expect(result).toMatchObject({
+      reason: "no-declaration",
       status: "failed",
     });
   });
 
-  it("fails with timeout when the search exceeds the 500ms budget", async () => {
-    const timeoutError = Object.assign(new Error("killed"), {
-      killed: true,
-    });
-    const result = await verifyProjectGene(
-      {
-        content: GENE_CONTENT,
-        kind: "project_gene",
-      },
-      {
-        execFile: async () => {
-          throw timeoutError;
+  it("fails with path-outside-root for absolute and escaping paths", async () => {
+    for (const path of ["/etc/passwd", "../outside.md", "a/../../b.md"]) {
+      const result = await verifyProjectGene(
+        {
+          content: "x",
+          kind: "project_gene",
+          repositoryFact: geneFact({ path }),
         },
-      },
-    );
-    expect(result).toEqual({
-      reason: "timeout",
-      status: "failed",
-    });
+        { root: createTemporaryRepository({}) },
+      );
+      expect(result).toMatchObject({
+        reason: "path-outside-root",
+        status: "failed",
+      });
+    }
   });
 
-  it("never verifies against test directories", async () => {
-    const root = createTemporaryRepository({
-      "tests/architecture.test.ts": `it("${GENE_CONTENT}", () => {});\n`,
-    });
+  it("fails with file-not-found when the declared file is missing", async () => {
+    const root = createTemporaryRepository({});
     const result = await verifyProjectGene(
       {
-        content: GENE_CONTENT,
-        kind: "project_gene",
-      },
-      {
-        root,
-      },
-    );
-    expect(result).toEqual({
-      reason: "no-match",
-      status: "failed",
-    });
-  });
-
-  it("fails with no-verifiable-text for whitespace-only content", async () => {
-    const result = await verifyProjectGene(
-      {
-        content: "   \n  ",
-        kind: "project_gene",
-      },
-      {
-        root: ".",
-      },
-    );
-    expect(result).toEqual({
-      reason: "no-verifiable-text",
-      status: "failed",
-    });
-  });
-});
-
-describe("verifier registry (task 3.3)", () => {
-  it("registers the gene and constraint verifiers", () => {
-    expect(VERIFIERS.get("project_gene")).toBeDefined();
-    expect(VERIFIERS.get("project_constraint")).toBeDefined();
-  });
-
-  it("fails verification for unregistered kinds", async () => {
-    const result = await verifyCandidateIfNeeded(
-      {
-        content: GENE_CONTENT,
-        kind: "project_gene",
-      },
-      {
-        verifiers: new Map(),
-      },
-    );
-    expect(result).toEqual({
-      reason: "verifier-not-registered",
-      status: "failed",
-    });
-  });
-});
-
-describe("verifyCandidateIfNeeded routing (task 3.4)", () => {
-  it("routes tool-verify kinds to their verifier", async () => {
-    const verified: VerifierFn = async (candidate) => {
-      expect(candidate.content).toBe(GENE_CONTENT);
-      expect(candidate.kind).toBe("project_gene");
-      return {
-        filePath: "AGENTS.md",
-        matchedLine: GENE_CONTENT,
-        status: "verified",
-        timestamp: "2026-01-01T00:00:00.000Z",
-      };
-    };
-    const result = await verifyCandidateIfNeeded(
-      {
-        content: GENE_CONTENT,
-        kind: "project_gene",
-      },
-      {
-        verifiers: new Map([
-          [
-            "project_gene",
-            verified,
-          ],
-        ]),
-      },
-    );
-    expect(result.status).toBe("verified");
-  });
-
-  it("skips verification for manual-confirm kinds", async () => {
-    const result = await verifyCandidateIfNeeded(
-      {
-        content: "Prefer pnpm over npm.",
-        kind: "project_decision",
-      },
-      {
-        verifiers: new Map([
-          [
-            "project_decision",
-            async () => {
-              throw new Error("verifier must not run for decision kind");
-            },
-          ],
-        ]),
-      },
-    );
-    expect(result).toEqual({
-      reason: "policy:manual-confirm",
-      status: "skipped",
-    });
-  });
-
-  it("skips verification when the global kill switch is on", async () => {
-    const result = await verifyCandidateIfNeeded(
-      {
-        content: GENE_CONTENT,
-        kind: "project_gene",
-      },
-      {
-        verifiers: VERIFIERS,
-        env: {
-          XPI_MEMO_AUTO_VERIFY: "false",
-        },
-      },
-    );
-    expect(result).toEqual({
-      reason: "policy:manual-confirm",
-      status: "skipped",
-    });
-  });
-});
-
-describe("VerifierFn signature (task 3.1)", () => {
-  it("accepts an async candidate-to-result function", async () => {
-    const verifier: VerifierFn = async (candidate) => ({
-      reason: `unverifiable:${candidate.kind}`,
-      status: "failed",
-    });
-    expect(
-      await verifier({
         content: "x",
         kind: "project_gene",
-      }),
-    ).toEqual({
-      reason: "unverifiable:project_gene",
+        repositoryFact: geneFact(),
+      },
+      { root },
+    );
+    expect(result).toMatchObject({
+      reason: "file-not-found",
       status: "failed",
     });
+  });
+
+  it("fails with excerpt-not-found when the file lacks the verbatim excerpt", async () => {
+    const root = createTemporaryRepository({
+      "docs/architecture.md": "Some other text entirely.\n",
+    });
+    const result = await verifyProjectGene(
+      {
+        content: "x",
+        kind: "project_gene",
+        repositoryFact: geneFact(),
+      },
+      { root },
+    );
+    expect(result).toMatchObject({
+      reason: "excerpt-not-found",
+      status: "failed",
+    });
+  });
+
+  it("fails with comment-evidence when the excerpt line is a comment", async () => {
+    const root = createTemporaryRepository({
+      "src/loader.ts": `// ${GENE_EXCERPT}\nexport const x = 1;\n`,
+      "notes.md": `<!-- ${GENE_EXCERPT} -->\n`,
+    });
+    for (const path of ["src/loader.ts", "notes.md"]) {
+      const result = await verifyProjectGene(
+        {
+          content: "x",
+          kind: "project_gene",
+          repositoryFact: geneFact({ path }),
+        },
+        { root },
+      );
+      expect(result).toMatchObject({
+        reason: "comment-evidence",
+        status: "failed",
+      });
+    }
+  });
+
+  it("fails with revision-mismatch when the declared revision differs from HEAD", async () => {
+    const root = createTemporaryRepository({
+      "docs/architecture.md": `${GENE_EXCERPT}\n`,
+    });
+    const result = await verifyProjectGene(
+      {
+        content: "x",
+        kind: "project_gene",
+        repositoryFact: geneFact({ revision: "aaaaaaaaaaaaaaaa" }),
+      },
+      { headRevision: "bbbbbbbbbbbbbbbb", root },
+    );
+    expect(result).toMatchObject({
+      reason: "revision-mismatch",
+      status: "failed",
+    });
+  });
+
+  it("passes when the declared revision matches HEAD", async () => {
+    const root = createTemporaryRepository({
+      "docs/architecture.md": `${GENE_EXCERPT}\n`,
+    });
+    const result = await verifyProjectGene(
+      {
+        content: "x",
+        kind: "project_gene",
+        repositoryFact: geneFact({ revision: "aaaaaaaaaaaaaaaa" }),
+      },
+      { headRevision: "aaaaaaaaaaaaaaaa", root },
+    );
+    expect(result).toMatchObject({ status: "verified" });
+  });
+
+  it("fails with timeout and git-unavailable for revision subprocess failures", async () => {
+    const root = createTemporaryRepository({
+      "docs/architecture.md": `${GENE_EXCERPT}\n`,
+    });
+    const timeoutError = Object.assign(new Error("killed"), { killed: true });
+    const timedOut = await verifyProjectGene(
+      {
+        content: "x",
+        kind: "project_gene",
+        repositoryFact: geneFact({ revision: "aaaaaaaaaaaaaaaa" }),
+      },
+      {
+        execFile: () => Promise.reject(timeoutError),
+        root,
+      },
+    );
+    expect(timedOut).toMatchObject({ reason: "timeout", status: "failed" });
+    const missingGit = await verifyProjectGene(
+      {
+        content: "x",
+        kind: "project_gene",
+        repositoryFact: geneFact({ revision: "aaaaaaaaaaaaaaaa" }),
+      },
+      {
+        execFile: () =>
+          Promise.reject(Object.assign(new Error("spawn"), { code: "ENOENT" })),
+        root,
+      },
+    );
+    expect(missingGit).toMatchObject({
+      reason: "git-unavailable",
+      status: "failed",
+    });
+  });
+});
+
+describe("verifyCandidateIfNeeded (stabilize rollout seam)", () => {
+  it("routes gene candidates to the registered verifier", async () => {
+    const root = createTemporaryRepository({
+      "docs/architecture.md": `${GENE_EXCERPT}\n`,
+    });
+    const result = await verifyCandidateIfNeeded(
+      {
+        content: "x",
+        kind: "project_gene",
+        repositoryFact: geneFact(),
+      },
+      { root },
+    );
+    expect(result).toMatchObject({ status: "verified" });
+  });
+
+  it("skips verification for manual-confirm kinds without calling a verifier", async () => {
+    const result = await verifyCandidateIfNeeded({
+      content: "x",
+      kind: "project_decision",
+    });
+    expect(result).toMatchObject({
+      reason: "policy:manual-confirm",
+      status: "skipped",
+    });
+  });
+
+  it("keeps the kill switch behaviour: XPI_MEMO_AUTO_VERIFY=false skips verification", async () => {
+    const result = await verifyCandidateIfNeeded(
+      {
+        content: "x",
+        kind: "project_gene",
+        repositoryFact: geneFact(),
+      },
+      { env: { XPI_MEMO_AUTO_VERIFY: "false" } },
+    );
+    expect(result).toMatchObject({
+      reason: "policy:manual-confirm",
+      status: "skipped",
+    });
+  });
+
+  it("exposes the gene and constraint verifiers in the registry", () => {
+    expect(VERIFIERS.has("project_gene")).toBe(true);
+    expect(VERIFIERS.has("project_constraint")).toBe(true);
   });
 });

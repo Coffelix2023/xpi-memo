@@ -958,7 +958,6 @@ async function executeRemember(
       kind: operation.kind,
       rationale: "This memory requires T1 write governance before persistence.",
       reason: pendingReasonFor(operation.kind),
-      verified: false,
       evidence,
     });
     if (!candidate && runtime.config.paused) {
@@ -1049,6 +1048,22 @@ async function executeRemember(
             status: "rejected",
           },
           "Memory candidate was rejected.",
+        );
+      }
+      // Single admission decision (stabilize 2.3): remember candidates carry
+      // no repository-fact declaration, so this resolves to pending — but
+      // every entry path must obtain exactly one decision from the store.
+      const admitted = await runtime.candidates.admit(candidate.id);
+      if (admitted.status === "stored") {
+        return toolResult(
+          {
+            bank: candidate.targetBank,
+            candidateId: candidate.id,
+            kind: candidate.kind,
+            scope: candidate.targetScope,
+            status: "stored",
+          },
+          "Memory stored in the project bank after repository-fact verification.",
         );
       }
       if (runtime.config.paused) {

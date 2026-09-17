@@ -15,22 +15,39 @@ export const KIND_ADMISSION_POLICIES = [
 
 export type KindAdmissionPolicy = (typeof KIND_ADMISSION_POLICIES)[number];
 
+/**
+ * Structured repository-fact verification declaration (change
+ * stabilize-candidate-auto-admission). Bound to a repo-relative file, a
+ * bounded verbatim excerpt and an optional revision; produced only by the
+ * offline-extraction boundary and verified against the working tree.
+ */
+export interface RepositoryFact {
+  /** Verbatim evidence excerpt (bounded, must appear in the file). */
+  excerpt: string;
+  /** Repo-relative path inside the current project root. */
+  path: string;
+  /** Optional revision the fact was true at; mismatch keeps the candidate pending. */
+  revision?: string;
+}
+
 /** The subset of a pending candidate a verifier is allowed to look at. */
 export interface VerificationCandidate {
   content: string;
   kind: MemoryKind;
+  repositoryFact?: RepositoryFact;
 }
 
 /**
  * Outcome of the admission verification step. `verified` carries bounded
- * evidence (file + matched line + timestamp) for the audit trail; `failed`
- * and `skipped` both leave the candidate in the pending queue — only the
- * audit entry differs.
+ * evidence (relative file + line + excerpt + timestamp) for the audit trail;
+ * `failed` and `skipped` both leave the candidate in the pending queue —
+ * only the audit entry differs.
  */
 export type VerificationResult =
   | {
+      excerpt: string;
       filePath: string;
-      matchedLine: string;
+      line: number;
       status: "verified";
       timestamp: string;
     }
@@ -38,3 +55,9 @@ export type VerificationResult =
       reason: string;
       status: "failed" | "skipped";
     };
+
+/**
+ * The single admission decision every candidate-producing entry path must
+ * obtain (change stabilize-candidate-auto-admission, design Decision 1).
+ */
+export type AdmissionDecision = "auto-stored" | "pending" | "shadow-verified";

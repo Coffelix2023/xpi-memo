@@ -153,6 +153,11 @@ describe("transformer", () => {
         kind: "project_gene",
         reason: "no-match",
       },
+      tool_verification_shadow: {
+        candidateId: "c1",
+        filePath: "AGENTS.md",
+        kind: "project_gene",
+      },
       user_message: {
         text: "fix the bug",
       },

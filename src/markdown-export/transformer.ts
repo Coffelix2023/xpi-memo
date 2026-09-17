@@ -126,6 +126,8 @@ function prose(event: L0Event, filters: ExportFilters): string {
       return `Memory candidate rejected [${text(payload.kind)}]: ${text(payload.reason)}`;
     case "tool_verification_failed":
       return `Memory tool verification failed [${text(payload.kind)}]: ${text(payload.reason)}`;
+    case "tool_verification_shadow":
+      return `Memory tool verification shadow-passed [${text(payload.kind)}]: ${text(payload.filePath)}`;
     case "routing_decision":
       return `Routing decision [${text(payload.kind)}] -> ${text(payload.bank)}`;
     case "routing_rejected":

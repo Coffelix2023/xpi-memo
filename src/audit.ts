@@ -55,7 +55,12 @@ export interface AuditMetadata {
   injectedCount?: number;
   invalidProposals?: number;
   kind?: string;
-  /** Bounded rg matched line of a tool-verified auto-store (task 7.1). */
+  /** Admission decision (stabilize change, task 4.1): pending / shadow-verified / auto-stored. */
+  decision?: string;
+  /** 1-based line number of a verified repository fact (stabilize change, task 4.1). */
+  line?: number;
+  /** Bounded verbatim excerpt of a verified repository fact (stabilize change, task 4.1). */
+  excerpt?: string;
   matchedLine?: string;
   memoryId?: string;
   /** Actual sleep execution mode (task 3.4): dedicated / session-model / mechanical / none / disabled. */
@@ -108,6 +113,9 @@ interface CreateAuditLogOptions {
 const DEFAULT_MAX_ENTRIES = 200;
 const ALLOWED_METADATA_KEYS = new Set([
   "backend",
+  "decision",
+  "excerpt",
+  "line",
   "operationId",
   "bank",
   "budgetRejectedCount",

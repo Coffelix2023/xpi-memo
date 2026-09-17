@@ -8,6 +8,7 @@ import type {
   ExtractionBudgetLimits,
 } from "./extraction-budget.js";
 import { isMemoryKind, type MemoryKind } from "./kinds.js";
+import type { RepositoryFact } from "./types.js";
 import type { L0Coordinator } from "./l0/l0-runtime.js";
 import type { L0Event } from "./l0/types.js";
 import { prepareExternalEvents } from "./memory-safety.js";
@@ -20,8 +21,14 @@ import {
   generatePendingCandidate,
   type PendingCandidateReason,
 } from "./pending-candidate.js";
+import { isAbsolute } from "node:path";
 import { routeMemoryKind } from "./routing.js";
 import { runT1Write } from "./t1-lifecycle.js";
+import {
+  MAX_EXCERPT_CHARS,
+  MAX_FACT_PATH_CHARS,
+  MAX_REVISION_CHARS,
+} from "./tool-verification.js";
 
 /**
  * Gated offline extraction boundary (task 3.1).
@@ -336,6 +343,12 @@ export interface OfflineExtractionProposal {
   content: string;
   evidenceType: EvidenceType;
   kind: MemoryKind;
+  /**
+   * Optional structured repository-fact declaration (stabilize change task
+   * 1.1). Only valid declarations on `project_gene` proposals survive
+   * normalization; invalid ones are dropped and the proposal stays pending.
+   */
+  repositoryFact?: RepositoryFact;
   sourceReference: string;
 }
 
@@ -352,6 +365,34 @@ function isFiniteConfidence(value: unknown): value is number {
   );
 }
 
+function repositoryFactFromEntry(
+  entry: Record<string, unknown>,
+  kind: MemoryKind,
+): RepositoryFact | undefined {
+  if (kind !== "project_gene") return undefined;
+  const raw = entry.repositoryFact;
+  if (!isRecord(raw)) return undefined;
+  const path = typeof raw.path === "string" ? raw.path.trim() : "";
+  const excerpt = typeof raw.excerpt === "string" ? raw.excerpt : "";
+  if (!path || !excerpt) return undefined;
+  // Containment: relative, inside the project root, bounded length.
+  if (path.length > MAX_FACT_PATH_CHARS) return undefined;
+  if (isAbsolute(path) || path.split("/").includes("..")) return undefined;
+  if (excerpt.length === 0 || excerpt.length > MAX_EXCERPT_CHARS) return undefined;
+  const revisionRaw =
+    typeof raw.revision === "string" ? raw.revision.trim() : "";
+  if (revisionRaw.length > MAX_REVISION_CHARS) return undefined;
+  return {
+    excerpt,
+    path,
+    ...(revisionRaw
+      ? {
+          revision: revisionRaw,
+        }
+      : {}),
+  };
+}
+
 function proposalFromEntry(entry: unknown): OfflineExtractionProposal | null {
   if (!isRecord(entry)) return null;
   const content = typeof entry.content === "string" ? entry.content.trim() : "";
@@ -366,6 +407,7 @@ function proposalFromEntry(entry: unknown): OfflineExtractionProposal | null {
     // Forced: model-derived proposals can never be explicit user statements.
     evidenceType: "l0-conclusion",
     kind,
+    repositoryFact: repositoryFactFromEntry(entry, kind),
     sourceReference,
   };
 }
@@ -598,7 +640,7 @@ async function addCandidate(
     kind: operation.kind,
     rationale: "Proposed by offline extraction; requires T1 write governance.",
     reason: pendingReasonFor(operation.kind),
-    verified: false,
+    repositoryFact: proposal.repositoryFact,
   });
   if (!candidate) {
     return reject(runtime, operation.kind, "candidate-unavailable", operation.scope);
@@ -620,9 +662,9 @@ async function addCandidate(
       candidate.targetScope,
     );
   }
-  // Kind-routed auto-admission (tasks 9.1-9.4): the lifecycle decides
-  // whether this candidate is tool-verified and stored directly.
-  const auto = await runtime.candidates.autoConfirm(candidate.id);
+  // Single admission decision (stabilize change, tasks 2.1/2.3): the
+  // lifecycle applies kind policy, verification, upgrade and rollout.
+  const auto = await runtime.candidates.admit(candidate.id);
   if (auto.status === "stored") {
     return {
       kind: candidate.kind,

@@ -11,6 +11,7 @@ import { dirname } from "node:path";
 import type { AuditLog } from "./audit.js";
 import { classifyProhibitedContent } from "./content-policy.js";
 import { upgradeEvidence } from "./evidence-upgrade.js";
+import { autoAdmitEnabled } from "./kind-routing.js";
 import type { MemoryKind } from "./kinds.js";
 import type { L0Event, L0EventType } from "./l0/types.js";
 import type { MnemosyneAdapter, T1MemoryOperation } from "./operations.js";
@@ -49,7 +50,13 @@ export interface CandidateStore {
     candidate: PendingCandidate,
     operation: T1MemoryOperation,
   ): CandidateLifecycleResult;
-  autoConfirm(candidateId: string): Promise<CandidateLifecycleResult>;
+  /**
+   * The single admission decision (stabilize-candidate-auto-admission):
+   * kind policy -> verification -> permitted evidence upgrade -> rollout.
+   * Returns `stored` for auto-stored candidates, `skipped` (pending or
+   * shadow-verified) otherwise; the candidate is never lost.
+   */
+  admit(candidateId: string): Promise<CandidateLifecycleResult>;
   confirm(candidateId: string): Promise<CandidateLifecycleResult>;
   correct(
     candidateId: string,
@@ -278,19 +285,23 @@ export function createCandidateStore({
   }
 
   /**
-   * Auto-admission path (change candidate-admission-autopilot, tasks 5.1-5.4):
-   * verify a pending candidate through its kind admission policy, upgrade its
-   * evidence on success, and store it without user interaction. Anything else
-   * (policy skip, verification failure, persistence failure) leaves the
-   * candidate pending with its original evidence.
+   * Single admission decision (change stabilize-candidate-auto-admission):
+   * verify a pending candidate through its kind policy, upgrade its evidence
+   * only along the sanctioned path, and store only under the explicit
+   * rollout. Anything else (policy skip, verification failure, shadow mode,
+   * persistence failure) leaves the candidate pending with its original
+   * evidence.
    */
-  async function autoConfirm(candidateId: string): Promise<CandidateLifecycleResult> {
+  async function admit(candidateId: string): Promise<CandidateLifecycleResult> {
     const stored = state.candidates[candidateId];
     if (!stored) return notFound();
+    // Kind policy first (t1-governance decision order): accumulate and
+    // manual-confirm kinds never reach the verifier.
     const verification = await verifyCandidateIfNeeded(
       {
         content: stored.candidate.content,
         kind: stored.candidate.kind,
+        repositoryFact: stored.candidate.repositoryFact,
       },
       {
         env,
@@ -304,12 +315,14 @@ export function createCandidateStore({
         l0?.recordSafe("tool_verification_failed", {
           bank: stored.candidate.targetBank,
           candidateId,
+          decision: "pending",
           kind: stored.candidate.kind,
           reason: verification.reason,
           scope: stored.candidate.targetScope,
         });
         auditLog?.record("tool-verification-failed", {
           candidateId,
+          decision: "pending",
           kind: stored.candidate.kind,
           reason: verification.reason,
           scope: stored.candidate.targetScope,
@@ -320,46 +333,82 @@ export function createCandidateStore({
         status: "skipped",
       };
     }
-    const upgraded = upgradeEvidence(stored.candidate, verification);
-    const result = await persistConfirmed(
-      {
-        ...stored.operation,
-        confidence: upgraded.evidence.confidence,
-        provenance: upgraded.evidence.provenance,
-        source: {
-          ...stored.operation.source,
-          evidenceType: upgraded.evidence.type,
-          source: upgraded.evidence.source,
-          timestamp: upgraded.evidence.timestamp,
-        },
+    // Evidence upgrade guard (task 2.4): only l0-conclusion conclusions are
+    // upgraded; every other evidence type (including verified-tool-result)
+    // keeps its semantics and never reaches upgradeEvidence, so the
+    // whitelist can never throw here.
+    const upgraded =
+      stored.candidate.evidence.type === "l0-conclusion"
+        ? upgradeEvidence(stored.candidate, verification)
+        : stored.candidate;
+    const operation = {
+      ...stored.operation,
+      confidence: upgraded.evidence.confidence,
+      provenance: upgraded.evidence.provenance,
+      source: {
+        ...stored.operation.source,
+        evidenceType: upgraded.evidence.type,
+        source: upgraded.evidence.source,
+        timestamp: upgraded.evidence.timestamp,
       },
-      candidateId,
-    );
-    if (result.status !== "stored") return result;
+    };
+    // Rollout (design Decision 4): auto-storage requires the explicit
+    // opt-in AND project_gene; project_constraint stays shadow even with a
+    // registered verifier. Anything else is a bounded shadow outcome.
+    if (stored.candidate.kind === "project_gene" && autoAdmitEnabled(env)) {
+      const result = await persistConfirmed(operation, candidateId);
+      if (result.status !== "stored") return result;
+      auditLog?.record("tool-verified", {
+        candidateId,
+        decision: "auto-stored",
+        excerpt: verification.excerpt,
+        filePath: verification.filePath,
+        kind: stored.candidate.kind,
+        line: verification.line,
+        scope: stored.candidate.targetScope,
+        status: "stored",
+      });
+      l0?.recordSafe("candidate_auto_verified", {
+        bank: stored.candidate.targetBank,
+        candidateId,
+        evidenceType: upgraded.evidence.type,
+        filePath: verification.filePath,
+        kind: stored.candidate.kind,
+        scope: stored.candidate.targetScope,
+      });
+      l0?.recordSafe("candidate_confirmed", {
+        bank: stored.candidate.targetBank,
+        candidateId,
+        evidenceType: upgraded.evidence.type,
+        kind: stored.candidate.kind,
+        scope: stored.candidate.targetScope,
+      });
+      return result;
+    }
+    // Shadow mode: verified, recorded, candidate kept pending — never a
+    // silent skip and never a T1 write.
     auditLog?.record("tool-verified", {
       candidateId,
+      decision: "shadow-verified",
+      excerpt: verification.excerpt,
       filePath: verification.filePath,
       kind: stored.candidate.kind,
-      matchedLine: verification.matchedLine,
+      line: verification.line,
       scope: stored.candidate.targetScope,
-      status: "stored",
+      status: "shadow",
     });
-    l0?.recordSafe("candidate_auto_verified", {
+    l0?.recordSafe("tool_verification_shadow", {
       bank: stored.candidate.targetBank,
       candidateId,
-      evidenceType: upgraded.evidence.type,
+      evidenceType: stored.candidate.evidence.type,
       filePath: verification.filePath,
       kind: stored.candidate.kind,
       scope: stored.candidate.targetScope,
     });
-    l0?.recordSafe("candidate_confirmed", {
-      bank: stored.candidate.targetBank,
-      candidateId,
-      evidenceType: upgraded.evidence.type,
-      kind: stored.candidate.kind,
-      scope: stored.candidate.targetScope,
-    });
-    return result;
+    return {
+      reason: "shadow-verified",
+      status: "skipped",
+    };
   }
 
   async function reject(candidateId: string): Promise<CandidateLifecycleResult> {
@@ -415,7 +464,7 @@ export function createCandidateStore({
 
   return {
     add,
-    autoConfirm,
+    admit,
     confirm,
     correct,
     list,

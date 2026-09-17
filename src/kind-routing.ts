@@ -34,3 +34,17 @@ export function getAdmissionPolicy(
   if (override === "false" || override === "0") return "manual-confirm";
   return KIND_ADMISSION_POLICIES[kind];
 }
+
+/**
+ * Explicit auto-admission rollout (change stabilize-candidate-auto-admission,
+ * design Decision 4). `XPI_MEMO_AUTO_ADMIT` must be exactly `true` and the
+ * kill switch must not be engaged; any other value, or a missing value,
+ * keeps admitted candidates in shadow mode.
+ */
+export function autoAdmitEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const override = env.XPI_MEMO_AUTO_VERIFY;
+  if (override === "false" || override === "0") return false;
+  return env.XPI_MEMO_AUTO_ADMIT === "true";
+}

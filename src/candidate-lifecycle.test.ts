@@ -455,10 +455,11 @@ describe("T1 candidate lifecycle", () => {
   });
 });
 
-describe("candidate auto-admission (tasks 5.1-5.4)", () => {
+describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
   const VERIFIED: VerificationResult = {
+    excerpt: "Pi 直接加载 src/index.ts TypeScript 源码。",
     filePath: "AGENTS.md",
-    matchedLine: "Pi 直接加载 src/index.ts TypeScript 源码。",
+    line: 12,
     status: "verified",
     timestamp: "2026-01-02T00:00:00.000Z",
   };
@@ -528,7 +529,7 @@ describe("candidate auto-admission (tasks 5.1-5.4)", () => {
     };
   }
 
-  it("auto-stores a verified gene candidate with upgraded evidence (task 5.1)", async () => {
+  it("shadow-verifies a gene candidate by default without a T1 write (stabilize 2.1)", async () => {
     const dataDir = createTemporaryDirectory();
     const { adapter, operations } = createAdapter();
     const store = createCandidateStore({
@@ -545,7 +546,37 @@ describe("candidate auto-admission (tasks 5.1-5.4)", () => {
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
 
-    const result = await store.autoConfirm(candidate.id);
+    const result = await store.admit(candidate.id);
+
+    expect(result).toEqual({
+      reason: "shadow-verified",
+      status: "skipped",
+    });
+    expect(operations).toHaveLength(0);
+    const pending = store.list();
+    expect(pending).toHaveLength(1);
+    // Shadow keeps the original evidence: no upgrade without the rollout.
+    expect(pending[0]?.evidence.type).toBe("l0-conclusion");
+  });
+
+  it("auto-stores a verified gene candidate with upgraded evidence under explicit opt-in (stabilize 3.2)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { adapter, operations } = createAdapter();
+    const store = createCandidateStore({
+      adapter,
+      env: { XPI_MEMO_AUTO_ADMIT: "true" },
+      statePath: join(dataDir, "candidates.json"),
+      verifiers: new Map([
+        [
+          "project_gene",
+          async () => VERIFIED,
+        ],
+      ]),
+    });
+    const candidate = createGeneCandidate();
+    store.add(candidate, createGeneOperation());
+
+    const result = await store.admit(candidate.id);
 
     expect(result.status).toBe("stored");
     expect(operations).toHaveLength(1);
@@ -576,7 +607,7 @@ describe("candidate auto-admission (tasks 5.1-5.4)", () => {
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
 
-    const result = await store.autoConfirm(candidate.id);
+    const result = await store.admit(candidate.id);
 
     expect(result).toEqual({
       reason: "no-match",
@@ -588,13 +619,13 @@ describe("candidate auto-admission (tasks 5.1-5.4)", () => {
     expect(pending[0]?.evidence.type).toBe("l0-conclusion");
   });
 
-  it("records candidate_auto_verified and candidate_confirmed L0 events (task 5.3)", async () => {
+  it("records candidate_auto_verified and candidate_confirmed L0 events under explicit opt-in (stabilize 3.2)", async () => {
     const dataDir = createTemporaryDirectory();
     const { adapter } = createAdapter();
     const { events, l0 } = createL0Recorder();
     const store = createCandidateStore({
       adapter,
-      env: {},
+      env: { XPI_MEMO_AUTO_ADMIT: "true" },
       l0,
       statePath: join(dataDir, "candidates.json"),
       verifiers: new Map([
@@ -607,7 +638,7 @@ describe("candidate auto-admission (tasks 5.1-5.4)", () => {
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
 
-    await store.autoConfirm(candidate.id);
+    await store.admit(candidate.id);
 
     expect(events.map((event) => event.type)).toEqual([
       "candidate_auto_verified",
@@ -641,7 +672,7 @@ describe("candidate auto-admission (tasks 5.1-5.4)", () => {
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
 
-    await store.autoConfirm(candidate.id);
+    await store.admit(candidate.id);
 
     expect(events.map((event) => event.type)).toEqual([
       "tool_verification_failed",
@@ -672,10 +703,14 @@ describe("candidate auto-admission (tasks 5.1-5.4)", () => {
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
 
-    const result = await store.autoConfirm(candidate.id);
+    const result = await store.admit(candidate.id);
 
     expect(verifierCalls).toBe(1);
-    expect(result.status).toBe("stored");
+    expect(result).toEqual({
+      reason: "shadow-verified",
+      status: "skipped",
+    });
+    expect(store.list()).toHaveLength(1);
   });
 
   it("skips verification for manual-confirm kinds without calling a verifier (task 5.4)", async () => {
@@ -697,7 +732,7 @@ describe("candidate auto-admission (tasks 5.1-5.4)", () => {
     const candidate = createCandidate();
     store.add(candidate, createOperation());
 
-    const result = await store.autoConfirm(candidate.id);
+    const result = await store.admit(candidate.id);
 
     expect(result).toEqual({
       reason: "policy:manual-confirm",
@@ -728,7 +763,7 @@ describe("candidate auto-admission (tasks 5.1-5.4)", () => {
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
 
-    await store.autoConfirm(candidate.id);
+    await store.admit(candidate.id);
 
     const entry = createAuditLog({
       statePath: auditPath,
@@ -737,7 +772,10 @@ describe("candidate auto-admission (tasks 5.1-5.4)", () => {
       .find((item) => item.action === "tool-verified");
     expect(entry?.metadata.candidateId).toBe(candidate.id);
     expect(entry?.metadata.filePath).toBe("AGENTS.md");
-    expect(entry?.metadata.matchedLine).toContain("src/index.ts");
+    expect(entry?.metadata.excerpt).toContain("src/index.ts");
+    expect(entry?.metadata.decision).toBe("shadow-verified");
+    expect(entry?.metadata.status).toBe("shadow");
+    expect(entry?.metadata.line).toBe(12);
     expect(Number.isNaN(Date.parse(entry?.timestamp ?? ""))).toBe(false);
   });
 
@@ -765,7 +803,7 @@ describe("candidate auto-admission (tasks 5.1-5.4)", () => {
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
 
-    await store.autoConfirm(candidate.id);
+    await store.admit(candidate.id);
 
     const entry = createAuditLog({
       statePath: auditPath,

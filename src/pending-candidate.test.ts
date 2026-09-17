@@ -83,8 +83,8 @@ describe("T1 pending candidate generation", () => {
     });
   });
 
-  it("does not create a candidate for an automatically eligible memory", () => {
-    const input: PendingCandidateInput = {
+  it("creates a pending candidate for project facts even with verified evidence (stabilize 2.2)", () => {
+    const candidate = generatePendingCandidate({
       content: "The repository uses pnpm.",
       evidence: createEvidenceRecord({
         confidence: 0.95,
@@ -95,17 +95,18 @@ describe("T1 pending candidate generation", () => {
       kind: "project_gene",
       rationale: "This is deterministic repository evidence.",
       reason: "high-impact-durable",
-      verified: true,
       context: {
         dataDir: "/tmp/xpi-memo-candidates",
         projectBank: "project-p-0123456789ab",
       },
-    };
+    });
 
-    expect(generatePendingCandidate(input)).toBeNull();
+    expect(candidate).not.toBeNull();
+    expect(candidate?.kind).toBe("project_gene");
+    expect(candidate?.status).toBe("pending");
   });
 
-  it("forces candidate creation when allowAutoStore is false even for auto-eligible memory", () => {
+  it("carries the repository-fact declaration onto the pending candidate", () => {
     const candidate = generatePendingCandidate({
       allowAutoStore: false,
       content: "The repository uses pnpm.",
@@ -118,7 +119,10 @@ describe("T1 pending candidate generation", () => {
       kind: "project_gene",
       rationale: "Offline extraction requires review before persistence.",
       reason: "high-impact-durable",
-      verified: true,
+      repositoryFact: {
+        excerpt: "pnpm",
+        path: "package.json",
+      },
       context: {
         dataDir: "/tmp/xpi-memo-candidates",
         projectBank: "project-p-0123456789ab",
@@ -127,5 +131,9 @@ describe("T1 pending candidate generation", () => {
     expect(candidate).not.toBeNull();
     expect(candidate?.kind).toBe("project_gene");
     expect(candidate?.status).toBe("pending");
+    expect(candidate?.repositoryFact).toEqual({
+      excerpt: "pnpm",
+      path: "package.json",
+    });
   });
 });

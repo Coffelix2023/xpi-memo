@@ -30,42 +30,6 @@ describe("T1 auto-store policy", () => {
     ).toBe(true);
   });
 
-  it.each([
-    [
-      "repository gene",
-      "project_gene",
-      "verified-repository-fact",
-    ],
-    [
-      "repository constraint",
-      "project_constraint",
-      "verified-repository-fact",
-    ],
-    [
-      "tool gene",
-      "project_gene",
-      "verified-tool-result",
-    ],
-    [
-      "tool constraint",
-      "project_constraint",
-      "verified-tool-result",
-    ],
-  ] as const)("allows verified %s", (_label, kind, evidenceType) => {
-    expect(
-      shouldAutoStore({
-        evidence: createEvidenceRecord({
-          confidence: 0.9,
-          provenance: "git:abc123",
-          source: "package.json",
-          type: evidenceType,
-        }),
-        kind,
-        verified: true,
-      }),
-    ).toBe(true);
-  });
-
   it("allows bounded session context", () => {
     expect(
       shouldAutoStore({
@@ -91,7 +55,6 @@ describe("T1 auto-store policy", () => {
           type: "verified-repository-fact",
         }),
         kind: "project_decision",
-        verified: true,
       }),
     ).toBe(false);
   });
@@ -116,20 +79,6 @@ describe("T1 auto-store policy", () => {
       {
         contentLength: 500,
         kind: "global_workflow" as const,
-      },
-    ],
-    [
-      "unverified gene",
-      {
-        contentLength: 500,
-        kind: "project_gene" as const,
-      },
-    ],
-    [
-      "unverified constraint",
-      {
-        contentLength: 500,
-        kind: "project_constraint" as const,
       },
     ],
     [
@@ -161,7 +110,6 @@ describe("T1 auto-store policy", () => {
             ? false
             : undefined,
         kind: input.kind,
-        verified: false,
       }),
     ).toBe(false);
   });
@@ -176,6 +124,45 @@ describe("T1 auto-store policy", () => {
           type: "explicit-user-statement",
         }),
         kind: "session_context",
+      }),
+    ).toBe(false);
+  });
+
+  // Task 1.3 regression: the removed project-fact branch must not change the
+  // preserved direct-store paths. Even verified project facts are never
+  // decided here — they go through the candidate store admission decision.
+  it("keeps session context and explicit preference paths unchanged without verified input", () => {
+    const sessionEvidence = createEvidenceRecord({
+      confidence: 0.7,
+      provenance: "session:42",
+      source: "current task",
+      type: "l0-conclusion",
+    });
+    const preferenceEvidence = createEvidenceRecord({
+      confidence: 0.9,
+      provenance: "user:session-1",
+      source: "user message",
+      type: "explicit-user-statement",
+    });
+    expect(
+      shouldAutoStore({
+        contentLength: 400,
+        evidence: sessionEvidence,
+        kind: "session_context",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoStore({
+        evidence: preferenceEvidence,
+        explicitStable: true,
+        kind: "global_preference",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoStore({
+        evidence: preferenceEvidence,
+        explicitStable: true,
+        kind: "project_gene",
       }),
     ).toBe(false);
   });

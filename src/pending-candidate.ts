@@ -4,7 +4,7 @@ import type { RoutingContext } from "./banks.js";
 import type { EvidenceRecord } from "./evidence.js";
 import type { MemoryKind } from "./kinds.js";
 import { routeMemoryKind } from "./routing.js";
-
+import type { RepositoryFact } from "./types.js";
 const PENDING_CANDIDATE_REASONS = [
   "project-decision",
   "ambiguous-preference",
@@ -25,7 +25,8 @@ export interface PendingCandidateInput {
   kind: MemoryKind;
   rationale: string;
   reason: PendingCandidateReason;
-  verified?: boolean;
+  /** Structured repository-fact declaration (offline extraction only). */
+  repositoryFact?: RepositoryFact;
 }
 
 export interface PendingCandidate {
@@ -38,6 +39,8 @@ export interface PendingCandidate {
   kind: MemoryKind;
   rationale: string;
   reason: PendingCandidateReason;
+  /** Structured repository-fact declaration carried to the verifier. */
+  repositoryFact?: RepositoryFact;
   status: "pending";
   targetBank: string;
   targetScope: "global" | "project" | "session";
@@ -57,7 +60,6 @@ export function generatePendingCandidate(
       evidence: input.evidence,
       explicitStable: input.explicitStable,
       kind: input.kind,
-      verified: input.verified,
     })
   ) {
     return null;
@@ -74,6 +76,11 @@ export function generatePendingCandidate(
     kind: input.kind,
     rationale: input.rationale,
     reason: input.reason,
+    ...(input.repositoryFact
+      ? {
+          repositoryFact: input.repositoryFact,
+        }
+      : {}),
     status: "pending",
     targetBank: route.bank,
     targetScope: route.scope,
