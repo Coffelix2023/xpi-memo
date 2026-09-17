@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -77,8 +77,8 @@ describe("non-Git local project identity", () => {
     initializeLocalProject(root);
     const nested = join(root, "packages", "deep");
 
-    const first = resolveLocalProjectIdentity(root);
-    const second = resolveLocalProjectIdentity(nested);
+    const first = resolveLocalProjectIdentity(root, true);
+    const second = resolveLocalProjectIdentity(nested, true);
 
     expect(first).not.toBeNull();
     expect(second?.id).toBe(first?.id);
@@ -97,17 +97,17 @@ describe("non-Git local project identity", () => {
     });
     initializeLocalProject(first);
 
-    expect(resolveLocalProjectIdentity(first)?.id).toBe(
+    expect(resolveLocalProjectIdentity(first, true)?.id).toBe(
       localProjectIdFor(realpathSync(first)),
     );
-    expect(resolveLocalProjectIdentity(second)).toBeNull();
+    expect(resolveLocalProjectIdentity(second, true)).toBeNull();
   });
 
   it("returns no identity before explicit initialization", () => {
     const directory = createTemporaryDirectory();
 
-    expect(resolveLocalProjectIdentity(directory)).toBeNull();
-    expect(resolveLocalProjectIdentity(join(directory, "sub"))).toBeNull();
+    expect(resolveLocalProjectIdentity(directory, true)).toBeNull();
+    expect(resolveLocalProjectIdentity(join(directory, "sub"), true)).toBeNull();
   });
 
   it("reads a persisted identity across cache clears", () => {
@@ -115,7 +115,7 @@ describe("non-Git local project identity", () => {
     const identity = initializeLocalProject(root);
     clearLocalIdentityCache();
 
-    const reread = resolveLocalProjectIdentity(root);
+    const reread = resolveLocalProjectIdentity(root, true);
 
     expect(reread).toMatchObject({
       id: identity.id,
@@ -141,7 +141,106 @@ describe("non-Git local project identity", () => {
       "{not-json",
     );
 
-    expect(resolveLocalProjectIdentity(root)).toBeNull();
+    expect(resolveLocalProjectIdentity(root, true)).toBeNull();
+  });
+
+  it("ignores valid metadata in an untrusted context without reading it", () => {
+    const root = createTemporaryDirectory();
+    initializeLocalProject(root);
+    const metadataPath = join(
+      root,
+      LOCAL_PROJECT_METADATA_DIR,
+      LOCAL_PROJECT_METADATA_FILE,
+    );
+    expect(existsSync(metadataPath)).toBe(true);
+
+    expect(resolveLocalProjectIdentity(root, false)).toBeNull();
+    expect(resolveLocalProjectIdentity(join(root, "sub"), false)).toBeNull();
+  });
+
+  it("rejects metadata whose id does not match the directory-derived id", () => {
+    const root = createTemporaryDirectory();
+    initializeLocalProject(root);
+    const metadataPath = join(
+      root,
+      LOCAL_PROJECT_METADATA_DIR,
+      LOCAL_PROJECT_METADATA_FILE,
+    );
+    const forged = JSON.parse(readFileSync(metadataPath, "utf8")) as Record<
+      string,
+      string
+    >;
+    forged.id = "p-ffffffffffff";
+    writeFileSync(metadataPath, JSON.stringify(forged, null, 2));
+    clearLocalIdentityCache();
+
+    expect(resolveLocalProjectIdentity(root, true)).toBeNull();
+  });
+
+  it("rejects metadata whose root points at another directory", () => {
+    const parent = createTemporaryDirectory();
+    const root = join(parent, "project");
+    const stolen = join(parent, "other");
+    mkdirSync(join(root, LOCAL_PROJECT_METADATA_DIR), {
+      recursive: true,
+    });
+    mkdirSync(stolen, {
+      recursive: true,
+    });
+    const stolenIdentity = initializeLocalProject(stolen);
+
+    // A valid-looking file with a foreign root/id must not route memory to
+    // the stolen bank.
+    writeFileSync(
+      join(root, LOCAL_PROJECT_METADATA_DIR, LOCAL_PROJECT_METADATA_FILE),
+      JSON.stringify(stolenIdentity, null, 2),
+    );
+    clearLocalIdentityCache();
+
+    expect(resolveLocalProjectIdentity(root, true)).toBeNull();
+  });
+
+  it("never adopts a forged label even when the identity is valid", () => {
+    const root = createTemporaryDirectory();
+    initializeLocalProject(root);
+    const metadataPath = join(
+      root,
+      LOCAL_PROJECT_METADATA_DIR,
+      LOCAL_PROJECT_METADATA_FILE,
+    );
+    const forged = JSON.parse(readFileSync(metadataPath, "utf8")) as Record<
+      string,
+      string
+    >;
+    forged.label = "totally-unrelated-display-name";
+    writeFileSync(metadataPath, JSON.stringify(forged, null, 2));
+    clearLocalIdentityCache();
+
+    const resolved = resolveLocalProjectIdentity(root, true);
+    expect(resolved).not.toBeNull();
+    expect(resolved?.label).toBe(parse(realpathSync(root)).base);
+  });
+
+  it("resolves a valid ancestor identity past a forged file in the walk-up chain", () => {
+    const parent = createTemporaryDirectory();
+    initializeLocalProject(parent);
+
+    const forgedDir = join(parent, "forged", "deep");
+    mkdirSync(join(forgedDir, LOCAL_PROJECT_METADATA_DIR), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(forgedDir, LOCAL_PROJECT_METADATA_DIR, LOCAL_PROJECT_METADATA_FILE),
+      JSON.stringify({
+        createdAt: "x",
+        id: "p-aaaaaaaaaaaa",
+        root: parent,
+      }),
+    );
+    clearLocalIdentityCache();
+
+    const resolved = resolveLocalProjectIdentity(join(forgedDir, "sub"), true);
+    expect(resolved?.id).toBe(localProjectIdFor(realpathSync(parent)));
   });
 });
 

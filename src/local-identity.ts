@@ -3,10 +3,15 @@
  *
  * A recognized Git identity remains the default project identity. Non-Git
  * directories get a local project identity only after explicit initialization,
- * which writes `<root>/.pi/xpi-memo/project.json`. Resolution walks up from a
- * directory to its nearest initialized ancestor, so descendants of an
- * initialized root share one stable identity while unrelated directories stay
- * isolated (uninitialized → null).
+ * which writes `<root>/.pi/xpi-memo/project.json`, AND only when the current
+ * Pi context trusts the project: resolution takes an explicit `trusted`
+ * verdict supplied by the runtime boundary (never read from global settings
+ * here). Resolution walks up from a directory to its nearest initialized
+ * ancestor, so descendants of an initialized root share one stable identity
+ * while unrelated directories stay isolated (uninitialized → null). Every
+ * metadata file must self-certify: its directory is the identity root, so
+ * `root` must equal it and `id` must be derived from it; forged or untrusted
+ * metadata is treated as uninitialized.
  */
 
 import { createHash } from "node:crypto";
@@ -131,27 +136,36 @@ export function revokeLocalProject(
   };
 }
 
-function readIdentityFile(path: string): LocalProjectIdentity | null {
+function readVerifiedIdentityFile(
+  path: string,
+  candidateRoot: string,
+): LocalProjectIdentity | null {
   if (!existsSync(path)) return null;
   try {
     const parsed = JSON.parse(
       readFileSync(path, "utf8"),
     ) as Partial<LocalProjectIdentity>;
     if (
-      typeof parsed.id === "string" &&
-      typeof parsed.root === "string" &&
-      typeof parsed.createdAt === "string"
+      typeof parsed.id !== "string" ||
+      typeof parsed.root !== "string" ||
+      typeof parsed.createdAt !== "string"
     ) {
-      return {
-        createdAt: parsed.createdAt,
-        id: parsed.id,
-        label:
-          typeof parsed.label === "string" ? parsed.label : parse(parsed.root).base,
-        root: parsed.root,
-        source: "local",
-      };
+      return null;
     }
-    return null;
+    // Self-certifying identity: the metadata can only prove the identity of
+    // the directory that contains it. `root` must resolve to that directory
+    // and `id` must be derived from it; anything else is untrusted input and
+    // the walk continues upward. The display label is never taken from the
+    // file, so a forged `label` cannot influence routing or UI text.
+    if (real(parsed.root) !== candidateRoot) return null;
+    if (parsed.id !== localProjectIdFor(candidateRoot)) return null;
+    return {
+      createdAt: parsed.createdAt,
+      id: parsed.id,
+      label: parse(candidateRoot).base,
+      root: candidateRoot,
+      source: "local",
+    };
   } catch {
     return null;
   }
@@ -159,9 +173,16 @@ function readIdentityFile(path: string): LocalProjectIdentity | null {
 
 /**
  * Resolve the nearest initialized local project identity for `cwd`, walking up
- * ancestors. Returns null when no initialized root encloses the directory.
+ * ancestors. Returns null when no initialized root encloses the directory or
+ * when `trusted` is false — repository-local metadata participates in routing
+ * only when the current Pi context trusts this project, and untrusted
+ * contexts never read the metadata file at all.
  */
-export function resolveLocalProjectIdentity(cwd: string): LocalProjectIdentity | null {
+export function resolveLocalProjectIdentity(
+  cwd: string,
+  trusted: boolean,
+): LocalProjectIdentity | null {
+  if (!trusted) return null;
   let current = real(cwd);
   const pathStack: string[] = [];
   for (;;) {
@@ -173,7 +194,7 @@ export function resolveLocalProjectIdentity(cwd: string): LocalProjectIdentity |
       }
       // cached miss: keep walking up
     } else {
-      const identity = readIdentityFile(metadataPath(current));
+      const identity = readVerifiedIdentityFile(metadataPath(current), current);
       localCache.set(current, identity);
       if (identity) {
         for (const directory of pathStack) localCache.set(directory, identity);
@@ -183,6 +204,9 @@ export function resolveLocalProjectIdentity(cwd: string): LocalProjectIdentity |
     const parent = dirname(current);
     if (parent === current) return null;
     pathStack.push(current);
-    current = parent;
+    // Re-realpath every ancestor: when the starting cwd does not exist (or
+    // is reached through a symlink) intermediate directories must resolve to
+    // their canonical form so they stay comparable with the metadata `root`.
+    current = real(parent);
   }
 }
