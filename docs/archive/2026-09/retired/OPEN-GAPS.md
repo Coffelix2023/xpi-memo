@@ -12,6 +12,8 @@
 
 字段约定：每条给出 `状态` / `证据` / `影响` / `建议方案` / `建议采纳` / `何时该做`。
 `证据` 一律给文件与行号，便于复核；行号基于 v1.6.0（`cc00b8f`），后续可能漂移。
+`建议采纳` 与 `何时该做` 记录的是**发现当时**（2026-09-17）的建议，不是最终决定；每条 OG 实际采纳的方案见其 `2026-09-17 处理结果` 行与末尾汇总表。
+`状态` / `影响` 两节同样保留发现当时的表述，它们描述的是问题本身，不代表 2026-09-17 之后的现状。
 
 ---
 
@@ -198,16 +200,20 @@
 | OG-2 | `accumulate` 为占位 | 能力缺失 + 措辞超前 | ~~不符~~ → **规范已纠正**（保留策略：待审） | ~~方案 A~~ 已落地（reword spec） |
 | OG-3 | 两个 audit 事件名不存在 | 措辞漂移 | ~~名字不符~~ → **已对齐**（spec 记 `tool-verification-failed`） | ~~方案 A~~ 已落地 |
 | OG-4 | 项目文件读取未经 trust 门控 | 边界/输入校验 | ~~spec 未覆盖~~ → **已修复**（trust 门控 + 自证校验） | 最小修法 + 完整修法一并落地 |
-| OG-5 | remember 工具路径未接入自动验证 | 能力缺失 | **不符**（只对离线提取成立） | 扩白名单 + 接 `autoConfirm`（方案 A） |
-| OG-6 | `shouldAutoStore` 的 gene 分支生产不可达 | 死代码 + 双判据并存 | spec 未覆盖 | 随 OG-5 接线（方案 C），否则删除（方案 B） |
-| OG-7 | design 的两条风险缓解未实现 | 与自身 plan 不符 | spec 未覆盖 | 随 OG-8 决定验证策略（方案 C） |
-| OG-8 | 真实语料验证通过率 0/32，队列 82→95 | **目标未达成**（量化预测失效） | spec 符合、proposal 预测不符 | 方案 A 立即改口径；B/C 待决定 |
+| OG-5 | remember 工具路径未接入自动验证 | 能力缺失 | ~~不符~~ → **规范已纠正 + 路径已收口**（remember / reimport / 离线提取共用同一 admission decision；无声明的 remember 候选待审并记 `no-declaration`） | ~~方案 A~~ 已按方案 C 与 A 的融合收口 |
+| OG-6 | `shouldAutoStore` 的 gene 分支生产不可达 | 死代码 + 双判据并存 | spec 未覆盖 → **死代码已删除**（gene/constraint 分支与 `verified` 入参一并移除，判据收敛到候选库 admission decision） | ~~方案 C~~ 已按方案 B 删除 |
+| OG-7 | design 的两条风险缓解未实现 | 与自身 plan 不符 | spec 未覆盖 → **已落地**（注释行按文件类型保守前缀拒绝；constraint 保留验证器注册但只允许 shadow） | ~~方案 C~~ 已随验证策略重构一并落地 |
+| OG-8 | 真实语料验证通过率 0/32，队列 82→95 | **目标未达成**（量化预测失效） | spec 符合、proposal 预测不符 → **已按方案 A 改口径并换判据**（结构化 `repositoryFact` 声明验证替代正文全文搜索；默认 shadow，自动写入需显式 opt-in） | ~~方案 A~~ 已落地；B / C 未采纳 |
 
-OG-1 / OG-2 / OG-3 / OG-4 已由 `harden-local-identity-and-align-admission-spec` 处理(2026-09-17):
-OG-1~OG-3 属同一个 spec 修订,已同步收口;OG-4 的 trust 门控 + 自证校验已实现并同步主规范。
+OG-1 ~ OG-8 已由两个 change 全部处理(2026-09-17),本轮登记册由此结清:
 
-要落地其中任何一条：OG-1 / OG-2 / OG-5 / OG-6 需要开 OpenSpec change（改行为 + 同步 delta spec）；
-OG-3 是纯措辞修订，可与前者合并，也可单独一次。
+- `harden-local-identity-and-align-admission-spec`:OG-1~OG-3 属同一个 spec 修订,已同步收口;OG-4 的 trust 门控 + 自证校验已实现并同步主规范。
+- `stabilize-candidate-auto-admission`:OG-5 与 OG-6 按方案 C 与 A 的融合收口(统一 admission decision + 删除 `shouldAutoStore` 死分支);OG-7 随验证策略重构落地;OG-8 按方案 A 改口径并换成结构化 `repositoryFact` 声明的验证判据。
 
-OG-5 ~ OG-8 之间有顺序依赖：**OG-8 的方案 B/C 决定要在前**（验证策略到底留不留），OG-5 + OG-6 是一件事（接 remember 路径 + 让 `verified` 有真实来源），OG-7 的注释行判定只有在验证策略保留时才值得做。
-OG-8 的方案 A（改口径）是纯文档修订，不依赖任何决定，可以立刻做。
+**余留的能力边界**(已由规范如实反映,不是待办):
+
+- OG-1 的项目级配置层(`.pi/xpi-memo.yaml` / `auto_verify_kinds`)仍未实现;主 spec 已改为明确 MUST NOT 读取该文件,未来要引入项目级配置须开新 change。
+- OG-2 的证据累积(`global_preference` 的 `accumulate`)仍是保留策略;主 spec 已写明交付前进待审、不得声称已累积,要实现累积须开新 change。
+
+本文件及上述处理记录已随 `retire-stale-root-docs` 一起归档到 `docs/archive/2026-09/retired/`。
+新的未闭合问题登记请勿追写本文件——它是 2026-09 那一轮的事实快照。

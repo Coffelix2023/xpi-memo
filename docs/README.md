@@ -11,10 +11,12 @@
 | `COMPATIBILITY.md` | 版本与兼容性边界 | `README.md` |
 | `GIT-WORKFLOW.md` | git / 远端协作纪律 | `AGENTS.md` 第 6 节 |
 | `GITHUB-GUARD.md` | GitHub 操作护栏 | `AGENTS.md` 第 6 节、`CONTEXT.md` |
-| `l0-contract.md` | L0 事件层契约 | `ARCHITECTURE.md` |
 | `UPSTREAM-FOLLOWUPS.md` | 对上游 Mnemosyne 的跟进请求（不含在 xpi-memo 交付范围） | `TROUBLESHOOTING.md` |
-| `OPEN-GAPS.md` | 本仓库已确认但未闭合的问题与候选方案（不含在交付范围，也不代表承诺实现） | 暂无；由 2026-09-17 的 v1.6.0 发布复核产出 |
 | `RECOVERY.md` | 恢复已删除记忆的操作步骤（原名 `GUIDE.md`） | `TROUBLESHOOTING.md` |
+
+`l0-contract.md` 原本也在本表。它仍是**当前口径**（L0 事件层契约，`src/l0-boundary.test.ts` 直接读它），只是位置移到了 `archive/2026-09/contracts/`——那是**换位置，不是退休**，见下面的归档一节。
+
+`OPEN-GAPS.md` 已从本表移除：它记录的 OG-1 ~ OG-8 全部由 `harden-local-identity-and-align-admission-spec` 与 `stabilize-candidate-auto-admission` 处理完毕，已退休到 `archive/2026-09/retired/`。
 
 ## 证据与交付记录（保留原位）
 
@@ -27,7 +29,7 @@
 
 归档判据是**「已被取代或任务已完成」**，不是「旧」。归档只移动、不删除，全部走 `git mv`，历史可追。
 
-`archive/2026-09/` 是本轮（2026-09）的五组：
+`archive/2026-09/` 是本轮（2026-09）的七组：
 
 | 组 | 内容 | 性质 |
 | --- | --- | --- |
@@ -36,6 +38,8 @@
 | `exploration/` | 早期架构探索稿、阶段交接、中间态评审 | 过程记录：结论已实现并归档为 OpenSpec change |
 | `notes/` | 早期调研笔记、codegraph 讨论 | 过程记录：调研阶段产物 |
 | `out-of-scope/` | `pi-创作Agent平台架构方案.md` 与其 `assets/` | **另一个产品**的设计稿，本仓库不实现它；保留是为了不删除用户资料 |
+| `retired/` | `OPEN-GAPS.md`、`CHANGE-EXECUTION-ORDER.md`、`xpi-memo-value-assessment.md` | 任务已完成的根层文档：OG-1 ~ OG-8 的登记册及其执行顺序计划、早期的价值评估报告 |
+| `contracts/` | `l0-contract.md` | **不是退休，是换位置**：L0 事件层契约仍是当前口径，`src/l0-boundary.test.ts` 直接读这个路径 |
 
 ## 已归档内容之间的取代关系
 
@@ -46,6 +50,8 @@
 - `feedback/26-09-04` 一轮的裁决（闸门 A：导出层语义；闸门 B：Track B 真实验证）已分别落地为 `markdown-state-projection` 与 `track-b-real-validation` 两个已归档 change，因此该轮文档属于**决策依据**而非当前口径。
 - `feedback/26-09-07` 的两个 P0（`forget` 不可用、导出层明文残留）已由 `memory-forget-exact-id` 与后续导出层脱敏处理，见 `RECOVERY.md` 与 `TROUBLESHOOTING.md`。
 - `docs/GUIDE.md` → `docs/RECOVERY.md` 是**改名**，不是取代，内容未变。
+- `docs/l0-contract.md` → `docs/archive/2026-09/contracts/l0-contract.md` 是**换位置**，不是取代或退休：内容未变（同一 blob hash），`src/l0-boundary.test.ts` 与 `ARCHITECTURE.md` 都指向新路径，它仍是 L0 事件层的当前契约。
+- `docs/OPEN-GAPS.md`、`docs/CHANGE-EXECUTION-ORDER.md`、`docs/xpi-memo-value-assessment.md` → `docs/archive/2026-09/retired/` 是**退休**：OG-1 ~ OG-8 已由 `harden-local-identity-and-align-admission-spec` 与 `stabilize-candidate-auto-admission` 全部处理，登记册与它的执行顺序计划使命结束；价值评估报告是更早的同批材料。三者的内容都已冻结，不再追写。
 
 ## 历史引用为什么不改写
 
@@ -56,6 +62,8 @@
 - `openspec/changes/archive/**`
 
 它们记录的是「当时的事实」，改写它们等于篡改快照。需要按旧路径找文件时，用下面的映射表。
+
+同一规则适用于 `archive/` 内部：一份文档被归档后，它正文里提到的路径按当时的事实保留，不因为后续移动而回改。`docs/archive/2026-09/retired/*` 与 `contracts/*` 里的相对引用同理——移动只换文件位置，不重写内容。
 
 ## 旧路径 → 新路径（2026-09 结构整理）
 
@@ -108,3 +116,7 @@
 | `docs/review.md` | `docs/archive/2026-09/exploration/review.md` |
 | `docs/xpi-memo-architecture-exploration.md` | `docs/archive/2026-09/exploration/xpi-memo-architecture-exploration.md` |
 | `docs/xpi-memo-evolution-exploration-handoff.md` | `docs/archive/2026-09/exploration/xpi-memo-evolution-exploration-handoff.md` |
+| `docs/l0-contract.md` | `docs/archive/2026-09/contracts/l0-contract.md` |
+| `docs/OPEN-GAPS.md` | `docs/archive/2026-09/retired/OPEN-GAPS.md` |
+| `docs/CHANGE-EXECUTION-ORDER.md` | `docs/archive/2026-09/retired/CHANGE-EXECUTION-ORDER.md` |
+| `docs/xpi-memo-value-assessment.md` | `docs/archive/2026-09/retired/xpi-memo-value-assessment.md` |

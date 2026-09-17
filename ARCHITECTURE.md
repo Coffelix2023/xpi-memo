@@ -25,7 +25,7 @@ xpi-memo is a Pi Coding Agent extension (TypeScript, loaded directly from `src/i
 └─────────────────────────────────────────────┘
 ```
 
-Ownership is fixed: L0 owns the raw event history; T1 owns governed long-term memory; Markdown is a derived view that can be regenerated at any time. L0 never promotes content into T1 by itself — a concise conclusion must pass T1's evidence, provenance, and confirmation rules (see `docs/l0-contract.md`).
+Ownership is fixed: L0 owns the raw event history; T1 owns governed long-term memory; Markdown is a derived view that can be regenerated at any time. L0 never promotes content into T1 by itself — a concise conclusion must pass T1's evidence, provenance, and confirmation rules (see `docs/archive/2026-09/contracts/l0-contract.md`).
 
 ## L0 layer (`src/l0/`)
 

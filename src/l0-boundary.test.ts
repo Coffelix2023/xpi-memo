@@ -26,7 +26,7 @@ describe("T1 L0 boundary", () => {
   });
   it("documents the complete L0 contract without selecting a runtime", () => {
     const contract = readFileSync(
-      new URL("../docs/l0-contract.md", import.meta.url),
+      new URL("../docs/archive/2026-09/contracts/l0-contract.md", import.meta.url),
       "utf8",
     );
 

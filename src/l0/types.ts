@@ -2,7 +2,7 @@
  * L0 event types and schemas.
  *
  * L0 is an append-only, implementation-independent session trace (see
- * docs/l0-contract.md). Events are never mutated or deleted once written.
+ * docs/archive/2026-09/contracts/l0-contract.md). Events are never mutated or deleted once written.
  */
 
 export const L0_EVENT_TYPES = [
