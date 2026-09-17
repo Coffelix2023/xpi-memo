@@ -1,10 +1,4 @@
-# candidate-auto-admission/kind-routing Specification
-
-## Purpose
-
-按记忆 kind 路由候选处理——gene/constraint 走工具验证,preference 的累积证据为保留策略(交付前进待审),decision 保持人工确认,建立 kind 级准入策略。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: kind 级准入策略
 
@@ -80,4 +74,3 @@
 - **THEN** 系统不执行累积证据查询
 - **AND** 候选进入待审队列
 - **AND** 不记录不存在的 `accumulation-timeout` 事件
-

@@ -108,6 +108,7 @@
 ## OG-5：`xpi_memo_remember` 工具路径未接入自动验证
 
 - **状态**： 未实现。自动验证只挂在离线提取这一条路径上。
+- **2026-09-17 处理结果**（`stabilize-candidate-auto-admission`）： 已按方案 C 与 A 的融合收口——remember 与离线提取、reimport 全部接入候选库的单一 admission decision；无声明的 remember 候选一律待审并记录 `no-declaration` 审计，不扩白名单、不触发 `verified-tool-result` 升级异常。
 - **证据**：
   - spec 要求的是**进入确认流程前**自动验证，不限于离线提取：`openspec/specs/t1-governance/spec.md` 的「Three-way candidate confirmation」需求原文含「可工具验证的候选 SHALL 在进入确认流程前自动验证,验证通过则直接存储,绕过人工确认」。
   - 全仓检索 `autoConfirm`：生产调用点只有**一处** —— `src/offline-extraction.ts:625`（`governOfflineExtractionOutput` → `addCandidate`）。`src/index.ts` 的 `xpi_memo_remember` 工具在 `src/index.ts:995` 只做 `runtime.candidates.add(candidate, operation)`，之后没有任何验证调用。
@@ -128,6 +129,7 @@
 ## OG-6：`shouldAutoStore` 的 gene/constraint 分支在生产调用链上不可达
 
 - **状态**： 代码存在、单测覆盖，但真实链路上永远走不到。
+- **2026-09-17 处理结果**（`stabilize-candidate-auto-admission`）： 已按方案 B 删除——`shouldAutoStore` 的 gene/constraint 分支及 `verified` 入参移除，project fact 一律由候选库 admission decision 决定；session context 与 explicit preference/workflow 直存路径回归测试保持不变。
 - **证据**：
   - 判据原文（`src/auto-store-policy.ts:28-34`）：`kind` 为 `project_gene`/`project_constraint` 时要求 `input.verified === true` **且**证据类型为 `verified-repository-fact` 或 `verified-tool-result`。
   - `shouldAutoStore` 全仓只有一个调用点：`src/pending-candidate.ts:55`（在 `generatePendingCandidate` 内）。
@@ -149,6 +151,7 @@
 ## OG-7：design 声明的两条风险缓解措施没有实现
 
 - **状态**： 未实现。design 写了两条缓解，代码只落了一半。
+- **2026-09-17 处理结果**（`stabilize-candidate-auto-admission`）： 已随验证策略重构一并落地——注释行按文件类型保守前缀检测拒绝（`comment-evidence`），`project_constraint` 保留验证器注册但只允许 shadow（注册不启用自动存储），超时/验证器缺失/声明缺失 fail-closed 均在同一 admission decision 契约内测试覆盖。
 - **证据**：
   - design `openspec/changes/archive/2026-09-17-candidate-admission-autopilot/design.md` Risk 1 缓解原文：「验证器实现阶段增强上下文检查(排除注释行、test 目录)」；`src/tool-verification.ts:35-38` 只排除了 test 目录与 lockfile（`EXCLUDED_GLOBS`），**没有任何注释行判定** —— rg 命中行的内容被直接当作证据返回（`src/tool-verification.ts:114-121`）。
   - 同一条 Risk 1 缓解还有「首轮推出时,仅对 `project_gene` 启用自动验证,观察一段时间后再扩展到 `project_constraint`」；`VERIFIERS`（`src/tool-verification.ts:132-141`）在首轮就把 `project_constraint` 一起注册了。
@@ -167,6 +170,7 @@
 ## OG-8：真实语料上验证器通过率为 0，「待审队列 82 → 约 30」不可达
 
 - **状态**： 已实测。这是 proposal 的核心量化目标，当前数据不支持。
+- **2026-09-17 处理结果**（`stabilize-candidate-auto-admission`）： 已按方案 A 改口径并落地替代判据——候选正文全文搜索改为结构化 `repositoryFact` 声明验证（相对路径 + 逐字片段 + 可选 revision，注释行拒绝）；默认 shadow、自动写入需 `XPI_MEMO_AUTO_ADMIT=true` 显式 opt-in 且仅 `project_gene`。真实语料 dry-run：存量 36 条可验证候选声明覆盖率 0%（全部 `no-declaration`），一律保持待审；未迁移、未改写任何存量数据。详见 `docs/reports/stabilize-dry-run-2026-09-17.md`。
 - **证据（本地实测，2026-09-17；只读，未写任何库）**：
   - 用**真实** `verifyProjectGene`（未注入验证器）回放 `~/.pi/agent/xpi-memo/candidates.json` 里全部 32 条 gene/constraint 候选：18 条能解析出项目根（`p-c606ac013f44` / `p-32d40dc8e7ac` / `p-dc63172e1425`）的全部 `FAILED(no-match)`；余 14 条项目根在本机不存在（`p-849721a69520`），改用本机 5 个仓库做 best-case 全扫描仍 **0 命中**。合计 **VERIFIED = 0 / 32**。
   - 生产审计 `~/.pi/agent/xpi-memo/audit.json`（200 条）中 `tool-verified` 与 `tool-verification-failed` **均为 0**。

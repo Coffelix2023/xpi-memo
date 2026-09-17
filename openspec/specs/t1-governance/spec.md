@@ -56,7 +56,9 @@ Every successful remember invocation SHALL return exactly one of `stored`, `cand
 
 ### Requirement: Three-way candidate confirmation
 
-Candidate confirmation SHALL present Store, Later, and Reject with kind, target bank, and evidence summary visible before a choice. Store and Reject MUST keep existing candidate-lifecycle semantics. Later MUST leave the candidate pending and visible in the `/xpi-memo` Pending inbox. A blocking yes/no dialog MUST NOT be the only confirmation path. 可工具验证的候选 SHALL 在进入确认流程前自动验证,验证通过则直接存储,绕过人工确认;验证失败则进入待审队列。
+Candidate confirmation SHALL present Store, Later, and Reject with kind, target bank, and evidence summary visible before a choice. Store and Reject MUST keep existing candidate-lifecycle semantics. Later MUST leave the candidate pending and visible in the `/xpi-memo` Pending inbox. A blocking yes/no dialog MUST NOT be the only confirmation path.
+
+Every candidate-producing entry path MUST obtain exactly one admission decision before presenting a confirmation choice. The decision SHALL be `pending`, `shadow-verified`, or `auto-stored`; it MUST apply content policy, scope routing, provenance validation, kind policy, verification, and permitted evidence upgrade in that order. Verification failure, timeout, unavailability, a missing repository-fact declaration, or a disabled rollout MUST leave the candidate pending and MUST NOT throw a tool-visible error.
 
 #### Scenario: Store from the card
 
@@ -79,24 +81,38 @@ Candidate confirmation SHALL present Store, Later, and Reject with kind, target 
 
 #### Scenario: Auto-verified candidate bypasses confirmation
 
-- **WHEN** 候选 kind 为 `project_gene`,且工具验证通过
-- **THEN** 候选直接存储到目标 bank,不进入待审队列
-- **AND** L0 记录 `candidate_auto_verified` 和 `candidate_confirmed` 事件
-- **AND** audit.json 记录验证依据(文件路径、匹配内容)
+- **WHEN** a `project_gene` candidate has a passing repository-fact verification and `XPI_MEMO_AUTO_ADMIT=true` while `XPI_MEMO_AUTO_VERIFY` is not disabled
+- **THEN** the candidate is stored directly in the target bank without entering the pending queue
+- **AND** L0 records `candidate_auto_verified` and `candidate_confirmed`
+- **AND** audit.json records bounded verification evidence
 
 #### Scenario: Verification-failed candidate enters review queue
 
-- **WHEN** 候选 kind 为 `project_gene`,但工具验证失败
-- **THEN** 候选保持 `l0-conclusion` 证据类型
-- **AND** 候选进入待审队列,等待用户 Store/Later/Reject
-- **AND** L0 记录 `tool_verification_failed` 事件
+- **WHEN** a `project_gene` candidate has failed, timed-out, unavailable, or missing repository-fact verification
+- **THEN** the candidate retains its original evidence type
+- **AND** the candidate enters the pending queue for Store/Later/Reject
+- **AND** L0 and audit record a bounded failure reason without candidate content
 
 #### Scenario: Non-verifiable kind skips auto-verification
 
-- **WHEN** 候选 kind 为 `project_decision`(不可工具验证)
-- **THEN** 候选直接进入待审队列
-- **AND** 不调用工具验证路径
-- **AND** 保持现有三态确认流程
+- **WHEN** a candidate kind is not enabled for repository-fact verification
+- **THEN** it enters the pending queue
+- **AND** no automatic T1 write occurs
+- **AND** the existing three-way confirmation flow remains available
+
+#### Scenario: Verified candidate runs in shadow mode by default
+
+- **WHEN** a `project_gene` candidate has a passing repository-fact verification and `XPI_MEMO_AUTO_ADMIT` is absent or not `true`
+- **THEN** the candidate enters the pending queue
+- **AND** audit records the bounded shadow verification outcome
+- **AND** no T1 row is written automatically
+
+#### Scenario: Remember uses the same admission decision
+
+- **WHEN** `xpi_memo_remember` creates a `project_gene` candidate without a valid repository-fact declaration
+- **THEN** it completes the shared admission decision as pending
+- **AND** the tool returns a candidate outcome without an automatic T1 write
+- **AND** the user can choose Store, Later, or Reject
 
 ### Requirement: Candidate generation and confirmation
 

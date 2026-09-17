@@ -1,10 +1,4 @@
-# candidate-auto-admission/tool-verified-storage Specification
-
-## Purpose
-
-为可工具验证的候选(如 `project_gene`)提供自动存储路径,通过读文件/跑 grep 等工具确认仓库事实后直接入库,无需人工审核。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: 工具验证器接口
 
@@ -58,4 +52,3 @@
 - **THEN** 验证结果仅作为 shadow 审计和待审辅助信息
 - **AND** 候选不会因注册自动存储
 - **AND** 核心 confirmation 流程不需修改
-
