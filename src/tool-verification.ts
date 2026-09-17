@@ -44,29 +44,97 @@ const MAX_REVISION_CHARS = 64;
  * fall back to the full prefix set — uncertain means pending (fail-closed).
  */
 const COMMENT_PREFIXES: Readonly<Record<string, readonly string[]>> = {
-  css: ["/*", "*"],
-  go: ["//", "/*", "*"],
-  html: ["<!--"],
-  java: ["//", "/*", "*"],
-  js: ["//", "/*", "*"],
-  json: ["//"],
-  jsx: ["//", "/*", "*"],
-  kt: ["//", "/*", "*"],
-  lua: ["--"],
-  md: ["<!--"],
-  mdx: ["<!--"],
-  php: ["//", "#", "/*", "*"],
-  py: ["#"],
-  rb: ["#"],
-  rs: ["//", "/*", "*"],
-  sh: ["#"],
-  sql: ["--"],
-  swift: ["//", "/*", "*"],
-  ts: ["//", "/*", "*"],
-  tsx: ["//", "/*", "*"],
-  xml: ["<!--"],
-  yaml: ["#"],
-  yml: ["#"],
+  css: [
+    "/*",
+    "*",
+  ],
+  go: [
+    "//",
+    "/*",
+    "*",
+  ],
+  html: [
+    "<!--",
+  ],
+  java: [
+    "//",
+    "/*",
+    "*",
+  ],
+  js: [
+    "//",
+    "/*",
+    "*",
+  ],
+  json: [
+    "//",
+  ],
+  jsx: [
+    "//",
+    "/*",
+    "*",
+  ],
+  kt: [
+    "//",
+    "/*",
+    "*",
+  ],
+  lua: [
+    "--",
+  ],
+  md: [
+    "<!--",
+  ],
+  mdx: [
+    "<!--",
+  ],
+  php: [
+    "//",
+    "#",
+    "/*",
+    "*",
+  ],
+  py: [
+    "#",
+  ],
+  rb: [
+    "#",
+  ],
+  rs: [
+    "//",
+    "/*",
+    "*",
+  ],
+  sh: [
+    "#",
+  ],
+  sql: [
+    "--",
+  ],
+  swift: [
+    "//",
+    "/*",
+    "*",
+  ],
+  ts: [
+    "//",
+    "/*",
+    "*",
+  ],
+  tsx: [
+    "//",
+    "/*",
+    "*",
+  ],
+  xml: [
+    "<!--",
+  ],
+  yaml: [
+    "#",
+  ],
+  yml: [
+    "#",
+  ],
 };
 const DEFAULT_COMMENT_PREFIXES = [
   "//",
@@ -144,17 +212,15 @@ export async function verifyProjectGene(
   }
   const excerptIndex = fileContent.indexOf(fact.excerpt);
   if (excerptIndex < 0) return failed("excerpt-not-found");
-  const line =
-    fileContent.slice(0, excerptIndex).split("\n").length;
+  const line = fileContent.slice(0, excerptIndex).split("\n").length;
   // Comment detection inspects the matched file lines, not the excerpt
   // itself — a declaration can legitimately quote a fragment that sits in
   // the middle of a commented-out line.
-  const lineStart =
-    fileContent.lastIndexOf("\n", excerptIndex) + 1;
+  const lineStart = fileContent.lastIndexOf("\n", excerptIndex) + 1;
   const lineEnd = fileContent.indexOf("\n", excerptIndex + fact.excerpt.length - 1);
-  const firstMatchedLine = fileContent
-    .slice(lineStart, lineEnd < 0 ? undefined : lineEnd)
-    .split("\n")[0] ?? "";
+  const firstMatchedLine =
+    fileContent.slice(lineStart, lineEnd < 0 ? undefined : lineEnd).split("\n")[0] ??
+    "";
   if (isCommentLine(firstMatchedLine, fact.path)) {
     return failed("comment-evidence");
   }
@@ -168,7 +234,12 @@ export async function verifyProjectGene(
       try {
         const { stdout } = await run(
           "git",
-          ["-C", rootReal, "rev-parse", "HEAD"],
+          [
+            "-C",
+            rootReal,
+            "rev-parse",
+            "HEAD",
+          ],
           {
             killSignal: "SIGKILL",
             timeout: VERIFICATION_TIMEOUT_MS,
@@ -211,10 +282,10 @@ export const VERIFIERS: ReadonlyMap<MemoryKind, VerifierFn> = new Map([
 export interface VerifyCandidateOptions {
   /** Admission-policy override (XPI_MEMO_AUTO_VERIFY); defaults to process.env. */
   env?: NodeJS.ProcessEnv;
-  /** Verifier registry override for tests; defaults to VERIFIERS. */
-  verifiers?: ReadonlyMap<MemoryKind, VerifierFn>;
   /** Project root for containment checks and revision resolution. */
   root?: string;
+  /** Verifier registry override for tests; defaults to VERIFIERS. */
+  verifiers?: ReadonlyMap<MemoryKind, VerifierFn>;
 }
 
 /**
@@ -235,7 +306,9 @@ export async function verifyCandidateIfNeeded(
   }
   const verifier = (options.verifiers ?? VERIFIERS).get(candidate.kind);
   if (!verifier) return failed("verifier-not-registered");
-  return verifier(candidate, { root: options.root });
+  return verifier(candidate, {
+    root: options.root,
+  });
 }
 
 export { MAX_EXCERPT_CHARS, MAX_FACT_PATH_CHARS, MAX_REVISION_CHARS };

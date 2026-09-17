@@ -34,8 +34,8 @@ function createCandidate(
 
 function verified(): VerificationResult {
   return {
-    filePath: "AGENTS.md",
     excerpt: "Pi 直接加载 src/index.ts TypeScript 源码。",
+    filePath: "AGENTS.md",
     line: 12,
     status: "verified",
     timestamp: "2026-01-02T00:00:00.000Z",

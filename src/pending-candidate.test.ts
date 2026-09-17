@@ -119,13 +119,13 @@ describe("T1 pending candidate generation", () => {
       kind: "project_gene",
       rationale: "Offline extraction requires review before persistence.",
       reason: "high-impact-durable",
-      repositoryFact: {
-        excerpt: "pnpm",
-        path: "package.json",
-      },
       context: {
         dataDir: "/tmp/xpi-memo-candidates",
         projectBank: "project-p-0123456789ab",
+      },
+      repositoryFact: {
+        excerpt: "pnpm",
+        path: "package.json",
       },
     });
     expect(candidate).not.toBeNull();

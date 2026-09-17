@@ -564,7 +564,6 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
     const { adapter, operations } = createAdapter();
     const store = createCandidateStore({
       adapter,
-      env: { XPI_MEMO_AUTO_ADMIT: "true" },
       statePath: join(dataDir, "candidates.json"),
       verifiers: new Map([
         [
@@ -572,6 +571,9 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
           async () => VERIFIED,
         ],
       ]),
+      env: {
+        XPI_MEMO_AUTO_ADMIT: "true",
+      },
     });
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
@@ -625,7 +627,9 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
     const { events, l0 } = createL0Recorder();
     const store = createCandidateStore({
       adapter,
-      env: { XPI_MEMO_AUTO_ADMIT: "true" },
+      env: {
+        XPI_MEMO_AUTO_ADMIT: "true",
+      },
       l0,
       statePath: join(dataDir, "candidates.json"),
       verifiers: new Map([

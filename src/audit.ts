@@ -41,7 +41,11 @@ export interface AuditMetadata {
    * a reason code, never a memory body. */
   capability?: string;
   confidence?: number;
+  /** Admission decision (stabilize change, task 4.1): pending / shadow-verified / auto-stored. */
+  decision?: string;
   evidenceType?: EvidenceType;
+  /** Bounded verbatim excerpt of a verified repository fact (stabilize change, task 4.1). */
+  excerpt?: string;
   fallback?: boolean;
   /** Body-free explicit/passive feedback classification. */
   feedback?: string;
@@ -55,12 +59,8 @@ export interface AuditMetadata {
   injectedCount?: number;
   invalidProposals?: number;
   kind?: string;
-  /** Admission decision (stabilize change, task 4.1): pending / shadow-verified / auto-stored. */
-  decision?: string;
   /** 1-based line number of a verified repository fact (stabilize change, task 4.1). */
   line?: number;
-  /** Bounded verbatim excerpt of a verified repository fact (stabilize change, task 4.1). */
-  excerpt?: string;
   matchedLine?: string;
   memoryId?: string;
   /** Actual sleep execution mode (task 3.4): dedicated / session-model / mechanical / none / disabled. */

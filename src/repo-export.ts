@@ -493,6 +493,7 @@ export async function reimportRepoExport(
     });
     // Single admission decision (stabilize 2.3): reimport candidates carry
     // no repository-fact declaration and stay pending for manual review.
+    // biome-ignore lint/performance/noAwaitInLoops: 串行准入保持审计与 ledger 追加顺序确定
     await runtime.candidates.admit(candidate.id);
     ledger.ids.push(entry.id);
     ledger.fingerprints.push(fingerprint);

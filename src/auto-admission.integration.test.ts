@@ -34,8 +34,8 @@ const BANK = "project-p-test";
 const GENE_CONTENT = "The extension loads src/index.ts directly.";
 
 const VERIFIED: VerificationResult = {
-  filePath: "AGENTS.md",
   excerpt: "Pi 直接加载 src/index.ts TypeScript 源码。",
+  filePath: "AGENTS.md",
   line: 12,
   status: "verified",
   timestamp: "2026-01-02T00:00:00.000Z",
@@ -198,15 +198,15 @@ describe("offline extraction auto-admission (tasks 9.1-9.4)", () => {
 
   it("auto-stores a tool-verified gene proposal under explicit opt-in (stabilize 3.2/4.2)", async () => {
     const setup = createRuntime({
-      env: {
-        XPI_MEMO_AUTO_ADMIT: "true",
-      },
       verifiers: new Map([
         [
           "project_gene",
           async () => VERIFIED,
         ],
       ]),
+      env: {
+        XPI_MEMO_AUTO_ADMIT: "true",
+      },
     });
 
     const results = await governOfflineExtractionOutput(
@@ -251,7 +251,9 @@ describe("offline extraction auto-admission (tasks 9.1-9.4)", () => {
     );
 
     expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({ status: "candidate" });
+    expect(results[0]).toMatchObject({
+      status: "candidate",
+    });
     expect(readCandidates(setup.candidatesPath)).toHaveLength(1);
     expect(setup.stored).toHaveLength(0);
     expect(

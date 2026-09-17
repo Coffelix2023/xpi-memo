@@ -259,7 +259,6 @@ export async function activateExplicitMemoryIntent(
     kind: operation.kind,
     rationale: "This memory requires T1 write governance before persistence.",
     reason: pendingReason(operation.kind),
-    verified: false,
   });
 
   if (!hasValidProvenance(provenance)) {

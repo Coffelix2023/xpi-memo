@@ -37,14 +37,23 @@ afterEach(() => {
   }
 });
 
-const GENE_EXCERPT =
-  "The extension loads src/index.ts TypeScript source directly.";
+const GENE_EXCERPT = "The extension loads src/index.ts TypeScript source directly.";
 
-function geneFact(overrides: Partial<{ path: string; excerpt: string; revision: string }> = {}) {
+function geneFact(
+  overrides: Partial<{
+    path: string;
+    excerpt: string;
+    revision: string;
+  }> = {},
+) {
   return {
     excerpt: overrides.excerpt ?? GENE_EXCERPT,
     path: overrides.path ?? "docs/architecture.md",
-    ...(overrides.revision ? { revision: overrides.revision } : {}),
+    ...(overrides.revision
+      ? {
+          revision: overrides.revision,
+        }
+      : {}),
   };
 }
 
@@ -59,7 +68,9 @@ describe("verifyProjectGene (stabilize task 1.2/3.1)", () => {
         kind: "project_gene",
         repositoryFact: geneFact(),
       },
-      { root },
+      {
+        root,
+      },
     );
     expect(result).toMatchObject({
       excerpt: GENE_EXCERPT,
@@ -81,14 +92,23 @@ describe("verifyProjectGene (stabilize task 1.2/3.1)", () => {
   });
 
   it("fails with path-outside-root for absolute and escaping paths", async () => {
-    for (const path of ["/etc/passwd", "../outside.md", "a/../../b.md"]) {
+    for (const path of [
+      "/etc/passwd",
+      "../outside.md",
+      "a/../../b.md",
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: 逐场景断言,失败时定位到具体路径形态
       const result = await verifyProjectGene(
         {
           content: "x",
           kind: "project_gene",
-          repositoryFact: geneFact({ path }),
+          repositoryFact: geneFact({
+            path,
+          }),
         },
-        { root: createTemporaryRepository({}) },
+        {
+          root: createTemporaryRepository({}),
+        },
       );
       expect(result).toMatchObject({
         reason: "path-outside-root",
@@ -105,7 +125,9 @@ describe("verifyProjectGene (stabilize task 1.2/3.1)", () => {
         kind: "project_gene",
         repositoryFact: geneFact(),
       },
-      { root },
+      {
+        root,
+      },
     );
     expect(result).toMatchObject({
       reason: "file-not-found",
@@ -123,7 +145,9 @@ describe("verifyProjectGene (stabilize task 1.2/3.1)", () => {
         kind: "project_gene",
         repositoryFact: geneFact(),
       },
-      { root },
+      {
+        root,
+      },
     );
     expect(result).toMatchObject({
       reason: "excerpt-not-found",
@@ -133,17 +157,25 @@ describe("verifyProjectGene (stabilize task 1.2/3.1)", () => {
 
   it("fails with comment-evidence when the excerpt line is a comment", async () => {
     const root = createTemporaryRepository({
-      "src/loader.ts": `// ${GENE_EXCERPT}\nexport const x = 1;\n`,
       "notes.md": `<!-- ${GENE_EXCERPT} -->\n`,
+      "src/loader.ts": `// ${GENE_EXCERPT}\nexport const x = 1;\n`,
     });
-    for (const path of ["src/loader.ts", "notes.md"]) {
+    for (const path of [
+      "src/loader.ts",
+      "notes.md",
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: 逐场景断言,失败时定位到具体文件类型
       const result = await verifyProjectGene(
         {
           content: "x",
           kind: "project_gene",
-          repositoryFact: geneFact({ path }),
+          repositoryFact: geneFact({
+            path,
+          }),
         },
-        { root },
+        {
+          root,
+        },
       );
       expect(result).toMatchObject({
         reason: "comment-evidence",
@@ -160,9 +192,14 @@ describe("verifyProjectGene (stabilize task 1.2/3.1)", () => {
       {
         content: "x",
         kind: "project_gene",
-        repositoryFact: geneFact({ revision: "aaaaaaaaaaaaaaaa" }),
+        repositoryFact: geneFact({
+          revision: "aaaaaaaaaaaaaaaa",
+        }),
       },
-      { headRevision: "bbbbbbbbbbbbbbbb", root },
+      {
+        headRevision: "bbbbbbbbbbbbbbbb",
+        root,
+      },
     );
     expect(result).toMatchObject({
       reason: "revision-mismatch",
@@ -178,39 +215,59 @@ describe("verifyProjectGene (stabilize task 1.2/3.1)", () => {
       {
         content: "x",
         kind: "project_gene",
-        repositoryFact: geneFact({ revision: "aaaaaaaaaaaaaaaa" }),
+        repositoryFact: geneFact({
+          revision: "aaaaaaaaaaaaaaaa",
+        }),
       },
-      { headRevision: "aaaaaaaaaaaaaaaa", root },
+      {
+        headRevision: "aaaaaaaaaaaaaaaa",
+        root,
+      },
     );
-    expect(result).toMatchObject({ status: "verified" });
+    expect(result).toMatchObject({
+      status: "verified",
+    });
   });
 
   it("fails with timeout and git-unavailable for revision subprocess failures", async () => {
     const root = createTemporaryRepository({
       "docs/architecture.md": `${GENE_EXCERPT}\n`,
     });
-    const timeoutError = Object.assign(new Error("killed"), { killed: true });
+    const timeoutError = Object.assign(new Error("killed"), {
+      killed: true,
+    });
     const timedOut = await verifyProjectGene(
       {
         content: "x",
         kind: "project_gene",
-        repositoryFact: geneFact({ revision: "aaaaaaaaaaaaaaaa" }),
+        repositoryFact: geneFact({
+          revision: "aaaaaaaaaaaaaaaa",
+        }),
       },
       {
         execFile: () => Promise.reject(timeoutError),
         root,
       },
     );
-    expect(timedOut).toMatchObject({ reason: "timeout", status: "failed" });
+    expect(timedOut).toMatchObject({
+      reason: "timeout",
+      status: "failed",
+    });
     const missingGit = await verifyProjectGene(
       {
         content: "x",
         kind: "project_gene",
-        repositoryFact: geneFact({ revision: "aaaaaaaaaaaaaaaa" }),
+        repositoryFact: geneFact({
+          revision: "aaaaaaaaaaaaaaaa",
+        }),
       },
       {
         execFile: () =>
-          Promise.reject(Object.assign(new Error("spawn"), { code: "ENOENT" })),
+          Promise.reject(
+            Object.assign(new Error("spawn"), {
+              code: "ENOENT",
+            }),
+          ),
         root,
       },
     );
@@ -232,9 +289,13 @@ describe("verifyCandidateIfNeeded (stabilize rollout seam)", () => {
         kind: "project_gene",
         repositoryFact: geneFact(),
       },
-      { root },
+      {
+        root,
+      },
     );
-    expect(result).toMatchObject({ status: "verified" });
+    expect(result).toMatchObject({
+      status: "verified",
+    });
   });
 
   it("skips verification for manual-confirm kinds without calling a verifier", async () => {
@@ -255,7 +316,11 @@ describe("verifyCandidateIfNeeded (stabilize rollout seam)", () => {
         kind: "project_gene",
         repositoryFact: geneFact(),
       },
-      { env: { XPI_MEMO_AUTO_VERIFY: "false" } },
+      {
+        env: {
+          XPI_MEMO_AUTO_VERIFY: "false",
+        },
+      },
     );
     expect(result).toMatchObject({
       reason: "policy:manual-confirm",

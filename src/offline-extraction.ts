@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import type { AuditLog } from "./audit.js";
 import { ensureProjectBank, GLOBAL_BANK, type RoutingContext } from "./banks.js";
 import type { CandidateStore } from "./candidate-lifecycle.js";
@@ -8,7 +9,6 @@ import type {
   ExtractionBudgetLimits,
 } from "./extraction-budget.js";
 import { isMemoryKind, type MemoryKind } from "./kinds.js";
-import type { RepositoryFact } from "./types.js";
 import type { L0Coordinator } from "./l0/l0-runtime.js";
 import type { L0Event } from "./l0/types.js";
 import { prepareExternalEvents } from "./memory-safety.js";
@@ -21,7 +21,6 @@ import {
   generatePendingCandidate,
   type PendingCandidateReason,
 } from "./pending-candidate.js";
-import { isAbsolute } from "node:path";
 import { routeMemoryKind } from "./routing.js";
 import { runT1Write } from "./t1-lifecycle.js";
 import {
@@ -29,6 +28,7 @@ import {
   MAX_FACT_PATH_CHARS,
   MAX_REVISION_CHARS,
 } from "./tool-verification.js";
+import type { RepositoryFact } from "./types.js";
 
 /**
  * Gated offline extraction boundary (task 3.1).
@@ -379,8 +379,7 @@ function repositoryFactFromEntry(
   if (path.length > MAX_FACT_PATH_CHARS) return undefined;
   if (isAbsolute(path) || path.split("/").includes("..")) return undefined;
   if (excerpt.length === 0 || excerpt.length > MAX_EXCERPT_CHARS) return undefined;
-  const revisionRaw =
-    typeof raw.revision === "string" ? raw.revision.trim() : "";
+  const revisionRaw = typeof raw.revision === "string" ? raw.revision.trim() : "";
   if (revisionRaw.length > MAX_REVISION_CHARS) return undefined;
   return {
     excerpt,

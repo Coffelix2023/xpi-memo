@@ -41,9 +41,7 @@ export function getAdmissionPolicy(
  * kill switch must not be engaged; any other value, or a missing value,
  * keeps admitted candidates in shadow mode.
  */
-export function autoAdmitEnabled(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
+export function autoAdmitEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const override = env.XPI_MEMO_AUTO_VERIFY;
   if (override === "false" || override === "0") return false;
   return env.XPI_MEMO_AUTO_ADMIT === "true";

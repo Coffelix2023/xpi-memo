@@ -5,6 +5,7 @@ import type { EvidenceRecord } from "./evidence.js";
 import type { MemoryKind } from "./kinds.js";
 import { routeMemoryKind } from "./routing.js";
 import type { RepositoryFact } from "./types.js";
+
 const PENDING_CANDIDATE_REASONS = [
   "project-decision",
   "ambiguous-preference",
