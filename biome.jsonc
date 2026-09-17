@@ -65,6 +65,7 @@
       "!**/.pi/prototype-design", //原型设计产物:current/ 是工作副本、vN/ 是不可变历史,不应被当前 lint 规则回溯要求
       "!**/.pi/reports", //生成的报告产物:压缩 CSS 会被 biome 误判并给出破坏性修复
       "!**/docs/reports", //同上,.pi/reports 迁移到 docs/reports 后仍需排除
+      "!**/.vitest", //vitest 报告产物:json/output.json 键序由 runner 决定,不属于源码质量门禁
       "!**/evaluation-reports/t2/*-run.json", //t2-eval.ts 生成的原始记录,键序由 runner 决定
       "!**/__fixtures__",
       "!src/components/ui", //排除 shadcn-ui

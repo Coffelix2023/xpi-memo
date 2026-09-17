@@ -25,3 +25,4 @@ coverage/
 docs/evaluation-reports/
 docs/archive/
 docs/task-report/
+.vitest/
