@@ -1,4 +1,4 @@
-import type { XpiMemoConfig } from "./config.js";
+import { autoAdmitFromEnv, type XpiMemoConfig } from "./config.js";
 import type { MemoryKind } from "./kinds.js";
 
 import type { KindAdmissionPolicy } from "./types.js";
@@ -42,6 +42,9 @@ export function getAdmissionPolicy(
  * `XPI_MEMO_AUTO_ADMIT` then decides on its own, so an env value never mixes
  * with the config file. Unset falls back to `config.autoAdmit`, which the
  * config file defaults to `true`.
+ *
+ * Parsing goes through `autoAdmitFromEnv`, the same helper `loadConfig` uses,
+ * so the settings panel value and this decision cannot disagree.
  */
 export function autoAdmitEnabled(
   config: XpiMemoConfig,
@@ -49,6 +52,7 @@ export function autoAdmitEnabled(
 ): boolean {
   const override = env.XPI_MEMO_AUTO_VERIFY;
   if (override === "false" || override === "0") return false;
-  if (env.XPI_MEMO_AUTO_ADMIT !== undefined) return env.XPI_MEMO_AUTO_ADMIT === "true";
+  const fromEnv = autoAdmitFromEnv(env.XPI_MEMO_AUTO_ADMIT);
+  if (fromEnv !== undefined) return fromEnv;
   return config.autoAdmit;
 }

@@ -306,6 +306,17 @@ function envString(env: NodeJS.ProcessEnv, name: string): string | undefined {
   return nonEmptyString(value) ? value.trim() : undefined;
 }
 
+/**
+ * Auto-admission env semantics (change optimize-offline-extraction-and-auto-admit):
+ * a whitelist, not a fallback — a set-but-unrecognised value means `off`, so a
+ * typo can never auto-store. `undefined` means the environment says nothing,
+ * which leaves the config file deciding.
+ */
+export function autoAdmitFromEnv(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  return value === "true";
+}
+
 function envPositiveInteger(env: NodeJS.ProcessEnv, name: string): number | undefined {
   const value = Number(env[name]);
   return positiveInteger(value) ? value : undefined;
@@ -394,9 +405,11 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
     return fallback;
   };
   const config: XpiMemoConfig = {
-    autoAdmit: boolean(user.config.autoAdmit)
-      ? user.config.autoAdmit
-      : DEFAULT_XPI_MEMO_CONFIG.autoAdmit,
+    autoAdmit:
+      autoAdmitFromEnv(env.XPI_MEMO_AUTO_ADMIT) ??
+      (boolean(user.config.autoAdmit)
+        ? user.config.autoAdmit
+        : DEFAULT_XPI_MEMO_CONFIG.autoAdmit),
     autoExport: envBool(
       "XPI_MEMO_AUTO_EXPORT",
       boolean(user.config.autoExport)

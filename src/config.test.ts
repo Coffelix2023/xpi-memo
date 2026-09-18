@@ -46,6 +46,68 @@ describe("XpiMemo configuration", () => {
     expect(config.config.dataDir).toBe(join(homedir(), ".pi", "agent", "xpi-memo"));
   });
 
+  // Regression (1.8.0): `autoAdmit` was the only boolean key that skipped
+  // `envBool`, so Settings showed the config-file value while
+  // `autoAdmitEnabled` followed the environment. Both now share one parse.
+  it("resolves autoAdmit from the environment like every other boolean key", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        autoAdmit: true,
+      }),
+    );
+
+    expect(
+      loadConfig({
+        configHome,
+        env: {
+          XPI_MEMO_AUTO_ADMIT: "false",
+        },
+      }).config.autoAdmit,
+    ).toBe(false);
+    expect(
+      loadConfig({
+        configHome,
+        env: {
+          XPI_MEMO_AUTO_ADMIT: "true",
+        },
+      }).config.autoAdmit,
+    ).toBe(true);
+    // A set-but-unrecognised value means `off`, matching the admission decision.
+    expect(
+      loadConfig({
+        configHome,
+        env: {
+          XPI_MEMO_AUTO_ADMIT: "1",
+        },
+      }).config.autoAdmit,
+    ).toBe(false);
+  });
+
+  it("keeps auto-admission off when only the config file disables it", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        autoAdmit: false,
+      }),
+    );
+
+    expect(
+      loadConfig({
+        configHome,
+        env: {},
+      }).config.autoAdmit,
+    ).toBe(false);
+  });
+
   it("loads paused from user config and lets the environment override it", () => {
     const configHome = createTemporaryDirectory();
     mkdirSync(join(configHome, "xpi-memo"), {
