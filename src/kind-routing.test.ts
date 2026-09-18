@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { getAdmissionPolicy, KIND_ADMISSION_POLICIES } from "./kind-routing.ts";
+import { DEFAULT_XPI_MEMO_CONFIG } from "./config.ts";
+import {
+  autoAdmitEnabled,
+  getAdmissionPolicy,
+  KIND_ADMISSION_POLICIES,
+} from "./kind-routing.ts";
 import { MEMORY_KINDS } from "./kinds.js";
 
 describe("kind admission policy map (task 2.1)", () => {
@@ -82,5 +87,70 @@ describe("XPI_MEMO_AUTO_VERIFY override (task 2.3)", () => {
       }),
     ).toBe("tool-verify");
     expect(getAdmissionPolicy("project_gene", {})).toBe("tool-verify");
+  });
+});
+
+describe("autoAdmitEnabled (design Decision 2)", () => {
+  const config = {
+    ...DEFAULT_XPI_MEMO_CONFIG,
+  };
+
+  it("reads the config file when the env var is unset", () => {
+    expect(autoAdmitEnabled(config, {})).toBe(true);
+    expect(
+      autoAdmitEnabled(
+        {
+          ...config,
+          autoAdmit: false,
+        },
+        {},
+      ),
+    ).toBe(false);
+  });
+
+  it("lets an explicit env value win over the config file", () => {
+    expect(
+      autoAdmitEnabled(
+        {
+          ...config,
+          autoAdmit: false,
+        },
+        {
+          XPI_MEMO_AUTO_ADMIT: "true",
+        },
+      ),
+    ).toBe(true);
+    expect(
+      autoAdmitEnabled(config, {
+        XPI_MEMO_AUTO_ADMIT: "false",
+      }),
+    ).toBe(false);
+  });
+
+  it("treats any non-true env value as off, so a typo never auto-stores", () => {
+    expect(
+      autoAdmitEnabled(config, {
+        XPI_MEMO_AUTO_ADMIT: "",
+      }),
+    ).toBe(false);
+    expect(
+      autoAdmitEnabled(config, {
+        XPI_MEMO_AUTO_ADMIT: "yes",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps the kill switch above the env var and the config file", () => {
+    expect(
+      autoAdmitEnabled(config, {
+        XPI_MEMO_AUTO_ADMIT: "true",
+        XPI_MEMO_AUTO_VERIFY: "false",
+      }),
+    ).toBe(false);
+    expect(
+      autoAdmitEnabled(config, {
+        XPI_MEMO_AUTO_VERIFY: "0",
+      }),
+    ).toBe(false);
   });
 });

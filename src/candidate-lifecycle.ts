@@ -9,6 +9,7 @@ import {
 import { dirname } from "node:path";
 
 import type { AuditLog } from "./audit.js";
+import { DEFAULT_XPI_MEMO_CONFIG, type XpiMemoConfig } from "./config.js";
 import { classifyProhibitedContent } from "./content-policy.js";
 import { upgradeEvidence } from "./evidence-upgrade.js";
 import { autoAdmitEnabled } from "./kind-routing.js";
@@ -82,6 +83,8 @@ interface CreateCandidateStoreOptions {
     memoryId?: string;
     status: "failed" | "stored" | "unresolved";
   }>;
+  /** Loaded config; its `autoAdmit` decides when the env var is unset. */
+  config?: XpiMemoConfig;
   /** Admission-policy env override (XPI_MEMO_AUTO_VERIFY); defaults to process.env. */
   env?: NodeJS.ProcessEnv;
   /** L0 recorder for auto-verification events (task 5.3); optional, fail-open. */
@@ -172,6 +175,7 @@ export function createCandidateStore({
   auditLog,
   beforeStore,
   commit,
+  config,
   env,
   l0,
   verifiers,
@@ -352,10 +356,14 @@ export function createCandidateStore({
         timestamp: upgraded.evidence.timestamp,
       },
     };
-    // Rollout (design Decision 4): auto-storage requires the explicit
-    // opt-in AND project_gene; project_constraint stays shadow even with a
-    // registered verifier. Anything else is a bounded shadow outcome.
-    if (stored.candidate.kind === "project_gene" && autoAdmitEnabled(env)) {
+    // Rollout (design Decisions 2/4): auto-storage is on unless the env var or
+    // the config file turns it off, and applies to project_gene only —
+    // project_constraint stays shadow even with a registered verifier.
+    // Anything else is a bounded shadow outcome.
+    if (
+      stored.candidate.kind === "project_gene" &&
+      autoAdmitEnabled(config ?? DEFAULT_XPI_MEMO_CONFIG, env)
+    ) {
       const result = await persistConfirmed(operation, candidateId);
       if (result.status !== "stored") return result;
       auditLog?.record("tool-verified", {

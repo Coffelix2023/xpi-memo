@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 
 import type { RecallPolicy } from "./recall-policy.js";
 export const DEFAULT_XPI_MEMO_CONFIG = {
+  autoAdmit: true,
   autoExport: true,
   confirmStore: false,
   dataDir: join(homedir(), ".pi", "agent", "xpi-memo"),
@@ -49,6 +50,8 @@ export type SleepModeSetting =
   | "disabled";
 
 export interface XpiMemoConfig {
+  /** Auto-store a verified `project_gene`; `XPI_MEMO_AUTO_ADMIT` overrides it. */
+  autoAdmit: boolean;
   autoExport: boolean;
   confirmStore: boolean;
   dataDir: string;
@@ -81,6 +84,7 @@ export interface XpiMemoConfig {
 }
 
 export interface UserConfig {
+  autoAdmit?: unknown;
   autoExport?: unknown;
   confirmStore?: unknown;
   dataDir?: unknown;
@@ -186,6 +190,7 @@ export interface SaveUserConfigOptions {
 }
 
 const WRITABLE_KEYS = new Set([
+  "autoAdmit",
   "autoExport",
   "confirmStore",
   "excludeToolResults",
@@ -207,6 +212,7 @@ const WRITABLE_KEYS = new Set([
   "sleepMode",
 ]);
 const ENV_KEYS: Record<string, string> = {
+  autoAdmit: "XPI_MEMO_AUTO_ADMIT",
   autoExport: "XPI_MEMO_AUTO_EXPORT",
   confirmStore: "XPI_MEMO_CONFIRM_STORE",
   eventPresentation: "XPI_MEMO_EVENT_PRESENTATION",
@@ -388,6 +394,9 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
     return fallback;
   };
   const config: XpiMemoConfig = {
+    autoAdmit: boolean(user.config.autoAdmit)
+      ? user.config.autoAdmit
+      : DEFAULT_XPI_MEMO_CONFIG.autoAdmit,
     autoExport: envBool(
       "XPI_MEMO_AUTO_EXPORT",
       boolean(user.config.autoExport)

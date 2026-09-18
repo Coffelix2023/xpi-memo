@@ -716,6 +716,7 @@ describe("4.6 Settings tab", () => {
       "offlineExtractionModel",
       "excludeToolResults",
       "dataDir",
+      "autoAdmit",
       "paused",
       "l0Enabled",
       "profileInjection",
@@ -1105,8 +1106,8 @@ describe("4.6 Settings tab", () => {
     );
     expect(allCollapsed).toHaveLength(5);
     expect(allCollapsed.every((row) => row.kind === "group")).toBe(true);
-    // Fully expanded: 5 headers + all 21 field rows.
-    expect(settingsRows(items, new Set())).toHaveLength(26);
+    // Fully expanded: 5 headers + all 22 field rows.
+    expect(settingsRows(items, new Set())).toHaveLength(27);
   });
 
   it("cursorWindowStart keeps the cursor visible inside the sequence", () => {
@@ -1181,7 +1182,7 @@ describe("4.6 Settings tab", () => {
     // Default view: the first group is open, the remaining four are folded.
     expect(body).toContain("▾ Retrieval (6)");
     expect(body).toContain("▸ Storage (6)");
-    expect(body).toContain("▸ Pipeline (3)");
+    expect(body).toContain("▸ Pipeline (4)");
     // Exactly one row carries the cursor, and it is the first group header.
     const cursors = accentedRows(accented);
     expect(cursors).toHaveLength(1);

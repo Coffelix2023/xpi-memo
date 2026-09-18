@@ -1,3 +1,4 @@
+import type { XpiMemoConfig } from "./config.js";
 import type { MemoryKind } from "./kinds.js";
 
 import type { KindAdmissionPolicy } from "./types.js";
@@ -36,13 +37,18 @@ export function getAdmissionPolicy(
 }
 
 /**
- * Explicit auto-admission rollout (change stabilize-candidate-auto-admission,
- * design Decision 4). `XPI_MEMO_AUTO_ADMIT` must be exactly `true` and the
- * kill switch must not be engaged; any other value, or a missing value,
- * keeps admitted candidates in shadow mode.
+ * Auto-admission rollout (change optimize-offline-extraction-and-auto-admit,
+ * design Decision 2). The kill switch wins; an explicitly set
+ * `XPI_MEMO_AUTO_ADMIT` then decides on its own, so an env value never mixes
+ * with the config file. Unset falls back to `config.autoAdmit`, which the
+ * config file defaults to `true`.
  */
-export function autoAdmitEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+export function autoAdmitEnabled(
+  config: XpiMemoConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
   const override = env.XPI_MEMO_AUTO_VERIFY;
   if (override === "false" || override === "0") return false;
-  return env.XPI_MEMO_AUTO_ADMIT === "true";
+  if (env.XPI_MEMO_AUTO_ADMIT !== undefined) return env.XPI_MEMO_AUTO_ADMIT === "true";
+  return config.autoAdmit;
 }

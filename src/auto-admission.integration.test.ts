@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createAuditLog } from "./audit.js";
 import { createCandidateStore } from "./candidate-lifecycle.js";
+import { DEFAULT_XPI_MEMO_CONFIG } from "./config.js";
 import type { MemoryKind } from "./kinds.js";
 import { createL0Coordinator } from "./l0/l0-runtime.js";
 import {
@@ -80,6 +81,8 @@ function createAdapter(): {
 
 function createRuntime(options: {
   env?: NodeJS.ProcessEnv;
+  /** Config-file value for the admission switch; defaults to the real default. */
+  autoAdmit?: boolean;
   verifiers?: ReadonlyMap<MemoryKind, VerifierFn>;
 }): OfflineExtractionGovernanceRuntime & {
   auditPath: string;
@@ -112,6 +115,10 @@ function createRuntime(options: {
       adapter,
       auditLog: audit,
       env: options.env ?? {},
+      config: {
+        ...DEFAULT_XPI_MEMO_CONFIG,
+        autoAdmit: options.autoAdmit ?? true,
+      },
       l0,
       statePath: candidatesPath,
       verifiers: options.verifiers ?? new Map(),
@@ -161,7 +168,7 @@ function findAudit(path: string, action: string) {
 }
 
 describe("offline extraction auto-admission (tasks 9.1-9.4)", () => {
-  it("shadow-verifies a gene proposal by default: pending, audited, no T1 write (stabilize 2.1/4.2)", async () => {
+  it("auto-stores a tool-verified gene proposal by default: no env var needed (stabilize 2.1/4.2)", async () => {
     const setup = createRuntime({
       verifiers: new Map([
         [
@@ -181,23 +188,21 @@ describe("offline extraction auto-admission (tasks 9.1-9.4)", () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       kind: "project_gene",
-      status: "candidate",
+      status: "stored",
     });
-    expect(setup.stored).toHaveLength(0);
-    // The shadow outcome is audited with bounded evidence, not silently skipped.
+    // `autoAdmit: true` is the config default, so no env var is required.
+    expect(setup.stored).toHaveLength(1);
+    expect(setup.stored[0]?.source.evidenceType).toBe("verified-repository-fact");
     const entry = findAudit(setup.auditPath, "tool-verified");
     expect(entry?.metadata.candidateId).toBeDefined();
-    expect(entry?.metadata.status).toBe("shadow");
-    expect(entry?.metadata.decision).toBe("shadow-verified");
-    expect(entry?.metadata.filePath).toBe("AGENTS.md");
-    // The candidate survives for manual Store/Later/Reject.
-    const pending = readCandidates(setup.candidatesPath);
-    expect(pending).toHaveLength(1);
-    expect(pending[0]?.candidate.evidence.type).toBe("l0-conclusion");
+    expect(entry?.metadata.decision).toBe("auto-stored");
+    // Nothing left pending.
+    expect(readCandidates(setup.candidatesPath)).toHaveLength(0);
   });
 
-  it("auto-stores a tool-verified gene proposal under explicit opt-in (stabilize 3.2/4.2)", async () => {
+  it("lets XPI_MEMO_AUTO_ADMIT override a config file that disables auto-admit (stabilize 3.2/4.2)", async () => {
     const setup = createRuntime({
+      autoAdmit: false,
       verifiers: new Map([
         [
           "project_gene",
@@ -234,6 +239,40 @@ describe("offline extraction auto-admission (tasks 9.1-9.4)", () => {
     expect(Number.isNaN(Date.parse(entry?.timestamp ?? ""))).toBe(false);
     // Nothing left pending.
     expect(readCandidates(setup.candidatesPath)).toHaveLength(0);
+  });
+
+  it("keeps the candidate pending when XPI_MEMO_AUTO_ADMIT=false overrides the config default (stabilize 2.1/4.2)", async () => {
+    const setup = createRuntime({
+      verifiers: new Map([
+        [
+          "project_gene",
+          async () => VERIFIED,
+        ],
+      ]),
+      env: {
+        XPI_MEMO_AUTO_ADMIT: "false",
+      },
+    });
+
+    const results = await governOfflineExtractionOutput(
+      [
+        proposal("project_gene", GENE_CONTENT),
+      ],
+      setup,
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      kind: "project_gene",
+      status: "candidate",
+    });
+    expect(setup.stored).toHaveLength(0);
+    // The shadow outcome is audited with bounded evidence, not silently skipped.
+    const entry = findAudit(setup.auditPath, "tool-verified");
+    expect(entry?.metadata.status).toBe("shadow");
+    expect(entry?.metadata.decision).toBe("shadow-verified");
+    // The candidate survives for manual Store/Later/Reject.
+    expect(readCandidates(setup.candidatesPath)).toHaveLength(1);
   });
 
   it("keeps a gene proposal pending when it has no repository-fact declaration (stabilize 4.2)", async () => {

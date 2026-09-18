@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAuditLog } from "./audit.js";
 import { createCandidateStore } from "./candidate-lifecycle.ts";
+import { DEFAULT_XPI_MEMO_CONFIG } from "./config.ts";
 import { createEvidenceRecord } from "./evidence.ts";
 import { createEventLogReader } from "./l0/event-log-reader.js";
 import { createL0Coordinator } from "./l0/l0-runtime.js";
@@ -529,7 +530,7 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
     };
   }
 
-  it("shadow-verifies a gene candidate by default without a T1 write (stabilize 2.1)", async () => {
+  it("shadow-verifies a gene candidate when the config file disables auto-admit (stabilize 2.1)", async () => {
     const dataDir = createTemporaryDirectory();
     const { adapter, operations } = createAdapter();
     const store = createCandidateStore({
@@ -542,6 +543,10 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
           async () => VERIFIED,
         ],
       ]),
+      config: {
+        ...DEFAULT_XPI_MEMO_CONFIG,
+        autoAdmit: false,
+      },
     });
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
@@ -691,7 +696,6 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
     let verifierCalls = 0;
     const store = createCandidateStore({
       adapter,
-      env: {},
       statePath: join(dataDir, "candidates.json"),
       verifiers: new Map([
         [
@@ -703,6 +707,9 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
           },
         ],
       ]),
+      env: {
+        XPI_MEMO_AUTO_ADMIT: "false",
+      },
     });
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
@@ -755,7 +762,6 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
       auditLog: createAuditLog({
         statePath: auditPath,
       }),
-      env: {},
       statePath: join(dataDir, "candidates.json"),
       verifiers: new Map([
         [
@@ -763,6 +769,9 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
           async () => VERIFIED,
         ],
       ]),
+      env: {
+        XPI_MEMO_AUTO_ADMIT: "false",
+      },
     });
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());

@@ -167,6 +167,8 @@ type PanelLanguage = XpiMemoConfig["language"];
 
 const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
   en: {
+    "choice.autoAdmit":
+      "Recommend: on · off=keep verified genes pending · on=auto-store them",
     "choice.autoExport": "Recommend: on · off=no backup · on=periodic Markdown export",
     "choice.confirmStore":
       "Recommend: off · off=store silently · on=ask before every write",
@@ -204,6 +206,8 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "chrome.hint":
       "←/→ tab · ↑/↓ move · Space change · Enter save · Tab field · Esc close",
     "chrome.saved": "Saved · configuration written",
+    "detail.autoAdmit":
+      "Store a verified project_gene without asking · Space toggles on/off, Enter saves",
     "detail.autoExport":
       "Periodic Markdown backup of the bank · human-only · Space toggles on/off, Enter saves",
     "detail.confirmStore":
@@ -246,6 +250,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
       "One consolidation you trigger now · human-only · Space, then confirm",
     "detail.sleepMode":
       "When the Agent consolidates memory · Space cycles, Enter saves",
+    "field.autoAdmit": "Auto admit",
     "field.autoExport": "Auto export",
     "field.confirmStore": "Confirm store",
     "field.dataDir": "Data dir",
@@ -279,6 +284,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "info.tier": "L0 session trace → T1 xpi-memo → T2 deferred → T3 deferred",
     "info.today": "today",
     "info.total": "total",
+    "note.autoAdmit": "Auto-store verified genes",
     "note.autoExport": "Periodic export backup",
     "note.confirmStore": "Ask before writing",
     "note.dataDir": "Read-only, edit config file",
@@ -306,6 +312,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "tab.status": "Status",
   },
   zh: {
+    "choice.autoAdmit": "推荐: on · off=一律进待审 · on=验证通过的基因自动入库",
     "choice.autoExport": "推荐: on · off=不备份 · on=定期导出 Markdown",
     "choice.confirmStore": "推荐: off · off=直接写入 · on=每次写入前问你",
     "choice.dataDir": "只读 · 改配置文件或 XPI_MEMO_DATA_DIR",
@@ -334,6 +341,8 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "chrome.hint":
       "←/→ 切页 · ↑/↓ 移动 · Space 切换 · Enter 保存/选择 · Tab 跳字段 · Esc 关闭",
     "chrome.saved": "已保存 · 配置已写入",
+    "detail.autoAdmit":
+      "验证通过的 project_gene 无需确认直接入库 · 空格开关, Enter 保存",
     "detail.autoExport":
       "定期把记忆库导出成 Markdown 备份 · 只与你有关 · 空格切换 on/off, Enter 保存",
     "detail.confirmStore": "Agent 写记忆前先问你 · 空格切换 on/off, Enter 保存",
@@ -361,6 +370,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "detail.searchBackend": "召回使用哪个搜索引擎 · 空格切换, Enter 保存",
     "detail.sleep": "由你触发的一次记忆整理 · 只与你有关 · 空格后确认, 不写配置",
     "detail.sleepMode": "Agent 何时整理记忆 · 空格切换整理方式, Enter 保存",
+    "field.autoAdmit": "基因自动准入",
     "field.autoExport": "自动导出",
     "field.confirmStore": "存储前确认",
     "field.dataDir": "数据目录",
@@ -394,6 +404,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "info.tier": "L0 会话轨迹 → T1 xpi-memo → T2 延后 → T3 延后",
     "info.today": "今日",
     "info.total": "总数",
+    "note.autoAdmit": "验证通过直接入库",
     "note.autoExport": "定期导出备份",
     "note.confirmStore": "写入前先问你",
     "note.dataDir": "只读, 改它要编辑配置",
@@ -552,6 +563,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
   {
     id: "pipeline",
     fields: [
+      "autoAdmit",
       "paused",
       "l0Enabled",
       "profileInjection",
@@ -592,6 +604,13 @@ interface SettingsFieldSpec {
  * silently leave a field out of the panel.
  */
 const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
+  autoAdmit: {
+    environment: "XPI_MEMO_AUTO_ADMIT",
+    values: [
+      "off",
+      "on",
+    ],
+  },
   autoExport: {
     environment: "XPI_MEMO_AUTO_EXPORT",
     values: [
