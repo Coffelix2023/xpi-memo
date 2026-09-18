@@ -70,7 +70,7 @@ Field rows are laid out as `label / note / value`. Putting the cursor on a field
 
 **Automatic capture.** When you explicitly state a durable preference, workflow, project decision, gotcha, or bounded session context in a prompt, the activation loop routes it through the same governance path as `xpi_memo_remember` — no extra tool call needed. Global preferences/workflows store directly; project decisions, constraints, and gotchas become review candidates (see [GUIDE.md § Activation loop](./GUIDE.md#activation-loop)).
 
-**Auto-admission.** A `project_gene` candidate whose repository-fact verification passes is stored directly unless admission is off: `autoAdmit: false` in the config file (Settings tab in `/xpi-memo`) or `XPI_MEMO_AUTO_ADMIT=false`. While off, the verification is recorded as `shadow-verified` and the candidate waits in the review queue.
+**Auto-admission.** Memory is admitted by default: a candidate is written to T1 unless it hits a hard rail — prohibited content, an unresolved conflict, or memory being paused — or a preference you tightened. Preferences are a per-kind switch each, plus a minimum confidence, an evidence floor, a source scope and a candidate age window; edit them in `/xpi-memo` → Settings, or through the config file and the `XPI_MEMO_ADMISSION_*` variables. Repository-fact verification no longer gates admission: a pass upgrades the evidence to `verified-repository-fact`, and the outcome is recorded either way. Turn admission off entirely with `autoAdmit: false` or `XPI_MEMO_AUTO_ADMIT=false`, and candidates wait in the review queue instead. Use `/xpi-memo-rescan` to re-judge the back catalogue under the current preferences: whatever they still hold back is archived for 30 days rather than accumulating.
 
 ## Configuration
 
@@ -88,7 +88,8 @@ Environment variables:
 - `XPI_MEMO_LIMIT` / `XPI_MEMO_GLOBAL_LIMIT` / `XPI_MEMO_PROJECT_LIMIT`
 - `XPI_MEMO_AUTO_EXPORT`
 - `XPI_MEMO_AUTO_VERIFY` = kill switch (`false`/`0` disables repository-fact verification — every candidate queues for manual review)
-- `XPI_MEMO_AUTO_ADMIT` = `true|false` (overrides the config file's `autoAdmit`, default `true`; when unset, a verified `project_gene` candidate auto-stores, and `false` keeps it pending with a bounded audit trail)
+- `XPI_MEMO_AUTO_ADMIT` = `true|false` (overrides the config file's `autoAdmit`, default `true`; `false` keeps every candidate pending with a bounded audit trail)
+- `XPI_MEMO_ADMISSION_ALLOW_*` (one per memory kind), `XPI_MEMO_ADMISSION_MIN_CONFIDENCE`, `XPI_MEMO_ADMISSION_EVIDENCE_FLOOR`, `XPI_MEMO_ADMISSION_SOURCE_SCOPE`, `XPI_MEMO_ADMISSION_MAX_AGE_DAYS`, `XPI_MEMO_ARCHIVE_RETENTION_DAYS` = the admission preferences (see [GUIDE.md](./GUIDE.md#configuration-table))
 - `XPI_MEMO_EXCLUDE_TOOL_RESULTS`
 - `XPI_MEMO_PRIVACY`
 - `XPI_MEMO_SEARCH_BACKEND` = `auto|mnemosyne|ripgrep|qmd`

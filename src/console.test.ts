@@ -809,6 +809,68 @@ describe("4.6 Settings tab", () => {
     ]);
   });
 
+  it("shows the resolved admission preference and locks it when pinned", () => {
+    const configHome = mkdtempSync(join(tmpdir(), "xpi-memo-admission-panel-"));
+    try {
+      // `loadConfig` folds the environment into the value, so the panel shows
+      // exactly what the admission decision will use.
+      const { config } = loadConfig({
+        configHome,
+        env: {
+          XPI_MEMO_ADMISSION_MIN_CONFIDENCE: "0.9",
+          XPI_MEMO_ADMISSION_SOURCE_SCOPE: "current-project",
+        },
+      });
+      const items = settingsItems(config, {
+        XPI_MEMO_ADMISSION_MIN_CONFIDENCE: "0.9",
+      });
+      const confidence = items.find((item) => item.id === "admissionMinConfidence");
+      expect(confidence?.currentValue).toBe("0.9");
+      // Pinned: no cycling values, and the row names the variable.
+      expect(confidence?.values).toBeUndefined();
+      expect(
+        settingsRowText(
+          {
+            groupId: "admission",
+            item: confidence as SettingItem,
+            kind: "field",
+          },
+          false,
+          78,
+          THEME,
+          "en",
+        ),
+      ).toContain("⊘ XPI_MEMO_ADMISSION_MIN_CONFIDENCE");
+      // An unpinned sibling shows its resolved value and stays editable.
+      const scope = items.find((item) => item.id === "admissionSourceScope");
+      expect(scope?.currentValue).toBe("current-project");
+      expect(scope?.values).toEqual([
+        "all",
+        "current-project",
+      ]);
+    } finally {
+      rmSync(configHome, {
+        force: true,
+        recursive: true,
+      });
+    }
+  });
+
+  it("keeps the admission group collapsed by default", () => {
+    const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {});
+    // The default view expands the first group only.
+    const rows = settingsRows(
+      items,
+      new Set(SETTINGS_GROUPS.slice(1).map((group) => group.id)),
+    );
+    expect(
+      rows.find((row) => row.kind === "group" && row.group.id === "admission"),
+    ).toMatchObject({
+      kind: "group",
+      open: false,
+    });
+  });
+
   it("both panel dictionaries cover every key the panel can ask for", () => {
     // Keys the panel renders: chrome, tabs, groups, fields, notes and info bar.
     const keys = [

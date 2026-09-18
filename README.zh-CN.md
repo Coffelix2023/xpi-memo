@@ -71,7 +71,7 @@ brew install ripgrep               # 全文检索（macOS）；Fedora 上用 dnf
 
 **自动捕获。** 当你在提示里显式声明一条长期有效的偏好、工作流、项目决策、坑点或有边界的会话上下文时，激活回路会把它走一遍与 `xpi_memo_remember` 相同的治理路径——不需要额外调用工具。全局偏好/工作流直接落库；项目决策、约束与坑点会变成待审候选（见 [GUIDE.md § Activation loop](./GUIDE.md#activation-loop)）。
 
-**自动准入。** `project_gene` 候选的仓库事实校验通过后直接入库，除非显式关闭准入：配置文件里的 `autoAdmit: false`（`/xpi-memo` 的设置标签可切换）或 `XPI_MEMO_AUTO_ADMIT=false`。关闭期间校验结果记为 `shadow-verified`，候选留在待审队列。
+**自动准入。** 记忆默认直接入库：候选只有命中硬底线（禁止性内容、未解冲突、或记忆处于暂停状态）或被你自己收紧的偏好挡住时才不进 T1。偏好是一组开关——每类记忆一个，外加最低置信度、证据下限、来源范围与候选时效窗口；可以在 `/xpi-memo` 的设置标签里改，也能通过配置文件和 `XPI_MEMO_ADMISSION_*` 环境变量设置。仓库事实校验不再决定准入：校验通过会把证据升级为 `verified-repository-fact`，无论通过与否都留下记录。想整体关掉准入，用 `autoAdmit: false` 或 `XPI_MEMO_AUTO_ADMIT=false`，候选会回到待审队列。用 `/xpi-memo-rescan` 按当前偏好重扫存量候选：仍被偏好挡住的不再堆积，而是进入保留 30 天的归档。
 
 ## 配置
 
@@ -89,7 +89,8 @@ brew install ripgrep               # 全文检索（macOS）；Fedora 上用 dnf
 - `XPI_MEMO_LIMIT` / `XPI_MEMO_GLOBAL_LIMIT` / `XPI_MEMO_PROJECT_LIMIT`
 - `XPI_MEMO_AUTO_EXPORT`
 - `XPI_MEMO_AUTO_VERIFY` = kill switch（`false`/`0` 关闭仓库事实校验——所有候选转入人工待审）
-- `XPI_MEMO_AUTO_ADMIT` = `true|false`（覆盖配置文件的 `autoAdmit`，默认 `true`；未设置时校验通过的 `project_gene` 自动入库，设为 `false` 则留在待审队列并留下有界审计）
+- `XPI_MEMO_AUTO_ADMIT` = `true|false`（覆盖配置文件的 `autoAdmit`，默认 `true`；设为 `false` 时所有候选留在待审队列并留下有界审计）
+- `XPI_MEMO_ADMISSION_ALLOW_*`（每类记忆一个）、`XPI_MEMO_ADMISSION_MIN_CONFIDENCE`、`XPI_MEMO_ADMISSION_EVIDENCE_FLOOR`、`XPI_MEMO_ADMISSION_SOURCE_SCOPE`、`XPI_MEMO_ADMISSION_MAX_AGE_DAYS`、`XPI_MEMO_ARCHIVE_RETENTION_DAYS` = 准入偏好（详见 [GUIDE.md](./GUIDE.md#configuration-table)）
 - `XPI_MEMO_EXCLUDE_TOOL_RESULTS`
 - `XPI_MEMO_PRIVACY`
 - `XPI_MEMO_SEARCH_BACKEND` = `auto|mnemosyne|ripgrep|qmd`
