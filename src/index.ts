@@ -21,7 +21,7 @@ import {
 import { buildCandidateDigest, renderCandidateDigest } from "./candidate-digest.ts";
 import { type CandidateStore, createCandidateStore } from "./candidate-lifecycle.ts";
 import { l0Status } from "./cli/l0.js";
-import { loadConfig, saveUserConfig } from "./config.ts";
+import { loadConfig, mnemosyneEnvironment, saveUserConfig } from "./config.ts";
 import { openConsole } from "./console.ts";
 import { classifyProhibitedContent } from "./content-policy.ts";
 import { runT1Delete } from "./deletion-lifecycle.js";
@@ -105,7 +105,11 @@ import {
   type PendingCandidate,
   type PendingCandidateReason,
 } from "./pending-candidate.ts";
-import { rescanPendingCandidates } from "./pending-rescan.ts";
+import {
+  formatRescanPreview,
+  previewRescan,
+  rescanPendingCandidates,
+} from "./pending-rescan.ts";
 import { projectProfile, renderProfileInjection } from "./profile.ts";
 import type { RecallItem, RecallResponse } from "./recall.ts";
 import { decideRecall, type RecallPolicy } from "./recall-policy.ts";
@@ -135,7 +139,12 @@ import {
   visibleBankDiskBytes,
 } from "./status.ts";
 import { openStatusPanel } from "./status-panel.ts";
-import { createMemorySurface, successText } from "./surface.ts";
+import {
+  createMemorySurface,
+  type ExtractionStage,
+  extractionProgressText,
+  successText,
+} from "./surface.ts";
 import { lifecycleDiagnostics, runT1Write } from "./t1-lifecycle.ts";
 import { renderCallLine, renderToolLine } from "./tool-rendering.ts";
 
@@ -578,7 +587,10 @@ function createRuntime(
     dependencies.run ??
     (async (args, options) => {
       const { runMnemosyne } = await import("./cli.ts");
-      return runMnemosyne(args, options);
+      return runMnemosyne(args, {
+        ...options,
+        env: mnemosyneEnvironment(configResult.config, options?.env),
+      });
     });
   const adapter = createMnemosyneAdapter(run, dependencies.exactMemoryReader);
   const audit = createAuditLog({
@@ -659,15 +671,27 @@ async function runOfflineExtractionForLifecycle(
   l0: L0Coordinator,
   audit: AuditLog,
   trigger: "session_shutdown" | "session_before_compact",
-  surface: ReturnType<typeof createMemorySurface>,
+  surface: ReturnType<typeof createMemorySurface> | undefined,
 ): Promise<void> {
   // Shimmer above the editor for the whole attempt (design Decision 1);
   // every exit path — completed, failed, budget-exhausted — clears it.
-  surface.begin("extract");
+  // Shutdown passes no surface: the widget would be set on a context that is
+  // already tearing down, and nobody is looking at it any more.
+  surface?.begin("extract");
   try {
-    await extractOfflineMemories(ctx, config, dependencies, l0, audit, trigger);
+    await extractOfflineMemories(ctx, config, dependencies, l0, audit, {
+      // Four stages, so a compact that takes seconds shows where it is
+      // instead of an unchanging shimmer (task 4.2).
+      ...(surface
+        ? {
+            onStage: (stage: ExtractionStage) =>
+              surface.progress(extractionProgressText(stage)),
+          }
+        : {}),
+      trigger,
+    });
   } finally {
-    surface.clear();
+    surface?.clear();
   }
 }
 
@@ -677,8 +701,13 @@ async function extractOfflineMemories(
   dependencies: XpiMemoDependencies,
   l0: L0Coordinator,
   audit: AuditLog,
-  trigger: "session_shutdown" | "session_before_compact",
+  options: {
+    /** Called once per stage reached, in order; omitted when nothing watches. */
+    onStage?: (stage: ExtractionStage) => void;
+    trigger: "session_shutdown" | "session_before_compact";
+  },
 ): Promise<void> {
+  const { onStage, trigger } = options;
   const cwd = ctx.cwd;
   const sessionId = l0.sessionId();
   if (!sessionId) return;
@@ -717,6 +746,7 @@ async function extractOfflineMemories(
   const reader = createEventLogReader({
     sessionDir: sessionDirFor(config.dataDir, sessionId),
   });
+  onStage?.("read");
   const events = (await reader.readAfter(from)).slice(
     -DEFAULT_OFFLINE_EXTRACTION_MAX_EVENTS,
   );
@@ -724,6 +754,7 @@ async function extractOfflineMemories(
     ledger.recordConsumedThrough(current);
     return;
   }
+  onStage?.("model");
   const result = await runOfflineExtraction({
     enabled: true,
     events,
@@ -745,11 +776,13 @@ async function extractOfflineMemories(
     validProposals: 0,
   };
   if (result.status === "completed") {
+    onStage?.("parse");
     const normalized = normalizeOfflineExtractionOutput(result.output);
     extractionCounts.proposalsTotal = normalized.proposalsTotal;
     extractionCounts.validProposals = normalized.proposals.length;
     extractionCounts.invalidProposals = normalized.invalid;
     const runtime = createRuntime(cwd, dependencies, trustFor(ctx, dependencies), l0);
+    onStage?.("govern");
     const governed = await governOfflineExtractionOutput(result.output, {
       adapter: runtime.adapter,
       audit,
@@ -1946,7 +1979,10 @@ async function statusForContext(
     dependencies.run ??
     (async (args, options) => {
       const { runMnemosyne } = await import("./cli.ts");
-      return runMnemosyne(args, options);
+      return runMnemosyne(args, {
+        ...options,
+        env: mnemosyneEnvironment(config, options?.env),
+      });
     });
   const stats = async (bank?: string) => {
     try {
@@ -2105,6 +2141,10 @@ async function statusForContext(
       memoryProjection,
     },
     doctor,
+    embedding: {
+      mode: config.embeddingMode,
+      model: config.embeddingModel || null,
+    },
     feedback,
     exactIdRead,
     // Task 2.2: body-free event projection of the audit tail, with backend
@@ -2477,13 +2517,38 @@ export default function xpiMemo(
   pi.registerCommand("xpi-memo-rescan", {
     description:
       "Re-judge every queued memory candidate under the current admission preferences",
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
       const runtime = createRuntime(ctx.cwd, dependencies, trustFor(ctx, dependencies));
+      // `--current-project` scopes the walk to this session's bank; the panel's
+      // admission scope is a different setting and does not apply here.
+      const currentProjectOnly = (args ?? "")
+        .split(WS_SPLIT)
+        .includes("--current-project");
+      const scopeBank = runtime.context.projectBank;
+      if (currentProjectOnly && !scopeBank) {
+        ctx.ui.notify("No project bank for this session: nothing to rescan.", "info");
+        return;
+      }
+      // The guard above guarantees a bank is present when scoping.
+      const scope = currentProjectOnly ? (scopeBank ?? undefined) : undefined;
       // Expire first: a record past its retention window must not be judged
       // again just because nobody looked at it in time.
       const purged = runtime.candidates.purgeExpired();
+      // Preview before the walk: the queue composition is cheap to read and
+      // tells the user what this is about to cost, per bank.
+      const preview = previewRescan(runtime.candidates, scope);
+      const scopeLabel = currentProjectOnly ? " in this project" : "";
+      ctx.ui.notify(
+        `Rescan preview: ${preview.total} queued${scopeLabel} — ${formatRescanPreview(preview)}`,
+        "info",
+      );
       const outcome = await rescanPendingCandidates({
         auditLog: runtime.audit,
+        ...(scope === undefined
+          ? {}
+          : {
+              bank: scope,
+            }),
         candidates: runtime.candidates,
       });
       const counts = [
@@ -2493,7 +2558,7 @@ export default function xpiMemo(
       if (purged.length > 0) counts.push(`${purged.length} expired`);
       const noun = outcome.total === 1 ? "candidate" : "candidates";
       ctx.ui.notify(
-        `Rescan over ${outcome.total} queued ${noun}: ${counts.join(" · ")}`,
+        `Rescan over ${outcome.total} queued ${noun}${scopeLabel}: ${counts.join(" · ")}`,
         "info",
       );
     },
@@ -3182,21 +3247,24 @@ export default function xpiMemo(
         // Export failure must not block session shutdown.
       });
     }
-    // Gated offline extraction (task 3.1): best-effort, bounded, never blocks shutdown.
+    // Gated offline extraction (task 3.1): best-effort, bounded, never blocks
+    // shutdown. Switching sessions must not wait on a model call, so this is
+    // fire-and-forget like the export above and carries no surface widget.
+    // ponytail: process exit mid-extraction can truncate it; the next session
+    // re-reads the same window because the budget ledger only records what
+    // completed (`consumedThrough`).
     if (config.offlineExtractionEnabled && config.l0Enabled) {
-      try {
-        await runOfflineExtractionForLifecycle(
-          ctx,
-          config,
-          dependencies,
-          l0ForHooks(),
-          auditForHooks(),
-          "session_shutdown",
-          getSurface(ctx),
-        );
-      } catch {
+      void runOfflineExtractionForLifecycle(
+        ctx,
+        config,
+        dependencies,
+        l0ForHooks(),
+        auditForHooks(),
+        "session_shutdown",
+        undefined,
+      ).catch(() => {
         // Extraction failure must not block session shutdown.
-      }
+      });
     }
   });
 

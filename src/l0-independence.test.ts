@@ -102,6 +102,10 @@ describe("T1 independence from a concrete L0 runtime", () => {
         project: 0,
         session: 0,
       },
+      embedding: {
+        mode: "off",
+        model: null,
+      },
       recall: {
         scope: "global-only",
         queriedBanks: [

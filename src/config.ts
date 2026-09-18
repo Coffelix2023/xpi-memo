@@ -27,6 +27,9 @@ export const DEFAULT_XPI_MEMO_CONFIG = {
   autoExport: true,
   confirmStore: false,
   dataDir: join(homedir(), ".pi", "agent", "xpi-memo"),
+  embeddingApiUrl: "",
+  embeddingMode: "off",
+  embeddingModel: "",
   eventPresentation: true,
   excludeToolResults: false,
   globalLimit: 5,
@@ -48,6 +51,9 @@ export const DEFAULT_XPI_MEMO_CONFIG = {
 
 export type RetrievalMode = "fts5" | "hybrid";
 export type Language = "en" | "zh";
+
+/** Panel-owned embedding mode: none, a local model, or an external API. */
+export type EmbeddingMode = "off" | "local" | "api";
 
 /**
  * Admission evidence floor (change admission-preferences-and-pending-rescan):
@@ -92,6 +98,12 @@ export interface XpiMemoConfig {
   autoExport: boolean;
   confirmStore: boolean;
   dataDir: string;
+  /** Endpoint the panel's `api` embedding mode calls; empty means mnemosyne's own. */
+  embeddingApiUrl: string;
+  /** `off` costs no embedding work; `local` and `api` mirror mnemosyne's switches. */
+  embeddingMode: EmbeddingMode;
+  /** Empty keeps mnemosyne's default model. */
+  embeddingModel: string;
   /** Runtime surface: footer/status lifecycle event presentation. */
   eventPresentation: boolean;
   excludeToolResults: boolean;
@@ -137,6 +149,9 @@ export interface UserConfig {
   autoExport?: unknown;
   confirmStore?: unknown;
   dataDir?: unknown;
+  embeddingApiUrl?: unknown;
+  embeddingMode?: unknown;
+  embeddingModel?: unknown;
   eventPresentation?: unknown;
   excludeToolResults?: unknown;
   globalLimit?: unknown;
@@ -232,6 +247,9 @@ export interface SaveUserConfigOptions {
       | "admissionSourceScope"
       | "archiveRetentionDays"
       | "confirmStore"
+      | "embeddingApiUrl"
+      | "embeddingMode"
+      | "embeddingModel"
       | "eventPresentation"
       | "globalLimit"
       | "l0Enabled"
@@ -266,6 +284,9 @@ const WRITABLE_KEYS = new Set([
   "autoAdmit",
   "autoExport",
   "confirmStore",
+  "embeddingApiUrl",
+  "embeddingMode",
+  "embeddingModel",
   "excludeToolResults",
   "eventPresentation",
   "globalLimit",
@@ -300,6 +321,9 @@ const ENV_KEYS: Record<string, string> = {
   autoAdmit: "XPI_MEMO_AUTO_ADMIT",
   autoExport: "XPI_MEMO_AUTO_EXPORT",
   confirmStore: "XPI_MEMO_CONFIRM_STORE",
+  embeddingApiUrl: "XPI_MEMO_EMBEDDING_API_URL",
+  embeddingMode: "XPI_MEMO_EMBEDDING_MODE",
+  embeddingModel: "XPI_MEMO_EMBEDDING_MODEL",
   eventPresentation: "XPI_MEMO_EVENT_PRESENTATION",
   excludeToolResults: "XPI_MEMO_EXCLUDE_TOOL_RESULTS",
   globalLimit: "XPI_MEMO_GLOBAL_LIMIT",
@@ -447,6 +471,20 @@ function resolveLanguage(
   return DEFAULT_XPI_MEMO_CONFIG.language;
 }
 
+function embeddingMode(value: unknown): value is EmbeddingMode {
+  return value === "off" || value === "local" || value === "api";
+}
+
+function resolveEmbeddingMode(
+  environmentValue: string | undefined,
+  userValue: unknown,
+): EmbeddingMode {
+  if (embeddingMode(environmentValue)) return environmentValue;
+  if (embeddingMode(userValue)) return userValue;
+  // Fail closed: only an explicit choice turns embedding work on.
+  return DEFAULT_XPI_MEMO_CONFIG.embeddingMode;
+}
+
 function resolveSleepMode(
   environmentValue: string | undefined,
   userValue: unknown,
@@ -522,17 +560,66 @@ const ADMISSION_PREFERENCE_VALIDATORS: Record<string, (value: unknown) => boolea
   archiveRetentionDays: positiveInteger,
 };
 /**
- * Offline extraction model: the session sentinel, a `provider/model-id`, or a
- * bare model id. Free text by design, so it fails closed to the sentinel when
- * neither the environment nor the config file supplies a usable string.
+ * Free-text config values: a model id or an endpoint. Free text by design, so
+ * it fails closed to the documented default when neither the environment nor
+ * the config file supplies a usable string.
  */
-function resolveOfflineExtractionModel(
+function resolveFreeText(
   environmentValue: string | undefined,
   userValue: unknown,
+  fallback: string,
 ): string {
   if (environmentValue !== undefined) return environmentValue;
   if (nonEmptyString(userValue)) return userValue.trim();
-  return DEFAULT_XPI_MEMO_CONFIG.offlineExtractionModel;
+  return fallback;
+}
+
+/**
+ * The embedding switches mnemosyne actually reads.
+ *
+ * Its store path resolves embeddings from environment variables only
+ * (`core/embeddings.py` reads `MNEMOSYNE_*_EMBEDDINGS*`, `_DEFAULT_MODEL` and
+ * `MNEMOSYNE_EMBEDDING_API_URL` at import time); the same keys in `config.yaml`
+ * have no reader on that path. So the panel's mode is applied to the mnemosyne
+ * child processes xpi-memo spawns, not to the config file.
+ *
+ * The disable flags are always written: `_is_disabled()` treats any non-empty
+ * value — including `"0"` — as off, so "enabled" has to be the empty string.
+ * An empty model or endpoint is omitted, which leaves mnemosyne's own default
+ * (`BAAI/bge-small-en-v1.5`) and the inherited `MNEMOSYNE_EMBEDDING_API_KEY`.
+ */
+export function embeddingEnvironment(
+  config: Pick<XpiMemoConfig, "embeddingApiUrl" | "embeddingMode" | "embeddingModel">,
+): Record<string, string> {
+  const enabled = config.embeddingMode !== "off";
+  const environment: Record<string, string> = {
+    MNEMOSYNE_EMBEDDINGS_OFF: enabled ? "" : "1",
+    MNEMOSYNE_EMBEDDINGS_VIA_API: config.embeddingMode === "api" ? "1" : "",
+    MNEMOSYNE_NO_EMBEDDINGS: enabled ? "" : "1",
+    MNEMOSYNE_SKIP_EMBEDDINGS: enabled ? "" : "1",
+  };
+  if (enabled && config.embeddingModel) {
+    environment.MNEMOSYNE_EMBEDDING_MODEL = config.embeddingModel;
+  }
+  if (config.embeddingMode === "api" && config.embeddingApiUrl) {
+    environment.MNEMOSYNE_EMBEDDING_API_URL = config.embeddingApiUrl;
+  }
+  return environment;
+}
+
+/**
+ * The environment to hand a mnemosyne child process: `base`, else the process
+ * environment — the same default `runMnemosyne` applies — with the embedding
+ * switches applied on top. Nothing else about a child's environment changes.
+ */
+export function mnemosyneEnvironment(
+  config: Pick<XpiMemoConfig, "embeddingApiUrl" | "embeddingMode" | "embeddingModel">,
+  base: NodeJS.ProcessEnv | undefined,
+): NodeJS.ProcessEnv {
+  return {
+    ...(base ?? process.env),
+    ...embeddingEnvironment(config),
+  };
 }
 
 export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
@@ -646,6 +733,20 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
       (nonEmptyString(user.config.dataDir)
         ? user.config.dataDir.trim()
         : DEFAULT_XPI_MEMO_CONFIG.dataDir),
+    embeddingApiUrl: resolveFreeText(
+      envString(env, "XPI_MEMO_EMBEDDING_API_URL"),
+      user.config.embeddingApiUrl,
+      DEFAULT_XPI_MEMO_CONFIG.embeddingApiUrl,
+    ),
+    embeddingMode: resolveEmbeddingMode(
+      envString(env, "XPI_MEMO_EMBEDDING_MODE"),
+      user.config.embeddingMode,
+    ),
+    embeddingModel: resolveFreeText(
+      envString(env, "XPI_MEMO_EMBEDDING_MODEL"),
+      user.config.embeddingModel,
+      DEFAULT_XPI_MEMO_CONFIG.embeddingModel,
+    ),
     eventPresentation: envBool(
       "XPI_MEMO_EVENT_PRESENTATION",
       boolean(user.config.eventPresentation)
@@ -686,9 +787,10 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
         ? user.config.offlineExtractionEnabled
         : DEFAULT_XPI_MEMO_CONFIG.offlineExtractionEnabled,
     ),
-    offlineExtractionModel: resolveOfflineExtractionModel(
+    offlineExtractionModel: resolveFreeText(
       envString(env, "XPI_MEMO_OFFLINE_EXTRACTION_MODEL"),
       user.config.offlineExtractionModel,
+      DEFAULT_XPI_MEMO_CONFIG.offlineExtractionModel,
     ),
     passiveFeedback: envBool(
       "XPI_MEMO_PASSIVE_FEEDBACK",

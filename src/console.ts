@@ -18,9 +18,13 @@ export type ConsoleSettings = Partial<
   Pick<
     XpiMemoConfig,
     | "confirmStore"
+    | "embeddingApiUrl"
+    | "embeddingMode"
+    | "embeddingModel"
     | "globalLimit"
     | "language"
     | "limit"
+    | "offlineExtractionModel"
     | "paused"
     | "projectLimit"
     | "recallPolicy"
@@ -134,7 +138,7 @@ export interface ConsoleViewModel {
   /** Language the whole panel renders in; comes from the effective config. */
   language: PanelLanguage;
   pending: PendingCandidate[];
-  rows: SettingItem[];
+  rows: PanelSettingItem[];
   status: MemoryStatus;
   /** Indented JSON shown on the Status tab (rendered status + L0 summary). */
   statusJson: string;
@@ -197,6 +201,12 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "choice.confirmStore":
       "Recommend: off · off=store silently · on=ask before every write",
     "choice.dataDir": "Read-only · change it in the config file or XPI_MEMO_DATA_DIR",
+    "choice.embeddingApiUrl":
+      "Used by api mode only · empty keeps mnemosyne's own endpoint",
+    "choice.embeddingMode":
+      "Recommend: off · off=no embedding work · local=this machine · api=remote endpoint",
+    "choice.embeddingModel":
+      "Empty keeps mnemosyne's default (BAAI/bge-small-en-v1.5) · dim must match",
     "choice.eventPresentation":
       "Recommend: on · off=hide memory events · on=show them in the Pi footer",
     "choice.excludeToolResults":
@@ -210,7 +220,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "choice.offlineExtractionEnabled":
       "Recommend: off · off=rules only · on=extract without a model",
     "choice.offlineExtractionModel":
-      "Read-only · session-model reuses the chat model, or name one explicitly",
+      "session-model reuses the chat model, or name one explicitly",
     "choice.passiveFeedback":
       "Recommend: on · off=no usage signal · on=rank recall by what you used",
     "choice.paused": "Recommend: off · off=memory runs · on=stop all memory work",
@@ -227,6 +237,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "choice.sleep": "On demand · off=idle · run=consolidate now, then confirm",
     "choice.sleepMode":
       "Recommend: disabled (off) · dedicated=own model · session-model=chat · mechanical=rules",
+    "chrome.edit": "type to edit · Enter save · Esc cancel",
     "chrome.hint":
       "←/→ tab · ↑/↓ move · Space change · Enter save · Tab field · Esc close",
     "chrome.saved": "Saved · configuration written",
@@ -262,6 +273,11 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
       "Ask you before the Agent stores a memory · Space toggles on/off, Enter saves",
     "detail.dataDir":
       "Where memories live on disk · human-only · read-only, edit the config file",
+    "detail.embeddingApiUrl":
+      "Endpoint for api mode · Space edits it inline, Esc cancels",
+    "detail.embeddingMode":
+      "Vector search for recall · Space cycles off/local/api, Enter saves",
+    "detail.embeddingModel": "Embedding model id · Space edits it inline, Esc cancels",
     "detail.eventPresentation":
       "Memory events in the Pi footer · human-only · Space toggles on/off, Enter saves",
     "detail.excludeToolResults":
@@ -277,7 +293,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "detail.offlineExtractionEnabled":
       "Extract memories without a model · affects Agent recall · Space toggles, Enter saves",
     "detail.offlineExtractionModel":
-      "Model for offline extraction · human-only · read-only, edit the config file",
+      "Model for offline extraction · human-only · Space edits it inline, Esc cancels",
     "detail.passiveFeedback":
       "Ranking signal for the Agent's recall · Space toggles on/off, Enter saves",
     "detail.paused":
@@ -314,6 +330,9 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.autoExport": "Auto export",
     "field.confirmStore": "Confirm store",
     "field.dataDir": "Data dir",
+    "field.embeddingApiUrl": "Embedding API URL",
+    "field.embeddingMode": "Embedding mode",
+    "field.embeddingModel": "Embedding model",
     "field.eventPresentation": "Event presentation",
     "field.excludeToolResults": "Tool results",
     "field.globalLimit": "Global limit",
@@ -361,6 +380,9 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "note.autoExport": "Periodic export backup",
     "note.confirmStore": "Ask before writing",
     "note.dataDir": "Read-only, edit config file",
+    "note.embeddingApiUrl": "api mode only",
+    "note.embeddingMode": "Off saves 73% CPU",
+    "note.embeddingModel": "Empty = mnemosyne default",
     "note.eventPresentation": "Show events in footer",
     "note.excludeToolResults": "Do not log tool output",
     "note.globalLimit": "Cap across projects",
@@ -368,7 +390,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "note.language": "Panel and hint language",
     "note.limit": "Rows injected per turn",
     "note.offlineExtractionEnabled": "Works without a model",
-    "note.offlineExtractionModel": "Read-only, edit the config file",
+    "note.offlineExtractionModel": "session-model or provider/model",
     "note.passiveFeedback": "Record usage feedback",
     "note.paused": "Resume any time",
     "note.privacy": "Persist no memory at all",
@@ -408,6 +430,11 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "choice.autoExport": "推荐: on · off=不备份 · on=定期导出 Markdown",
     "choice.confirmStore": "推荐: off · off=直接写入 · on=每次写入前问你",
     "choice.dataDir": "只读 · 改配置文件或 XPI_MEMO_DATA_DIR",
+    "choice.embeddingApiUrl": "仅 api 用于外部接口 · 留空沿用 mnemosyne 自己的",
+    "choice.embeddingMode":
+      "推荐: off · off=不做向量化 · local=本机模型 · api=外部接口",
+    "choice.embeddingModel":
+      "留空即用 mnemosyne 默认(BAAI/bge-small-en-v1.5) · 维度须匹配",
     "choice.eventPresentation": "推荐: on · off=不显示事件 · on=页脚显示记忆事件",
     "choice.excludeToolResults": "推荐: off · off=记录工具输出 · on=不写入记忆",
     "choice.globalLimit": "推荐: 5 · 1/5/10/20 是所有项目的每轮上限",
@@ -416,7 +443,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "choice.limit": "推荐: 5 · 1/5/10/20 是 Agent 每轮可注入的条数",
     "choice.offlineExtractionEnabled": "推荐: off · off=只用规则 · on=无模型也能提取",
     "choice.offlineExtractionModel":
-      "只读 · session-model 复用当前聊天模型, 也可写具体模型 id",
+      "session-model 复用当前聊天模型, 也可写具体模型 id",
     "choice.passiveFeedback": "推荐: on · off=不记录 · on=按实际使用排序召回",
     "choice.paused": "推荐: off · off=记忆工作 · on=全部停止",
     "choice.privacy": "推荐: off · off=正常写入 · on=不落任何持久记忆",
@@ -430,6 +457,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "choice.sleep": "按需 · off=不整理 · run=立即整理一次并确认",
     "choice.sleepMode":
       "推荐: disabled(关闭) · dedicated=独立模型 · session-model=聊天模型 · mechanical=机械",
+    "chrome.edit": "直接输入 · Enter 保存 · Esc 取消",
     "chrome.hint":
       "←/→ 切页 · ↑/↓ 移动 · Space 切换 · Enter 保存/选择 · Tab 跳字段 · Esc 关闭",
     "chrome.saved": "已保存 · 配置已写入",
@@ -458,6 +486,9 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
       "定期把记忆库导出成 Markdown 备份 · 只与你有关 · 空格切换 on/off, Enter 保存",
     "detail.confirmStore": "Agent 写记忆前先问你 · 空格切换 on/off, Enter 保存",
     "detail.dataDir": "记忆在磁盘上的位置 · 只读, 改配置文件或环境变量",
+    "detail.embeddingApiUrl": "api 模式的外部接口 · 空格进入行内编辑, Esc 取消",
+    "detail.embeddingMode": "召回是否走向量检索 · 空格循环 off/local/api, Enter 保存",
+    "detail.embeddingModel": "嵌入模型 id · 空格进入行内编辑, Esc 取消",
     "detail.eventPresentation":
       "在 Pi 页脚显示记忆事件 · 只与你有关 · 空格切换 on/off, Enter 保存",
     "detail.excludeToolResults": "不把工具输出写进记忆 · 空格切换 on/off, Enter 保存",
@@ -468,7 +499,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "detail.limit": "Agent 每轮注入的条数 · 空格切换 1/5/10/20, Enter 保存",
     "detail.offlineExtractionEnabled":
       "无模型时也能提取记忆 · 影响 Agent 召回 · 空格切换 on/off, Enter 保存",
-    "detail.offlineExtractionModel": "离线提取用的模型 · 只读, 改配置文件或环境变量",
+    "detail.offlineExtractionModel": "离线提取用的模型 · 空格进入行内编辑, Esc 取消",
     "detail.passiveFeedback": "记录哪些召回记忆真被用到 · 空格切换 on/off, Enter 保存",
     "detail.paused": "全项目停用记忆 · Agent 不再读取 · 空格切换 on/off, Enter 保存",
     "detail.privacy": "开启后不写任何持久记忆 · 空格切换 on/off, Enter 保存",
@@ -497,6 +528,9 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.autoExport": "自动导出",
     "field.confirmStore": "存储前确认",
     "field.dataDir": "数据目录",
+    "field.embeddingApiUrl": "嵌入接口地址",
+    "field.embeddingMode": "嵌入模式",
+    "field.embeddingModel": "嵌入模型",
     "field.eventPresentation": "事件与页脚提示",
     "field.excludeToolResults": "排除工具输出",
     "field.globalLimit": "全局召回上限",
@@ -544,6 +578,9 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "note.autoExport": "定期导出备份",
     "note.confirmStore": "写入前先问你",
     "note.dataDir": "只读, 改它要编辑配置",
+    "note.embeddingApiUrl": "仅 api 用",
+    "note.embeddingMode": "off 省 73% CPU",
+    "note.embeddingModel": "留空即 mnemosyne 默认",
     "note.eventPresentation": "页脚展示记忆事件",
     "note.excludeToolResults": "不记录工具输出",
     "note.globalLimit": "跨项目的上限",
@@ -551,7 +588,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "note.language": "面板与提示语言",
     "note.limit": "每次注入的条数",
     "note.offlineExtractionEnabled": "无模型也能提取",
-    "note.offlineExtractionModel": "只读, 改它要编辑配置",
+    "note.offlineExtractionModel": "session-model 或 供应方/模型",
     "note.passiveFeedback": "记录使用反馈",
     "note.paused": "停用后可随时恢复",
     "note.privacy": "不写任何持久记忆",
@@ -692,6 +729,9 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
       "autoExport",
       "offlineExtractionEnabled",
       "offlineExtractionModel",
+      "embeddingMode",
+      "embeddingModel",
+      "embeddingApiUrl",
       "excludeToolResults",
       "dataDir",
     ],
@@ -747,6 +787,11 @@ interface SettingsFieldSpec {
    * `config.ts`; this table only surfaces them in the panel.
    */
   environment: string | null;
+  /**
+   * A free-text field (a model id or an endpoint). The panel edits it inline
+   * instead of cycling `values`, so such a field keeps `values` empty.
+   */
+  text?: true;
   /** Empty for fields the panel never writes, such as the data directory. */
   values: readonly string[];
 }
@@ -871,6 +916,24 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
     environment: "XPI_MEMO_DATA_DIR",
     values: [],
   },
+  embeddingApiUrl: {
+    environment: "XPI_MEMO_EMBEDDING_API_URL",
+    text: true,
+    values: [],
+  },
+  embeddingMode: {
+    environment: "XPI_MEMO_EMBEDDING_MODE",
+    values: [
+      "off",
+      "local",
+      "api",
+    ],
+  },
+  embeddingModel: {
+    environment: "XPI_MEMO_EMBEDDING_MODEL",
+    text: true,
+    values: [],
+  },
   eventPresentation: {
     environment: "XPI_MEMO_EVENT_PRESENTATION",
     values: [
@@ -924,10 +987,9 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
       "on",
     ],
   },
-  // Read-only in the panel: a model id is free text, and the row shows the
-  // configured one plus the hint to edit the config file or the environment.
   offlineExtractionModel: {
     environment: "XPI_MEMO_OFFLINE_EXTRACTION_MODEL",
+    text: true,
     values: [],
   },
   passiveFeedback: {
@@ -1010,6 +1072,15 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
 };
 
 /**
+ * A panel row. `text` marks the free-text fields: the panel edits them inline
+ * instead of cycling `values`, and it is absent on a pinned or never-written
+ * field, which keeps those rows inert.
+ */
+export interface PanelSettingItem extends SettingItem {
+  text?: true;
+}
+
+/**
  * Every settings row, in group order. A field pinned by an environment
  * variable or never written by the panel omits `values`, which makes Enter a
  * no-op on it, so the panel cannot persist a value it does not own.
@@ -1017,7 +1088,7 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
 export function settingsItems(
   config: XpiMemoConfig,
   env: NodeJS.ProcessEnv,
-): SettingItem[] {
+): PanelSettingItem[] {
   return SETTINGS_GROUPS.flatMap((group) =>
     group.fields.map((id) => settingsItem(id, config, env)),
   );
@@ -1027,7 +1098,7 @@ function settingsItem(
   id: SettingsFieldId,
   config: XpiMemoConfig,
   env: NodeJS.ProcessEnv,
-): SettingItem {
+): PanelSettingItem {
   const spec = SETTINGS_FIELD_SPECS[id];
   const environment = spec.environment;
   const locked = environment !== null && Boolean(env[environment]);
@@ -1043,6 +1114,13 @@ function settingsItem(
       : {}),
     id,
     label: id,
+    // Free text is edited inline, so a text field carries the marker instead
+    // of `values`; a locked one carries neither and stays inert.
+    ...(spec.text === true && !locked
+      ? {
+          text: true as const,
+        }
+      : {}),
     ...(writable
       ? {
           values: [
@@ -1100,7 +1178,7 @@ export type SettingsRow =
     }
   | {
       groupId: string;
-      item: SettingItem;
+      item: PanelSettingItem;
       kind: "field";
     };
 
@@ -1110,7 +1188,7 @@ export type SettingsRow =
  * this sequence, so a group header is a real landing spot for up/down.
  */
 export function settingsRows(
-  items: readonly SettingItem[],
+  items: readonly PanelSettingItem[],
   collapsed: ReadonlySet<string>,
 ): SettingsRow[] {
   const byId = new Map(
@@ -1123,7 +1201,7 @@ export function settingsRows(
   for (const group of SETTINGS_GROUPS) {
     const fields = group.fields
       .map((id) => byId.get(id))
-      .filter((item): item is SettingItem => item !== undefined);
+      .filter((item): item is PanelSettingItem => item !== undefined);
     const open = !collapsed.has(group.id);
     rows.push({
       count: fields.length,
@@ -1333,6 +1411,14 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
   let settingsStart = 0;
   /** Set by the save action, cleared by the next keystroke that navigates. */
   let savedNotice = false;
+  /** The free-text row being edited inline, with its buffer. */
+  let editing:
+    | {
+        id: string;
+        item: PanelSettingItem;
+        text: string;
+      }
+    | undefined;
   const recentText = new Text("", 0, 0);
 
   return {
@@ -1344,6 +1430,13 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
     handleInput(data: string): void {
       // Any keystroke other than the one that saved clears the save notice.
       savedNotice = false;
+      // While a text field is open, every key belongs to its buffer — Escape
+      // cancels the edit instead of closing the panel.
+      if (editing !== undefined) {
+        handleTextEditInput(data);
+        tui.requestRender();
+        return;
+      }
       // The panel owns Escape and ←/→; the lists never see them.
       if (keybindings.matches(data, "tui.select.cancel") || data === "\u001b") {
         done();
@@ -1451,13 +1544,20 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
     cursor = index;
   }
 
-  /** Space: fold a group header, cycle a writable field, ignore the rest. */
+  /**
+   * Space on a group header folds it, on a free-text field opens the inline
+   * editor, and on a cycling field advances the value.
+   */
   function settingsActivate(): void {
     const rows = settingsRows(model.rows, collapsed);
     const row = rows[cursor];
     if (row === undefined) return;
     if (row.kind === "group") {
       settingsToggleGroup(row.group.id);
+      return;
+    }
+    if (row.item.text) {
+      beginTextEdit(row.item);
       return;
     }
     const { values } = row.item;
@@ -1488,6 +1588,49 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
     else if (data === "\r" || data === "\n") settingsSave();
   }
 
+  /**
+   * Inline free-text editing.
+   *
+   * `ctx.ui.input` is not an option here: it mounts its prompt in the Pi
+   * editor container and focuses it, so a 24-row overlay drawn on top hides
+   * the echo, and closing the prompt hands focus back to the chat editor —
+   * the panel would keep rendering but stop receiving keys. The panel
+   * therefore owns the buffer and its own cursor, exactly like a cycling row.
+   */
+  function beginTextEdit(item: PanelSettingItem): void {
+    editing = {
+      id: item.id,
+      item,
+      text: item.currentValue,
+    };
+  }
+
+  /** Commit with Enter, abandon with Escape; anything else only grows the buffer. */
+  function handleTextEditInput(data: string): void {
+    if (editing === undefined) return;
+    if (data === "\r" || data === "\n") {
+      const { id, item, text } = editing;
+      editing = undefined;
+      const value = text.trim();
+      // An empty buffer means "leave it alone": no key in this table is
+      // worth persisting as a blank string.
+      if (value.length === 0 || value === item.currentValue) return;
+      item.currentValue = value;
+      changeField(id, value);
+      return;
+    }
+    if (data === "\u001b") {
+      editing = undefined;
+      return;
+    }
+    if (data === "\u007f" || data === "\b") {
+      editing.text = editing.text.slice(0, -1);
+      return;
+    }
+    // A single printable character is text; a longer sequence is a key
+    // (arrows, function keys) that the editor deliberately swallows.
+    if (data.length === 1 && data >= " ") editing.text += data;
+  }
   /** Enter: persist the panel's state. The panel stays open. */
   function settingsSave(): void {
     actions.save({});
@@ -1510,6 +1653,13 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
       "",
       "",
     ];
+    // An open editor takes the second detail row: the buffer, a block cursor,
+    // and the keys that commit or abandon it.
+    if (editing !== undefined)
+      return [
+        panelText(`detail.${editing.id}`, model.language),
+        `✎ ${editing.text}\u2588 · ${panelText("chrome.edit", model.language)}`,
+      ];
     if (tab !== SETTINGS_TAB) return blank;
     const row = settingsRows(model.rows, collapsed)[cursor];
     if (row === undefined || row.kind === "group") return blank;

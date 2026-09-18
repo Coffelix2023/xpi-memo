@@ -96,7 +96,9 @@ brew install ripgrep               # 全文检索（macOS）；Fedora 上用 dnf
 - `XPI_MEMO_SEARCH_BACKEND` = `auto|mnemosyne|ripgrep|qmd`
 - `XPI_MEMO_RECALL_POLICY` = `active|assist|high-value-auto`
 - `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED` = `true|false`（默认 `false`）
-- `XPI_MEMO_OFFLINE_EXTRACTION_MODEL` = `session-model`（默认）或 `provider/model-id`（也可只写 `model-id`；无法解析时回退到会话模型；控制台中只读）
+- `XPI_MEMO_OFFLINE_EXTRACTION_MODEL` = `session-model`（默认）或 `provider/model-id`（也可只写 `model-id`；无法解析时回退到会话模型；控制台中可编辑）
+- `XPI_MEMO_EMBEDDING_MODE` = `off|local|api`（默认 `off`；控制 xpi-memo 拉起的 mnemosyne 子进程是否做向量化——`off` 省掉约四分之三的写入成本）
+- `XPI_MEMO_EMBEDDING_MODEL` / `XPI_MEMO_EMBEDDING_API_URL`（留空即沿用 mnemosyne 自己的默认；API key 只放环境变量 `MNEMOSYNE_EMBEDDING_API_KEY` / `OPENAI_API_KEY`，不写进 xpi-memo 配置）
 - `XPI_MEMO_RETRIEVAL_MODE`
 - `XPI_MEMO_SLEEP_MODE` = `dedicated|session-model|mechanical|disabled`（默认 `disabled`；fail-closed）
 - `XPI_MEMO_PROFILE_INJECTION` = `true|false`（默认 `true`；`false` 时不注入派生的偏好画像块）

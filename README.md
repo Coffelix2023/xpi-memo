@@ -95,7 +95,9 @@ Environment variables:
 - `XPI_MEMO_SEARCH_BACKEND` = `auto|mnemosyne|ripgrep|qmd`
 - `XPI_MEMO_RECALL_POLICY` = `active|assist|high-value-auto`
 - `XPI_MEMO_OFFLINE_EXTRACTION_ENABLED` = `true|false` (default `false`)
-- `XPI_MEMO_OFFLINE_EXTRACTION_MODEL` = `session-model` (default) or `provider/model-id` (bare `model-id` also works; an unknown id falls back to the session model; read-only in the console)
+- `XPI_MEMO_OFFLINE_EXTRACTION_MODEL` = `session-model` (default) or `provider/model-id` (bare `model-id` also works; an unknown id falls back to the session model; editable in the console)
+- `embeddingMode` / `XPI_MEMO_EMBEDDING_MODE` = `off|local|api` (default `off`; embedding work for the mnemosyne processes xpi-memo spawns — `off` drops ~three quarters of the store cost)
+- `XPI_MEMO_EMBEDDING_MODEL` / `XPI_MEMO_EMBEDDING_API_URL` (empty keeps mnemosyne's own default; the API key stays in `MNEMOSYNE_EMBEDDING_API_KEY` / `OPENAI_API_KEY`, never in xpi-memo's config)
 - `XPI_MEMO_RETRIEVAL_MODE`
 - `XPI_MEMO_SLEEP_MODE` = `dedicated|session-model|mechanical|disabled` (default `disabled`; fail-closed)
 - `XPI_MEMO_PROFILE_INJECTION` = `true|false` (default `true`; `false` omits the derived preference-profile block)

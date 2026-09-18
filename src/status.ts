@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { AuditEntry } from "./audit.js";
 import type { ExactIdReadCapability } from "./banks.ts";
 import type { L0Status } from "./cli/l0.js";
+import type { EmbeddingMode } from "./config.js";
 import type { MemoryDoctorReport } from "./doctor.js";
 import type { MemoryEvent } from "./event-stream.js";
 import type { FeedbackSummary } from "./feedback.js";
@@ -39,6 +40,14 @@ export interface MemoryStatus {
   diskBytes: number | null;
   /** Empty-memory diagnosis + evidence bundle (task 4.2/4.3). */
   doctor?: MemoryDoctorReport;
+  /** The embedding switches xpi-memo hands its mnemosyne child processes.
+   * `model: null` means the panel leaves mnemosyne's own default in place.
+   * Answers "why is storing slow" and "which model is in use" without a
+   * second CLI call; the config.yaml keys are not on mnemosyne's store path. */
+  embedding: {
+    model: string | null;
+    mode: EmbeddingMode;
+  };
   /** Body-free recent memory lifecycle events (task 2.2), oldest first.
    * Stored / candidate-created / rejected / recalled / injected / degraded
    * states are directly distinguishable; the backend field distinguishes
@@ -255,6 +264,10 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
     diskBytes: status.diskBytes,
     doctor: status.doctor,
     events: status.events?.slice(-10),
+    embedding: {
+      mode: status.embedding.mode,
+      model: status.embedding.model,
+    },
     ...(status.exactIdRead
       ? {
           exactIdRead: {

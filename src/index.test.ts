@@ -108,6 +108,37 @@ function createToolContext(
   } as unknown as Parameters<ToolDefinition["execute"]>[4];
 }
 
+/**
+ * `session_shutdown` starts offline extraction without awaiting it (task 4.1),
+ * so a test that asserts what extraction did has to let that work finish. The
+ * extraction walks real files (L0 event log, budget ledger, audit, candidates),
+ * so a bounded run of macrotask yields is the honest drain — not a fixed sleep.
+ */
+async function finishExtraction(rounds = 40): Promise<void> {
+  for (let i = 0; i < rounds; i += 1)
+    // biome-ignore lint/performance/noAwaitInLoops: one macrotask per round is the point.
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+}
+
+/**
+ * Wait for a condition the fire-and-forget work produces. Extraction that
+ * reaches T1 spawns the real mnemosyne CLI, so how long it takes is not a
+ * number this test can pick — poll, with a deadline that fails loudly.
+ */
+async function until(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline)
+      throw new Error(`condition not met within ${timeoutMs}ms`);
+    // biome-ignore lint/performance/noAwaitInLoops: polling a real write is the point.
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+  }
+}
+
 function toolByName(tools: ToolDefinition[], name: string): ToolDefinition {
   const tool = tools.find((candidate) => candidate.name === name);
   if (!tool) throw new Error(`tool not registered: ${name}`);
@@ -1112,6 +1143,133 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(output).not.toContain(stale.content);
     const state = JSON.parse(readFileSync(statePath, "utf8"));
     expect(state.candidates[stale.id].candidate.status).toBe("archived");
+  });
+
+  it("scopes the rescan to the current project with --current-project (task 5.2)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const statePath = join(dataDir, "candidates.json");
+    const queued = (id: string, targetBank: string) => ({
+      conflictState: "none",
+      content: `Body of ${id}`,
+      createdAt: "2020-01-01T00:00:00.000Z",
+      evidenceSummary: "test",
+      id,
+      kind: "project_decision",
+      rationale: "Proposed by offline extraction.",
+      reason: "project-decision",
+      status: "pending",
+      targetBank,
+      targetScope: "project",
+      evidence: {
+        confidence: 0.9,
+        provenance: "activation:offline-extraction",
+        source: `session:${id}`,
+        timestamp: "2020-01-01T00:00:00.000Z",
+        type: "l0-conclusion",
+      },
+    });
+    const mine = queued("candidate-mine", "project-rescan-scope");
+    const theirs = queued("candidate-theirs", "project-other");
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        audit: [],
+        version: 1,
+        candidates: {
+          [mine.id]: {
+            candidate: mine,
+            operation: {},
+          },
+          [theirs.id]: {
+            candidate: theirs,
+            operation: {},
+          },
+        },
+      }),
+    );
+    const notifications: string[] = [];
+    const { commands } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => ({
+        id: "rescan-scope",
+        label: "rescan-scope",
+      }),
+      run: async () => "",
+    });
+    const ctx = {
+      cwd: dataDir,
+      mode: "rpc",
+      ui: {
+        notify(message: string) {
+          notifications.push(message);
+        },
+      },
+    } as never;
+
+    // Without the flag the preview names every bank it would walk.
+    await commandHandler(commands, "xpi-memo-rescan")("", ctx);
+    expect(notifications.join("\n")).toContain("project-rescan-scope (1)");
+    expect(notifications.join("\n")).toContain("project-other (1)");
+    let state = JSON.parse(readFileSync(statePath, "utf8"));
+    // Both banks were judged: neither is left pending.
+    expect(state.candidates[mine.id].candidate.status).not.toBe("pending");
+    expect(state.candidates[theirs.id].candidate.status).not.toBe("pending");
+
+    // Reset the queue and scope the run to this session's bank.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        audit: [],
+        version: 1,
+        candidates: {
+          [mine.id]: {
+            candidate: mine,
+            operation: {},
+          },
+          [theirs.id]: {
+            candidate: theirs,
+            operation: {},
+          },
+        },
+      }),
+    );
+    notifications.length = 0;
+    await commandHandler(commands, "xpi-memo-rescan")("--current-project", ctx);
+    const scoped = notifications.join("\n");
+    expect(scoped).toContain("in this project");
+    expect(scoped).toContain("project-rescan-scope (1)");
+    // The other bank is not part of this scope and is not even previewed.
+    expect(scoped).not.toContain("project-other");
+    state = JSON.parse(readFileSync(statePath, "utf8"));
+    // Only this project's record left the queue.
+    expect(state.candidates[mine.id].candidate.status).not.toBe("pending");
+    expect(state.candidates[theirs.id].candidate.status).toBe("pending");
+  });
+
+  it("reports nothing to rescan when --current-project has no project", async () => {
+    const dataDir = createTemporaryDirectory();
+    const notifications: string[] = [];
+    const { commands } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => null,
+      run: async () => "",
+    });
+    await commandHandler(commands, "xpi-memo-rescan")("--current-project", {
+      cwd: dataDir,
+      mode: "rpc",
+      ui: {
+        notify(message: string) {
+          notifications.push(message);
+        },
+      },
+    } as never);
+    expect(notifications.join("\n")).toContain("No project bank for this session");
   });
 
   it("blocks paused automatic storage but retains pending candidates", async () => {
@@ -3021,6 +3179,64 @@ describe("xpi-memo bootstrap entrypoint", () => {
     ]);
   });
 
+  it("reports the embedding mode and model in status (task 3.4)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const statusFor = async (
+      env: NodeJS.ProcessEnv,
+    ): Promise<Record<string, unknown>> => {
+      const { commands } = loadExtension({
+        env: {
+          XDG_CONFIG_HOME: dataDir,
+          XPI_MEMO_DATA_DIR: dataDir,
+          ...env,
+        },
+        resolveProjectIdentity: () => null,
+        run: async () => "",
+      });
+      const command = commands.find(({ name }) => name === "xpi-memo-status");
+      if (!command) throw new Error("status command was not registered");
+      const notifications: string[] = [];
+      await command.options.handler("", {
+        cwd: "/tmp",
+        ui: {
+          confirm: async () => false,
+          notify(message: string) {
+            notifications.push(message);
+          },
+        },
+      });
+      return JSON.parse(notifications[0] ?? "{}") as Record<string, unknown>;
+    };
+    // Off by default: nothing is spawned with embedding work enabled.
+    expect((await statusFor({})).embedding).toEqual({
+      mode: "off",
+      model: null,
+    });
+    // An explicit choice is visible, so "which model is in use" needs no second call.
+    expect(
+      (
+        await statusFor({
+          XPI_MEMO_EMBEDDING_MODE: "local",
+          XPI_MEMO_EMBEDDING_MODEL: "BAAI/bge-m3",
+        })
+      ).embedding,
+    ).toEqual({
+      mode: "local",
+      model: "BAAI/bge-m3",
+    });
+    // The endpoint never leaks a credential: only the mode and the model are reported.
+    const api = await statusFor({
+      MNEMOSYNE_EMBEDDING_API_KEY: "status-secret",
+      XPI_MEMO_EMBEDDING_API_URL: "http://127.0.0.1:8080/v1",
+      XPI_MEMO_EMBEDDING_MODE: "api",
+    });
+    expect(api.embedding).toEqual({
+      mode: "api",
+      model: null,
+    });
+    expect(JSON.stringify(api)).not.toContain("status-secret");
+  });
+
   it("reports SLEEP_DISABLED in status when no sleep mode is configured (task 5.3)", async () => {
     const dataDir = createTemporaryDirectory();
     const calls: string[][] = [];
@@ -3486,6 +3702,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
+    await finishExtraction();
     expect(seen).toHaveLength(1);
     expect(seen[0]?.events).toBe(1);
     expect(seen[0]?.sessionId).toBeTruthy();
@@ -3561,6 +3778,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       createToolContext(),
     );
+    await finishExtraction();
     expect(called).toBe(false);
   });
 
@@ -3597,12 +3815,14 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
+    await finishExtraction();
     await shutdown.handler(
       {
         type: "session_shutdown",
       },
       context,
     );
+    await finishExtraction();
     expect(calls).toBe(1);
     const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"));
     const extractionEntries = audit.entries.filter(
@@ -3637,8 +3857,8 @@ describe("xpi-memo bootstrap entrypoint", () => {
       resolveProjectIdentity: () => null,
     });
     const input = events.find(({ name }) => name === "input");
-    const shutdown = events.find(({ name }) => name === "session_shutdown");
-    if (!input || !shutdown) throw new Error("hooks not registered");
+    const beforeCompact = events.find(({ name }) => name === "session_before_compact");
+    if (!input || !beforeCompact) throw new Error("hooks not registered");
     const context = createToolContext({
       mode: "tui",
       setWidget: (key, content) => {
@@ -3656,16 +3876,21 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
-    await shutdown.handler(
+    // Compact keeps the await (it is the visible window), so extraction has
+    // finished by the time this returns — shutdown, by contrast, does not
+    // await, which is why it carries no widget at all (task 4.1).
+    await beforeCompact.handler(
       {
-        type: "session_shutdown",
+        type: "session_before_compact",
       },
       context,
     );
 
     // The progress line is a widget above the editor; the shimmer component
     // renders the descriptive text the spec requires.
-    const begun = widgets.find(({ content }) => typeof content === "function");
+    // The last mounted component is the extraction one: compact recalls first,
+    // and each surface replaces the widget the previous action installed.
+    const begun = widgets.filter(({ content }) => typeof content === "function").at(-1);
     expect(begun?.key).toBe("xpi-memo-surface");
     if (begun === undefined) throw new Error("extract widget not shown");
     const component = (
@@ -3694,6 +3919,125 @@ describe("xpi-memo bootstrap entrypoint", () => {
       content: undefined,
       key: "xpi-memo-surface",
     });
+  });
+
+  it("shows the extraction stage and percentage while compact extracts (task 4.2)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const widgets: unknown[] = [];
+    const stageLines: string[] = [];
+    const renderMountedWidget = () => {
+      const mounted = widgets.filter((content) => typeof content === "function").at(-1);
+      if (mounted === undefined) return;
+      const build = mounted as (
+        tui: unknown,
+        theme: unknown,
+      ) => {
+        dispose(): void;
+        render(): string[];
+      };
+      const component = build(
+        {
+          requestRender: () => undefined,
+        },
+        {
+          fg: (_color: string, value: string) => value,
+        },
+      );
+      // The model call is the slow stage, so this is where a user looks.
+      stageLines.push(component.render()[0] ?? "");
+      component.dispose();
+    };
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      offlineExtractionRunner: async () => {
+        renderMountedWidget();
+        return [];
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const beforeCompact = events.find(({ name }) => name === "session_before_compact");
+    if (!input || !beforeCompact) throw new Error("hooks not registered");
+    const context = createToolContext({
+      mode: "tui",
+      setWidget: (_key, content) => {
+        widgets.push(content);
+      },
+    });
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await beforeCompact.handler(
+      {
+        type: "session_before_compact",
+      },
+      context,
+    );
+    // The widget carried the stage and its share of the work, not just a spin.
+    expect(stageLines.join("\n")).toContain("正在提取记忆候选...");
+    expect(stageLines.join("\n")).toContain("调用提取模型 50% (2/4)");
+  });
+
+  it("returns from session shutdown without waiting for extraction (task 4.1)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const widgets: unknown[] = [];
+    let finished = false;
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      offlineExtractionRunner: async () => {
+        // A model call is the slow part; holding it open proves the handler
+        // does not sit on it.
+        await new Promise((resolve) => {
+          setTimeout(resolve, 40);
+        });
+        finished = true;
+        return [];
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext({
+      mode: "tui",
+      setWidget: (_key, content) => {
+        widgets.push(content);
+      },
+    });
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+    // Switching sessions must not wait on the model call.
+    expect(finished).toBe(false);
+    // No shimmer either: shutdown is already tearing the surface down.
+    expect(widgets.some((content) => typeof content === "function")).toBe(false);
+    // The work still ran — fire-and-forget, not dropped.
+    await finishExtraction(200);
+    expect(finished).toBe(true);
   });
 
   it("does not retry a failed extraction runner during the same session", async () => {
@@ -3729,12 +4073,14 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
+    await finishExtraction();
     await shutdown.handler(
       {
         type: "session_shutdown",
       },
       context,
     );
+    await finishExtraction();
     expect(calls).toBe(1);
     const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"));
     const statuses = audit.entries
@@ -3799,7 +4145,15 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
-    const auditText = readFileSync(join(dataDir, "audit.json"), "utf8");
+    // The extraction writes its audit entry once admission has settled, and
+    // admission spawns the real CLI: wait for the entry, do not guess a delay.
+    const auditPath = join(dataDir, "audit.json");
+    await until(
+      () =>
+        existsSync(auditPath) &&
+        readFileSync(auditPath, "utf8").includes('"extraction"'),
+    );
+    const auditText = readFileSync(auditPath, "utf8");
     const audit = JSON.parse(auditText) as {
       entries: Array<{
         action: string;
@@ -3867,6 +4221,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
+    await finishExtraction();
     expect(injectedCalls).toBe(1);
     expect(modelCalls).toBe(0);
   });
@@ -3924,6 +4279,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
+    await finishExtraction();
     expect(prompts).toHaveLength(1);
     // The transcript reaches the model; the raw output never reaches audit.
     expect(prompts[0]).toContain("remember the deploy order");
@@ -3974,6 +4330,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
+    await finishExtraction();
     expect(modelCalls).toBe(0);
   });
 
@@ -4015,6 +4372,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
+    await finishExtraction();
     expect(modelCalls).toBe(0);
     const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"));
     const extraction = audit.entries.find(
@@ -4072,12 +4430,14 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
+    await finishExtraction();
     await shutdown.handler(
       {
         type: "session_shutdown",
       },
       context,
     );
+    await finishExtraction();
     expect(modelCalls).toBe(1);
     const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"));
     const statuses = audit.entries
@@ -4148,6 +4508,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
+    await finishExtraction();
 
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain("[REDACTED]");
@@ -4195,6 +4556,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
+    await finishExtraction();
 
     expect(modelCalls).toBe(0);
     const audit = JSON.parse(readFileSync(join(dataDir, "audit.json"), "utf8"));
@@ -4263,6 +4625,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
       context,
     );
+    await finishExtraction();
 
     const command = commands.find(({ name }) => name === "xpi-memo-status");
     if (!command) throw new Error("status command was not registered");
@@ -4357,7 +4720,13 @@ describe("xpi-memo bootstrap entrypoint", () => {
         context,
       );
 
-    await runShutdown();
+    /** Shutdown starts extraction and returns; drain it before asserting. */
+    const settle = async () => {
+      await runShutdown();
+      await finishExtraction();
+    };
+
+    await settle();
     expect(modelCalls).toBe(1);
 
     // Control: dropping the budget ledger removes the budget guard, so the
@@ -4365,14 +4734,14 @@ describe("xpi-memo bootstrap entrypoint", () => {
     rmSync(budgetPath, {
       force: true,
     });
-    await runShutdown();
+    await settle();
     expect(modelCalls).toBe(2);
 
     env.XPI_MEMO_OFFLINE_EXTRACTION_ENABLED = "false";
     rmSync(budgetPath, {
       force: true,
     });
-    await runShutdown();
+    await settle();
     expect(modelCalls).toBe(2);
 
     // "Unset" is the second rollback form; for a read it is equivalent to a
@@ -4381,7 +4750,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     rmSync(budgetPath, {
       force: true,
     });
-    await runShutdown();
+    await settle();
     expect(modelCalls).toBe(2);
   });
 });

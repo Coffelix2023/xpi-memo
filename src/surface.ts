@@ -56,6 +56,8 @@ function createWidget(
   tui: TUI,
   theme: SurfaceTheme,
   action: SurfaceAction,
+  /** Read at render time so `progress` needs no widget rebuild. */
+  progressText: () => string | undefined,
 ): Component & {
   dispose(): void;
 } {
@@ -69,8 +71,11 @@ function createWidget(
     },
     invalidate() {},
     render() {
+      const line = shimmerText(`✦ ${label(action)}`, Date.now(), theme);
+      const progress = progressText();
+      // One row either way: the progress replaces nothing, it appends.
       return [
-        shimmerText(`✦ ${label(action)}`, Date.now(), theme),
+        progress ? `${line} · ${progress}` : line,
       ];
     },
   };
@@ -89,8 +94,36 @@ export const successText = (action: SurfaceAction, count?: number): string => {
   return "✦ 已保存记忆";
 };
 
+/**
+ * The four stages of a compact-time extraction, in order. Compact is the only
+ * surface a user can watch: shutdown is fire-and-forget and carries no widget,
+ * so this is where the progress belongs.
+ */
+export const EXTRACTION_STAGES = [
+  "read",
+  "model",
+  "parse",
+  "govern",
+] as const;
+export type ExtractionStage = (typeof EXTRACTION_STAGES)[number];
+
+const STAGE_TEXT: Record<ExtractionStage, string> = {
+  govern: "治理写入 T1",
+  model: "调用提取模型",
+  parse: "解析候选提案",
+  read: "读取 L0 会话轨迹",
+};
+
+/** `读取 L0 会话轨迹 25% (1/4)` — stage, share done, and position. */
+export function extractionProgressText(stage: ExtractionStage): string {
+  const index = EXTRACTION_STAGES.indexOf(stage) + 1;
+  const percent = Math.round((index / EXTRACTION_STAGES.length) * 100);
+  return `${STAGE_TEXT[stage]} ${percent}% (${index}/${EXTRACTION_STAGES.length})`;
+}
 export function createMemorySurface(ctx: ExtensionContext) {
   let clearTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Set by `progress`, read by the live widget on the next frame. */
+  let progressText: string | undefined;
 
   function clear(): void {
     if (clearTimer) clearTimeout(clearTimer);
@@ -102,8 +135,19 @@ export function createMemorySurface(ctx: ExtensionContext) {
   function begin(action: SurfaceAction): void {
     if (clearTimer) clearTimeout(clearTimer);
     clearTimer = undefined;
+    progressText = undefined;
     if (ctx.mode !== "tui") return;
-    ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => createWidget(tui, theme, action));
+    ctx.ui.setWidget(WIDGET_KEY, (tui, theme) =>
+      createWidget(tui, theme, action, () => progressText),
+    );
+  }
+
+  /**
+   * Stage text for an action already begun. The widget timer re-renders at
+   * 30Hz, so this only has to write the value down.
+   */
+  function progress(text: string): void {
+    progressText = text;
   }
 
   function complete(action: SurfaceAction, count?: number): void {
@@ -124,8 +168,9 @@ export function createMemorySurface(ctx: ExtensionContext) {
 
   return {
     begin,
+    clear,
     complete,
     fail,
-    clear,
+    progress,
   };
 }

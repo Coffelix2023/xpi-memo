@@ -46,6 +46,10 @@ describe("XpiMemo status", () => {
       id: "p-0123456789ab",
       label: "fx-pi-extensions",
     },
+    embedding: {
+      mode: "off",
+      model: null,
+    },
     recall: {
       scope: "current-project-plus-global",
       queriedBanks: [

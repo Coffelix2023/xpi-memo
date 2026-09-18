@@ -6,12 +6,16 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   DEFAULT_XPI_MEMO_CONFIG,
+  embeddingEnvironment,
   loadConfig,
+  mnemosyneEnvironment,
   saveUserConfig,
   type UserConfig,
 } from "./config.js";
 
 const temporaryDirectories: string[] = [];
+/** Anything that looks like a credential must never appear in the mapping. */
+const CREDENTIAL_KEY_PATTERN = /KEY|TOKEN|SECRET/;
 
 function createTemporaryDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), "xpi-memo-config-"));
@@ -464,6 +468,149 @@ describe("XpiMemo configuration", () => {
       },
     }).config.offlineExtractionEnabled;
     expect(invalid).toBe(false);
+  });
+
+  it("defaults the embedding mode to off and resolves its three keys", () => {
+    const configHome = createTemporaryDirectory();
+    const defaults = loadConfig({
+      configHome,
+      env: {},
+    }).config;
+    // Off by default: no embedding model the user never chose gets loaded.
+    expect(defaults.embeddingMode).toBe("off");
+    expect(defaults.embeddingModel).toBe("");
+    expect(defaults.embeddingApiUrl).toBe("");
+
+    // Environment wins; an unrecognised mode falls back to off.
+    const fromEnvironment = loadConfig({
+      configHome,
+      env: {
+        XPI_MEMO_EMBEDDING_API_URL: "http://127.0.0.1:8080/v1",
+        XPI_MEMO_EMBEDDING_MODE: "api",
+        XPI_MEMO_EMBEDDING_MODEL: "openai/text-embedding-3-small",
+      } as NodeJS.ProcessEnv,
+    }).config;
+    expect(fromEnvironment.embeddingMode).toBe("api");
+    expect(fromEnvironment.embeddingModel).toBe("openai/text-embedding-3-small");
+    expect(fromEnvironment.embeddingApiUrl).toBe("http://127.0.0.1:8080/v1");
+    expect(
+      loadConfig({
+        configHome,
+        env: {
+          XPI_MEMO_EMBEDDING_MODE: "remote",
+        } as NodeJS.ProcessEnv,
+      }).config.embeddingMode,
+    ).toBe("off");
+
+    // The config file is writable for all three keys.
+    saveUserConfig({
+      configHome,
+      env: {},
+      values: {
+        embeddingApiUrl: "http://localhost:9000/v1",
+        embeddingMode: "local",
+        embeddingModel: "intfloat/multilingual-e5-small",
+      },
+    });
+    const fromFile = loadConfig({
+      configHome,
+      env: {},
+    }).config;
+    expect(fromFile.embeddingMode).toBe("local");
+    expect(fromFile.embeddingModel).toBe("intfloat/multilingual-e5-small");
+    expect(fromFile.embeddingApiUrl).toBe("http://localhost:9000/v1");
+  });
+
+  it("maps the embedding mode to the mnemosyne switches, never a key", () => {
+    // Any non-empty disable flag means off to mnemosyne, so "enabled" has to
+    // be the empty string; "0" would silently keep embeddings disabled.
+    expect(
+      embeddingEnvironment({
+        embeddingApiUrl: "",
+        embeddingMode: "off",
+        embeddingModel: "",
+      }),
+    ).toEqual({
+      MNEMOSYNE_EMBEDDINGS_OFF: "1",
+      MNEMOSYNE_EMBEDDINGS_VIA_API: "",
+      MNEMOSYNE_NO_EMBEDDINGS: "1",
+      MNEMOSYNE_SKIP_EMBEDDINGS: "1",
+    });
+
+    // Local: everything enabled, model passed through, no endpoint forced.
+    expect(
+      embeddingEnvironment({
+        embeddingApiUrl: "http://ignored/v1",
+        embeddingMode: "local",
+        embeddingModel: "BAAI/bge-m3",
+      }),
+    ).toEqual({
+      MNEMOSYNE_EMBEDDING_MODEL: "BAAI/bge-m3",
+      MNEMOSYNE_EMBEDDINGS_OFF: "",
+      MNEMOSYNE_EMBEDDINGS_VIA_API: "",
+      MNEMOSYNE_NO_EMBEDDINGS: "",
+      MNEMOSYNE_SKIP_EMBEDDINGS: "",
+    });
+
+    // API: the explicit opt-in flag plus the endpoint.
+    expect(
+      embeddingEnvironment({
+        embeddingApiUrl: "https://openrouter.ai/api/v1",
+        embeddingMode: "api",
+        embeddingModel: "qwen/qwen3-embedding-8b",
+      }),
+    ).toEqual({
+      MNEMOSYNE_EMBEDDING_API_URL: "https://openrouter.ai/api/v1",
+      MNEMOSYNE_EMBEDDING_MODEL: "qwen/qwen3-embedding-8b",
+      MNEMOSYNE_EMBEDDINGS_OFF: "",
+      MNEMOSYNE_EMBEDDINGS_VIA_API: "1",
+      MNEMOSYNE_NO_EMBEDDINGS: "",
+      MNEMOSYNE_SKIP_EMBEDDINGS: "",
+    });
+
+    // An empty model or endpoint is omitted, never written as an empty value:
+    // `MNEMOSYNE_EMBEDDING_MODEL=""` would replace mnemosyne's own default.
+    const sparse = embeddingEnvironment({
+      embeddingApiUrl: "",
+      embeddingMode: "api",
+      embeddingModel: "",
+    });
+    expect(Object.hasOwn(sparse, "MNEMOSYNE_EMBEDDING_MODEL")).toBe(false);
+    expect(Object.hasOwn(sparse, "MNEMOSYNE_EMBEDDING_API_URL")).toBe(false);
+    // No credential is ever part of the mapping.
+    expect(Object.keys(sparse).some((key) => CREDENTIAL_KEY_PATTERN.test(key))).toBe(
+      false,
+    );
+  });
+
+  it("merges the embedding switches into a child's environment, adding nothing else", () => {
+    // The wire from the panel to mnemosyne: everything the caller already had
+    // stays, and only the embedding keys are ours.
+    const merged = mnemosyneEnvironment(
+      {
+        embeddingApiUrl: "",
+        embeddingMode: "off",
+        embeddingModel: "",
+      },
+      {
+        KEEP: "1",
+        MNEMOSYNE_EMBEDDINGS_OFF: "",
+        PATH: "/usr/bin",
+      },
+    );
+    expect(merged.KEEP).toBe("1");
+    expect(merged.PATH).toBe("/usr/bin");
+    // The switch wins over a stale value the caller carried.
+    expect(merged.MNEMOSYNE_EMBEDDINGS_OFF).toBe("1");
+    // Two caller keys plus the four disable switches: nothing else is added.
+    expect(Object.keys(merged).sort()).toEqual([
+      "KEEP",
+      "MNEMOSYNE_EMBEDDINGS_OFF",
+      "MNEMOSYNE_EMBEDDINGS_VIA_API",
+      "MNEMOSYNE_NO_EMBEDDINGS",
+      "MNEMOSYNE_SKIP_EMBEDDINGS",
+      "PATH",
+    ]);
   });
   it("resolves offlineExtractionModel from the environment, user config and default", () => {
     const configHome = createTemporaryDirectory();

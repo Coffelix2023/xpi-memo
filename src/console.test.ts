@@ -93,6 +93,10 @@ function status(overrides: Partial<MemoryStatus> = {}): MemoryStatus {
       id: "demo",
       label: "demo",
     },
+    embedding: {
+      mode: "local",
+      model: "BAAI/bge-small-en-v1.5",
+    },
     recall: {
       scope: "current-project-plus-global",
       queriedBanks: [
@@ -714,6 +718,9 @@ describe("4.6 Settings tab", () => {
       "autoExport",
       "offlineExtractionEnabled",
       "offlineExtractionModel",
+      "embeddingMode",
+      "embeddingModel",
+      "embeddingApiUrl",
       "excludeToolResults",
       "dataDir",
       "autoAdmit",
@@ -1160,6 +1167,133 @@ describe("4.6 Settings tab", () => {
     expect(dataDir?.values).toBeUndefined();
   });
 
+  it("marks the free-text fields and leaves the read-only ones inert", () => {
+    const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {});
+    const text = items
+      .filter((item) => item.text === true)
+      .map((item) => item.id)
+      .sort();
+    expect(text).toEqual([
+      "embeddingApiUrl",
+      "embeddingModel",
+      "offlineExtractionModel",
+    ]);
+    // dataDir stays display-only: the panel never writes it.
+    const dataDir = items.find((item) => item.id === "dataDir");
+    expect(dataDir?.text).toBeUndefined();
+    expect(dataDir?.values).toBeUndefined();
+    // A text field never cycles values; it opens the inline editor instead.
+    for (const item of items) if (item.text) expect(item.values).toBeUndefined();
+    // An environment-pinned field is read-only, text or not.
+    const pinned = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {
+      XPI_MEMO_EMBEDDING_MODEL: "BAAI/bge-m3",
+    }).find((item) => item.id === "embeddingModel");
+    expect(pinned?.text).toBeUndefined();
+    expect(pinned?.description).toContain("XPI_MEMO_EMBEDDING_MODEL");
+  });
+
+  it("edits a free-text field inline and saves the typed value", () => {
+    const save = vi.fn();
+    const panel = component({
+      actions: actions({
+        save,
+      }),
+      terminalRows: 40,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    // Unfold Storage and walk to the offline extraction model.
+    for (let i = 0; i < 7; i += 1) panel.handleInput("\u001b[B");
+    panel.handleInput(" "); // unfold Storage
+    // Tab skips the header: the fourth Storage field is the offline model.
+    for (let i = 0; i < 4; i += 1) panel.handleInput("\t");
+    panel.handleInput(" "); // open the inline editor
+    expect(panel.render(94).join("\n")).toContain("✎");
+    // The buffer starts from the current value and replaces it.
+    for (let i = 0; i < 20; i += 1) panel.handleInput("\u007f");
+    for (const character of "openai/gpt-5") panel.handleInput(character);
+    expect(panel.render(94).join("\n")).toContain("openai/gpt-5");
+    panel.handleInput("\r");
+    expect(save).toHaveBeenLastCalledWith({
+      offlineExtractionModel: "openai/gpt-5",
+    });
+    // The editor is closed again and the row carries the new value.
+    expect(panel.render(94).join("\n")).not.toContain("✎");
+    expect(panel.render(94).join("\n")).toContain("openai/gpt-5");
+  });
+
+  it("Escape abandons an inline edit and leaves the value untouched", () => {
+    const save = vi.fn();
+    const done = vi.fn();
+    const panel = component({
+      actions: actions({
+        save,
+      }),
+      done,
+      terminalRows: 40,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    for (let i = 0; i < 7; i += 1) panel.handleInput("\u001b[B");
+    panel.handleInput(" "); // unfold Storage
+    // Tab skips the header: the fifth field of Storage is the embedding mode.
+    for (let i = 0; i < 5; i += 1) panel.handleInput("\t");
+    panel.handleInput(" "); // off → local
+    expect(save).toHaveBeenLastCalledWith({
+      embeddingMode: "local",
+    });
+    save.mockClear();
+    panel.handleInput("\t"); // → embedding model
+    panel.handleInput(" "); // open the inline editor
+    for (const character of "junk") panel.handleInput(character);
+    panel.handleInput("\u001b"); // cancel, not close
+    expect(save).not.toHaveBeenCalled();
+    expect(done).not.toHaveBeenCalled();
+    expect(panel.render(94).join("\n")).not.toContain("junk");
+    // An empty buffer is not a value either: it never blanks a configured key.
+    panel.handleInput(" ");
+    panel.handleInput("\r");
+    expect(save).not.toHaveBeenCalled();
+    expect(done).not.toHaveBeenCalled();
+  });
+
+  it("saves the three embedding fields and writes none of them as a number", () => {
+    const save = vi.fn();
+    const panel = component({
+      actions: actions({
+        save,
+      }),
+      terminalRows: 40,
+    });
+    panel.handleInput("\u001b[C");
+    panel.handleInput("\u001b[C"); // → Settings
+    for (let i = 0; i < 7; i += 1) panel.handleInput("\u001b[B");
+    panel.handleInput(" "); // unfold Storage
+    // The embedding fields follow the offline extraction model, so five tabs
+    // from the header land on the mode.
+    for (let i = 0; i < 5; i += 1) panel.handleInput("\t");
+    panel.handleInput(" "); // off → local
+    panel.handleInput(" "); // local → api
+    expect(save).toHaveBeenLastCalledWith({
+      embeddingMode: "api",
+    });
+    panel.handleInput("\t"); // → embedding model
+    panel.handleInput(" ");
+    for (const character of "text-embedding-3-small") panel.handleInput(character);
+    panel.handleInput("\r");
+    expect(save).toHaveBeenLastCalledWith({
+      embeddingModel: "text-embedding-3-small",
+    });
+    panel.handleInput("\t"); // → embedding API URL
+    panel.handleInput(" ");
+    panel.handleInput("\u007f".repeat(99));
+    for (const character of "http://127.0.0.1:8080/v1") panel.handleInput(character);
+    panel.handleInput("\r");
+    expect(save).toHaveBeenLastCalledWith({
+      embeddingApiUrl: "http://127.0.0.1:8080/v1",
+    });
+  });
+
   it("settingsRows expands the collapsed state into one cursor sequence", () => {
     const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {});
     // Derived from the group table so adding a group or field cannot silently
@@ -1263,7 +1397,7 @@ describe("4.6 Settings tab", () => {
     const body = lines.slice(2, 17).join("\n");
     // Default view: the first group is open, the remaining four are folded.
     expect(body).toContain("▾ Retrieval (6)");
-    expect(body).toContain("▸ Storage (6)");
+    expect(body).toContain("▸ Storage (9)");
     expect(body).toContain("▸ Pipeline (4)");
     // Exactly one row carries the cursor, and it is the first group header.
     const cursors = accentedRows(accented);

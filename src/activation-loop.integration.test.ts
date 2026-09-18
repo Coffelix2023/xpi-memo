@@ -35,6 +35,22 @@ function createTemporaryDirectory(): string {
   return directory;
 }
 
+/**
+ * `session_shutdown` starts offline extraction without awaiting it (task 4.1),
+ * so a test that reads what extraction wrote has to wait for the write.
+ */
+async function until(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline)
+      throw new Error(`condition not met within ${timeoutMs}ms`);
+    // biome-ignore lint/performance/noAwaitInLoops: polling a real write is the point.
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+  }
+}
+
 afterEach(() => {
   while (temporaryDirectories.length > 0) {
     const directory = temporaryDirectories.pop();
@@ -678,6 +694,9 @@ describe("activation-loop non-TUI acceptance (tasks 4.1-4.2)", () => {
       ctx,
     );
 
+    // Shutdown no longer waits for extraction, so wait for its writes.
+    const candidatePath = join(dataDir, "candidates.json");
+    await until(() => existsSync(candidatePath));
     // Review-required kinds never auto-store: both proposals become candidates.
     expect(storedByBank.get("project-proj") ?? []).toHaveLength(0);
     const candidateState = JSON.parse(

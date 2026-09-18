@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createMemorySurface, shimmerText } from "./surface.js";
+import {
+  createMemorySurface,
+  EXTRACTION_STAGES,
+  extractionProgressText,
+  shimmerText,
+} from "./surface.js";
 
 describe("memory surface", () => {
   it("renders KITT text with themed tiers", () => {
@@ -34,6 +39,64 @@ describe("memory surface", () => {
     ]);
     vi.advanceTimersByTime(1_500);
     expect(setWidget).toHaveBeenLastCalledWith("xpi-memo-surface", undefined);
+    vi.useRealTimers();
+  });
+
+  it("names each extraction stage with its share done", () => {
+    // Four stages, in order, each carrying its own percentage: the user sees
+    // where a slow compact is, not just that something is happening.
+    expect(EXTRACTION_STAGES.map(extractionProgressText)).toEqual([
+      "读取 L0 会话轨迹 25% (1/4)",
+      "调用提取模型 50% (2/4)",
+      "解析候选提案 75% (3/4)",
+      "治理写入 T1 100% (4/4)",
+    ]);
+  });
+
+  it("renders the stage text inside the live widget", () => {
+    vi.useFakeTimers();
+    const widgets: unknown[] = [];
+    const ctx = {
+      mode: "tui",
+      ui: {
+        setWidget: (_key: string, content: unknown) => {
+          widgets.push(content);
+        },
+      },
+    } as never;
+    const surface = createMemorySurface(ctx);
+    surface.begin("extract");
+    surface.progress(extractionProgressText("model"));
+    const build = widgets.at(-1) as (
+      tui: unknown,
+      theme: unknown,
+    ) => {
+      dispose(): void;
+      render(): string[];
+    };
+    const component = build(
+      {
+        requestRender: () => undefined,
+      },
+      {
+        fg: (_color: string, value: string) => value,
+      },
+    );
+    expect(component.render()[0]).toContain("调用提取模型 50% (2/4)");
+    expect(component.render()[0]).toContain("正在提取记忆候选...");
+    component.dispose();
+    // A fresh begin drops the previous run's progress.
+    surface.begin("extract");
+    const rebuilt = (widgets.at(-1) as typeof build)(
+      {
+        requestRender: () => undefined,
+      },
+      {
+        fg: (_color: string, value: string) => value,
+      },
+    );
+    expect(rebuilt.render()[0]).not.toContain("%");
+    rebuilt.dispose();
     vi.useRealTimers();
   });
 });

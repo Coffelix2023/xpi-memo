@@ -14,7 +14,11 @@ import { DEFAULT_XPI_MEMO_CONFIG } from "./config.js";
 import { createEvidenceRecord } from "./evidence.js";
 import type { MnemosyneAdapter, T1MemoryOperation } from "./operations.js";
 import type { PendingCandidate } from "./pending-candidate.js";
-import { rescanPendingCandidates } from "./pending-rescan.js";
+import {
+  formatRescanPreview,
+  previewRescan,
+  rescanPendingCandidates,
+} from "./pending-rescan.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -329,5 +333,95 @@ describe("pending candidate rescan", () => {
     expect(store.listArchived().map((candidate) => candidate.id)).toEqual([
       "candidate-stale",
     ]);
+  });
+
+  it("previews the queue per bank and scopes a rescan to one bank", async () => {
+    const dataDir = createTemporaryDirectory();
+    const statePath = join(dataDir, "candidates.json");
+    const { adapter, operations } = createAdapter();
+    const store = createCandidateStore({
+      adapter,
+      statePath,
+    });
+    const fixtures = [
+      createCandidate({
+        id: "candidate-a1",
+        targetBank: "project-a",
+      }),
+      createCandidate({
+        id: "candidate-a2",
+        targetBank: "project-a",
+      }),
+      createCandidate({
+        id: "candidate-b1",
+        targetBank: "project-b",
+      }),
+      createCandidate({
+        id: "candidate-g1",
+        targetBank: "default",
+      }),
+    ];
+    for (const candidate of fixtures) store.add(candidate, createOperation(candidate));
+
+    // The preview is a read: it groups, it never judges.
+    const all = previewRescan(store);
+    expect(all).toEqual({
+      total: 4,
+      byBank: {
+        default: 1,
+        "project-a": 2,
+        "project-b": 1,
+      },
+    });
+    expect(formatRescanPreview(all)).toBe(
+      "project-a (2) · default (1) · project-b (1)",
+    );
+    expect(store.list()).toHaveLength(4);
+
+    // Scoped: only the named bank is walked, the others stay queued.
+    const scoped = previewRescan(store, "project-a");
+    expect(scoped).toEqual({
+      total: 2,
+      byBank: {
+        "project-a": 2,
+      },
+    });
+    const outcome = await rescanPendingCandidates({
+      bank: "project-a",
+      candidates: store,
+    });
+    expect(outcome).toEqual({
+      archived: 0,
+      stored: 2,
+      total: 2,
+    });
+    expect(operations.map((operation) => operation.targetBank)).toEqual([
+      "project-a",
+      "project-a",
+    ]);
+    // Untouched banks keep their records: this is a scope, not a flush.
+    expect(
+      store
+        .list()
+        .map((candidate) => candidate.targetBank)
+        .sort(),
+    ).toEqual([
+      "default",
+      "project-b",
+    ]);
+  });
+
+  it("previews an empty queue as zero, not as an empty line", () => {
+    const dataDir = createTemporaryDirectory();
+    const store = createCandidateStore({
+      adapter: createAdapter().adapter,
+      statePath: join(dataDir, "candidates.json"),
+    });
+    const preview = previewRescan(store);
+    expect(preview).toEqual({
+      byBank: {},
+      total: 0,
+    });
+    expect(formatRescanPreview(preview)).toBe("");
   });
 });
