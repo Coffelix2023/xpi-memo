@@ -24,6 +24,7 @@ export const AUDIT_ACTIONS = [
   "tool-verified",
   "tool-verification-failed",
   "candidate-auto-admitted",
+  "candidate-rescan",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

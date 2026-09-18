@@ -31,18 +31,26 @@ export interface PendingCandidateInput {
 }
 
 export interface PendingCandidate {
+  /** Set when the record was archived; absent on records written earlier. */
+  archivedAt?: string;
   conflictState: "none" | "reported";
   content: string;
   createdAt: string;
   evidence: EvidenceRecord;
   evidenceSummary: string;
+  /**
+   * Retention deadline, only meaningful together with the archived status.
+   * Stored on the record so a later configuration change never re-times an
+   * entry that was already archived.
+   */
+  expiresAt?: string;
   id: string;
   kind: MemoryKind;
   rationale: string;
   reason: PendingCandidateReason;
   /** Structured repository-fact declaration carried to the verifier. */
   repositoryFact?: RepositoryFact;
-  status: "pending";
+  status: "archived" | "pending";
   targetBank: string;
   targetScope: "global" | "project" | "session";
 }

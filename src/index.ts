@@ -105,6 +105,7 @@ import {
   type PendingCandidate,
   type PendingCandidateReason,
 } from "./pending-candidate.ts";
+import { rescanPendingCandidates } from "./pending-rescan.ts";
 import { projectProfile, renderProfileInjection } from "./profile.ts";
 import type { RecallItem, RecallResponse } from "./recall.ts";
 import { decideRecall, type RecallPolicy } from "./recall-policy.ts";
@@ -517,6 +518,36 @@ function realTool<TParams extends TSchema>(
  */
 function trustFor(ctx: ExtensionContext, dependencies: XpiMemoDependencies): boolean {
   return dependencies.isProjectTrusted?.() ?? ctx.isProjectTrusted?.() ?? false;
+}
+
+/**
+ * Delete archived candidates whose retention window has passed.
+ *
+ * Deliberately not the rescan (design Decision 4): this decides no
+ * admission, so it is cheap, idempotent and safe to run while the extension
+ * loads. Without it, an install that never rescans would keep expired
+ * archives forever, which is the opposite of the queue not growing.
+ */
+function sweepExpiredCandidates(dependencies: XpiMemoDependencies): number {
+  try {
+    const { config } = loadConfig({
+      env: dependencies.env,
+    });
+    const store = createCandidateStore({
+      statePath: join(config.dataDir, "candidates.json"),
+      // Cleanup only rewrites the candidate state file; this adapter is never
+      // reached.
+      adapter: {
+        async store() {
+          throw new Error("archive cleanup never writes to T1");
+        },
+      },
+    });
+    return store.purgeExpired().length;
+  } catch {
+    // Fail-open: a broken cleanup must never block extension load.
+    return 0;
+  }
 }
 
 function createRuntime(
@@ -2441,6 +2472,32 @@ export default function xpiMemo(
   pi: ExtensionAPI,
   dependencies: XpiMemoDependencies = {},
 ): void {
+  sweepExpiredCandidates(dependencies);
+
+  pi.registerCommand("xpi-memo-rescan", {
+    description:
+      "Re-judge every queued memory candidate under the current admission preferences",
+    handler: async (_args, ctx) => {
+      const runtime = createRuntime(ctx.cwd, dependencies, trustFor(ctx, dependencies));
+      // Expire first: a record past its retention window must not be judged
+      // again just because nobody looked at it in time.
+      const purged = runtime.candidates.purgeExpired();
+      const outcome = await rescanPendingCandidates({
+        auditLog: runtime.audit,
+        candidates: runtime.candidates,
+      });
+      const counts = [
+        `${outcome.stored} stored`,
+        `${outcome.archived} archived`,
+      ];
+      if (purged.length > 0) counts.push(`${purged.length} expired`);
+      const noun = outcome.total === 1 ? "candidate" : "candidates";
+      ctx.ui.notify(
+        `Rescan over ${outcome.total} queued ${noun}: ${counts.join(" · ")}`,
+        "info",
+      );
+    },
+  });
   pi.registerCommand("xpi-memo", {
     description: "Open the XpiMemo T1 console",
     handler: async (_args, ctx) => {

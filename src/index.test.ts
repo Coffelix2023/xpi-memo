@@ -486,10 +486,11 @@ describe("xpi_memo_forget boundary", () => {
   });
 });
 describe("xpi-memo bootstrap entrypoint", () => {
-  it("registers the status command and all four T1 tools exactly once", () => {
+  it("registers every command and T1 tool exactly once", () => {
     const { commands, events, tools } = loadExtension();
 
     expect(commands.map(({ name }) => name)).toEqual([
+      "xpi-memo-rescan",
       "xpi-memo",
       "xpi-memo-status",
       "xpi-memo-trace",
@@ -981,6 +982,136 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(
       JSON.parse(readFileSync(join(dataDir, "candidates.json"), "utf8")).candidates,
     ).toEqual({});
+  });
+
+  it("clears expired archived candidates at load without rescanning", () => {
+    const dataDir = createTemporaryDirectory();
+    const statePath = join(dataDir, "candidates.json");
+    const day = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const archived = (id: string, expiresAt: string) => ({
+      operation: {},
+      candidate: {
+        id,
+        status: "archived",
+        expiresAt,
+      },
+    });
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        audit: [],
+        version: 1,
+        candidates: {
+          "candidate-expired": archived(
+            "candidate-expired",
+            new Date(now - day).toISOString(),
+          ),
+          "candidate-fresh": archived(
+            "candidate-fresh",
+            new Date(now + day).toISOString(),
+          ),
+          "candidate-queued": {
+            operation: {},
+            candidate: {
+              id: "candidate-queued",
+              status: "pending",
+            },
+          },
+        },
+      }),
+    );
+
+    loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => null,
+    });
+
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    // Only the record past its retention window is gone.
+    expect(Object.keys(state.candidates).sort()).toEqual([
+      "candidate-fresh",
+      "candidate-queued",
+    ]);
+    // Cleanup is not the rescan: nothing was admitted, and the audit records
+    // the deletion rather than an admission.
+    expect(state.candidates["candidate-fresh"].candidate.status).toBe("archived");
+    expect(state.candidates["candidate-queued"].candidate.status).toBe("pending");
+    expect(
+      state.audit.some(
+        (entry: { action: string }) => entry.action === "candidate-archive-purged",
+      ),
+    ).toBe(true);
+  });
+
+  it("rescans the queue on demand and reports bounded counts", async () => {
+    const dataDir = createTemporaryDirectory();
+    const statePath = join(dataDir, "candidates.json");
+    const stale = {
+      conflictState: "none",
+      content: "Body that must never reach the rescan output.",
+      createdAt: "2020-01-01T00:00:00.000Z",
+      evidenceSummary:
+        "l0-conclusion from session:rescan (activation:offline-extraction)",
+      id: "candidate-rescan-fixture",
+      kind: "project_decision",
+      rationale: "Proposed by offline extraction.",
+      reason: "project-decision",
+      status: "pending",
+      targetBank: "project-rescan",
+      targetScope: "project",
+      evidence: {
+        confidence: 0.9,
+        provenance: "activation:offline-extraction",
+        source: "session:rescan",
+        timestamp: "2020-01-01T00:00:00.000Z",
+        type: "l0-conclusion",
+      },
+    };
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        audit: [],
+        version: 1,
+        candidates: {
+          [stale.id]: {
+            candidate: stale,
+            operation: {},
+          },
+        },
+      }),
+    );
+    const notifications: string[] = [];
+    const { commands } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => null,
+      run: async () => "",
+    });
+
+    await commandHandler(commands, "xpi-memo-rescan")("", {
+      cwd: dataDir,
+      mode: "rpc",
+      ui: {
+        notify(message: string) {
+          notifications.push(message);
+        },
+      },
+    } as never);
+
+    const output = notifications.join("\n");
+    expect(output).toContain("1 queued candidate");
+    expect(output).toContain("0 stored");
+    expect(output).toContain("1 archived");
+    // Bounded output: counts, never a body.
+    expect(output).not.toContain(stale.content);
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    expect(state.candidates[stale.id].candidate.status).toBe("archived");
   });
 
   it("blocks paused automatic storage but retains pending candidates", async () => {

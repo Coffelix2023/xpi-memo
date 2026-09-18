@@ -9,6 +9,12 @@ import {
 import { dirname } from "node:path";
 
 import type { AuditLog } from "./audit.js";
+import {
+  ARCHIVED_STATUS,
+  archiveExpiry,
+  isArchiveExpired,
+  MS_PER_DAY,
+} from "./candidate-archive.js";
 import { DEFAULT_XPI_MEMO_CONFIG, type XpiMemoConfig } from "./config.js";
 import { classifyProhibitedContent } from "./content-policy.js";
 import type { EvidenceRecord } from "./evidence.js";
@@ -37,9 +43,12 @@ interface CandidateState {
 
 interface CandidateAudit {
   action:
+    | "candidate-archive-purged"
+    | "candidate-archived"
     | "candidate-confirmed"
     | "candidate-corrected"
     | "candidate-rejected"
+    | "candidate-restored"
     | "conflict-reported";
   candidateId: string;
   timestamp: string;
@@ -63,14 +72,24 @@ export interface CandidateStore {
    * shadow-verified) otherwise; the candidate is never lost.
    */
   admit(candidateId: string): Promise<CandidateLifecycleResult>;
+  /**
+   * Move a candidate out of the review queue without losing it: the record
+   * keeps its content and gets a retention deadline.
+   */
+  archive(candidateId: string): CandidateLifecycleResult;
   confirm(candidateId: string): Promise<CandidateLifecycleResult>;
   correct(
     candidateId: string,
     operation: T1MemoryOperation,
   ): Promise<CandidateLifecycleResult>;
   list(): PendingCandidate[];
+  listArchived(): PendingCandidate[];
+  /** Drop archived candidates whose retention window has passed. */
+  purgeExpired(now?: Date): string[];
   reject(candidateId: string): Promise<CandidateLifecycleResult>;
   reportConflict(candidateId: string): CandidateLifecycleResult;
+  /** Bring an archived candidate back into the review queue. */
+  restore(candidateId: string): CandidateLifecycleResult;
 }
 
 /** Minimal L0 surface for lifecycle events; recording is fail-open (task 5.3). */
@@ -122,15 +141,31 @@ function loadState(path: string): CandidateState {
       return emptyState();
     }
     const candidates = Object.fromEntries(
-      Object.entries(parsed.candidates).filter(
-        ([, stored]) =>
-          typeof stored === "object" &&
-          stored !== null &&
-          typeof stored.candidate === "object" &&
-          stored.candidate !== null &&
-          typeof stored.operation === "object" &&
-          stored.operation !== null,
-      ),
+      Object.entries(parsed.candidates)
+        .filter(
+          ([, stored]) =>
+            typeof stored === "object" &&
+            stored !== null &&
+            typeof stored.candidate === "object" &&
+            stored.candidate !== null &&
+            typeof stored.operation === "object" &&
+            stored.operation !== null,
+        )
+        // Records written before archiving existed carry no status; they are
+        // pending, never silently archived.
+        .map(([id, stored]) => [
+          id,
+          {
+            ...stored,
+            candidate: {
+              ...stored.candidate,
+              status:
+                stored.candidate.status === ARCHIVED_STATUS
+                  ? ARCHIVED_STATUS
+                  : ("pending" as const),
+            },
+          },
+        ]),
     );
     return {
       ...parsed,
@@ -192,8 +227,6 @@ function hardRailReason(candidate: PendingCandidate): string | null {
   if (candidate.conflictState !== "none") return "unresolved-conflict";
   return null;
 }
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
  * Whether `createdAt` is older than `maxAgeDays`. An unparseable timestamp
@@ -275,7 +308,15 @@ export function createCandidateStore({
   }
 
   function list(): PendingCandidate[] {
-    return Object.values(state.candidates).map(({ candidate }) => candidate);
+    return Object.values(state.candidates)
+      .map(({ candidate }) => candidate)
+      .filter((candidate) => candidate.status !== ARCHIVED_STATUS);
+  }
+
+  function listArchived(): PendingCandidate[] {
+    return Object.values(state.candidates)
+      .map(({ candidate }) => candidate)
+      .filter((candidate) => candidate.status === ARCHIVED_STATUS);
   }
 
   async function confirm(candidateId: string): Promise<CandidateLifecycleResult> {
@@ -566,13 +607,81 @@ export function createCandidateStore({
     };
   }
 
+  /**
+   * Move a record out of the review queue while keeping it recoverable. The
+   * queue stops growing; the content stays until the retention window ends.
+   */
+  function archive(candidateId: string): CandidateLifecycleResult {
+    const stored = state.candidates[candidateId];
+    if (!stored) return notFound();
+    const now = new Date();
+    stored.candidate = {
+      ...stored.candidate,
+      archivedAt: now.toISOString(),
+      expiresAt: archiveExpiry(
+        now,
+        (config ?? DEFAULT_XPI_MEMO_CONFIG).archiveRetentionDays,
+      ),
+      status: ARCHIVED_STATUS,
+    };
+    audit(state, "candidate-archived", candidateId);
+    saveState(statePath, state);
+    return {
+      reason: "candidate-archived",
+      status: "skipped",
+    };
+  }
+
+  /** Bring an archived record back into the review queue. */
+  function restore(candidateId: string): CandidateLifecycleResult {
+    const stored = state.candidates[candidateId];
+    if (!stored) return notFound();
+    const {
+      archivedAt: _archivedAt,
+      expiresAt: _expiresAt,
+      ...candidate
+    } = stored.candidate;
+    stored.candidate = {
+      ...candidate,
+      status: "pending",
+    };
+    audit(state, "candidate-restored", candidateId);
+    saveState(statePath, state);
+    return {
+      reason: "candidate-restored",
+      status: "skipped",
+    };
+  }
+
+  /**
+   * Drop archived records whose retention window has passed. Only archived
+   * records are candidates for deletion, and each one is audited before it
+   * goes. T1 memories are never touched here.
+   */
+  function purgeExpired(now: Date = new Date()): string[] {
+    const removed = Object.entries(state.candidates)
+      .filter(([, stored]) => isArchiveExpired(stored.candidate, now))
+      .map(([id]) => id);
+    if (removed.length === 0) return removed;
+    for (const id of removed) {
+      audit(state, "candidate-archive-purged", id);
+      delete state.candidates[id];
+    }
+    saveState(statePath, state);
+    return removed;
+  }
+
   return {
     add,
     admit,
+    archive,
     confirm,
     correct,
     list,
+    listArchived,
+    purgeExpired,
     reject,
     reportConflict,
+    restore,
   };
 }
