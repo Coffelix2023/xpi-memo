@@ -57,7 +57,7 @@ const NOTE_TO_VALUE_PATTERN = /semantics( +)hybrid$/;
 /** A description row must hold no copy at all. */
 const LETTER_PATTERN = /[A-Za-z]/;
 /** Splits an option legend into `value` tokens, ignoring `=` and separators. */
-const LEGEND_TOKEN_PATTERN = /[^A-Za-z0-9-]+/;
+const LEGEND_TOKEN_PATTERN = /[^A-Za-z0-9.-]+/;
 
 /** Identity theme: every style call returns its text unchanged. */
 const THEME = {
@@ -720,6 +720,18 @@ describe("4.6 Settings tab", () => {
       "paused",
       "l0Enabled",
       "profileInjection",
+      "admissionAllowGlobalPreference",
+      "admissionAllowGlobalWorkflow",
+      "admissionAllowProjectConstraint",
+      "admissionAllowProjectDecision",
+      "admissionAllowProjectGene",
+      "admissionAllowProjectGotcha",
+      "admissionAllowSessionContext",
+      "admissionEvidenceFloor",
+      "admissionMaxAgeDays",
+      "admissionMinConfidence",
+      "admissionSourceScope",
+      "archiveRetentionDays",
       "language",
       "eventPresentation",
       "passiveFeedback",
@@ -1088,26 +1100,33 @@ describe("4.6 Settings tab", () => {
 
   it("settingsRows expands the collapsed state into one cursor sequence", () => {
     const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {});
-    const collapsedElsewhere = new Set([
-      "storage",
-      "pipeline",
-      "display",
-      "privacy",
-    ]);
-    // Default view: first group open, the remaining four collapsed.
-    const firstOnly = settingsRows(items, collapsedElsewhere);
-    expect(firstOnly).toHaveLength(11);
-    expect(firstOnly.filter((row) => row.kind === "group")).toHaveLength(5);
-    expect(firstOnly.filter((row) => row.kind === "field")).toHaveLength(6);
+    // Derived from the group table so adding a group or field cannot silently
+    // invalidate the layout contract this test pins.
+    const groupCount = SETTINGS_GROUPS.length;
+    const firstGroupFields = SETTINGS_GROUPS[0]?.fields.length ?? 0;
+    const totalFields = SETTINGS_GROUPS.reduce(
+      (total, group) => total + group.fields.length,
+      0,
+    );
+    // Default view: first group open, every later group collapsed.
+    const firstOnly = settingsRows(
+      items,
+      new Set(SETTINGS_GROUPS.slice(1).map((group) => group.id)),
+    );
+    expect(firstOnly).toHaveLength(groupCount + firstGroupFields);
+    expect(firstOnly.filter((row) => row.kind === "group")).toHaveLength(groupCount);
+    expect(firstOnly.filter((row) => row.kind === "field")).toHaveLength(
+      firstGroupFields,
+    );
     // Fully collapsed: headers only.
     const allCollapsed = settingsRows(
       items,
       new Set(SETTINGS_GROUPS.map((group) => group.id)),
     );
-    expect(allCollapsed).toHaveLength(5);
+    expect(allCollapsed).toHaveLength(groupCount);
     expect(allCollapsed.every((row) => row.kind === "group")).toBe(true);
-    // Fully expanded: 5 headers + all 22 field rows.
-    expect(settingsRows(items, new Set())).toHaveLength(27);
+    // Fully expanded: one header per group plus every field row.
+    expect(settingsRows(items, new Set())).toHaveLength(groupCount + totalFields);
   });
 
   it("cursorWindowStart keeps the cursor visible inside the sequence", () => {
@@ -1134,6 +1153,7 @@ describe("4.6 Settings tab", () => {
   it("collapsing moves the cursor onto a row that still exists", () => {
     const items = settingsItems(DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig, {});
     const collapsedElsewhere = new Set([
+      "admission",
       "storage",
       "pipeline",
       "display",
@@ -1151,10 +1171,10 @@ describe("4.6 Settings tab", () => {
         "retrieval",
       ]),
     );
-    expect(allCollapsed).toHaveLength(5);
+    expect(allCollapsed).toHaveLength(6);
     // The old index no longer exists; clamping keeps the cursor renderable.
     const moved = clampCursor(last, allCollapsed.length);
-    expect(moved).toBe(4);
+    expect(moved).toBe(5);
     expect(allCollapsed[moved]).toBeDefined();
     // Reopening lands on the group header, which is a real row.
     expect(groupHeaderIndex(firstOpen, "retrieval")).toBe(0);
@@ -1352,7 +1372,7 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    // Row 0 is the first group header; the default view holds 11 rows.
+    // Row 0 is the first group header; the default view holds 12 rows.
     expect(panel.getSettingsCursor()).toBe(0);
     panel.handleInput("\u001b[B");
     expect(panel.getSettingsCursor()).toBe(1);
@@ -1363,14 +1383,14 @@ describe("4.6 Settings tab", () => {
     for (let i = 0; i < 4; i += 1) panel.handleInput("\u001b[A");
     expect(panel.getSettingsCursor()).toBe(3);
     // Down wraps from the last row back to the first.
-    for (let i = 0; i < 8; i += 1) panel.handleInput("\u001b[B");
+    for (let i = 0; i < 9; i += 1) panel.handleInput("\u001b[B");
     expect(panel.getSettingsCursor()).toBe(0);
   });
 
   it("the window follows the cursor when the sequence outgrows the body", () => {
     const accented: string[] = [];
     const panel = component({
-      // body = 2 rows, but the default view is 11 rows long.
+      // body = 2 rows, but the default view is 12 rows long.
       terminalRows: 10,
       theme: {
         bold: (text: string) => text,
@@ -1387,7 +1407,7 @@ describe("4.6 Settings tab", () => {
     expect(accentedRows(accented)).toHaveLength(1);
     expect(accentedRows(accented)[0] ?? "").toContain("Retrieval");
     // Walking to the last row must drag the window with it.
-    for (let i = 0; i < 10; i += 1) panel.handleInput("\u001b[B");
+    for (let i = 0; i < 11; i += 1) panel.handleInput("\u001b[B");
     accented.length = 0;
     panel.render(78);
     expect(accentedRows(accented)).toHaveLength(1);
@@ -1475,7 +1495,7 @@ describe("4.6 Settings tab", () => {
 
     // Action row: walk back to the header and wrap up to the last group.
     for (let i = 0; i < 3; i += 1) panel.handleInput("\u001b[A");
-    expect(panel.getSettingsCursor()).toBe(10);
+    expect(panel.getSettingsCursor()).toBe(11);
     panel.handleInput(" "); // unfold Privacy & maintenance
     for (let i = 0; i < 3; i += 1) panel.handleInput("\t"); // → One-shot sleep
     panel.handleInput(" ");
@@ -1538,9 +1558,10 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
     expect(panel.render(PANEL_WIDTH).join("\n")).toContain("Retrieval");
-    // Display is the fourth header: retrieval, storage and pipeline come first.
-    for (let i = 0; i < 9; i += 1) panel.handleInput("\u001b[B");
-    expect(panel.getSettingsCursor()).toBe(9);
+    // Display is the fifth header: retrieval, storage, pipeline and admission
+    // come first.
+    for (let i = 0; i < 10; i += 1) panel.handleInput("\u001b[B");
+    expect(panel.getSettingsCursor()).toBe(10);
     panel.handleInput(" "); // fold Display open, cursor stays on the header
     panel.handleInput("\t"); // → Language, its first field
     panel.handleInput(" "); // en → zh

@@ -11,6 +11,18 @@ import { dirname, join } from "node:path";
 
 import type { RecallPolicy } from "./recall-policy.js";
 export const DEFAULT_XPI_MEMO_CONFIG = {
+  admissionAllowGlobalPreference: true,
+  admissionAllowGlobalWorkflow: true,
+  admissionAllowProjectConstraint: true,
+  admissionAllowProjectDecision: true,
+  admissionAllowProjectGene: true,
+  admissionAllowProjectGotcha: true,
+  admissionAllowSessionContext: true,
+  admissionEvidenceFloor: "session-conclusion",
+  admissionMaxAgeDays: 30,
+  admissionMinConfidence: 0.7,
+  admissionSourceScope: "all",
+  archiveRetentionDays: 30,
   autoAdmit: true,
   autoExport: true,
   confirmStore: false,
@@ -38,6 +50,14 @@ export type RetrievalMode = "fts5" | "hybrid";
 export type Language = "en" | "zh";
 
 /**
+ * Admission evidence floor (change admission-preferences-and-pending-rescan):
+ * `"session-conclusion"` accepts an unverified `l0-conclusion`, the stricter
+ * value requires a repository fact.
+ */
+export type AdmissionEvidenceFloor = "repository-fact" | "session-conclusion";
+/** Admission source scope: every bank, or only the current project's bank. */
+export type AdmissionSourceScope = "all" | "current-project";
+/**
  * Search backend selection (Task 13.1). "auto" walks the fallback chain
  * (mnemosyne → ripgrep → qmd); a pinned name uses that backend first.
  */
@@ -51,6 +71,23 @@ export type SleepModeSetting =
 
 export interface XpiMemoConfig {
   /** Auto-store a verified `project_gene`; `XPI_MEMO_AUTO_ADMIT` overrides it. */
+  /** Per-kind automatic admission; all default to on. */
+  admissionAllowGlobalPreference: boolean;
+  admissionAllowGlobalWorkflow: boolean;
+  admissionAllowProjectConstraint: boolean;
+  admissionAllowProjectDecision: boolean;
+  admissionAllowProjectGene: boolean;
+  admissionAllowProjectGotcha: boolean;
+  admissionAllowSessionContext: boolean;
+  /** How strong the evidence must be before a candidate may auto-enter T1. */
+  admissionEvidenceFloor: AdmissionEvidenceFloor;
+  /** Candidates older than this are never auto-admitted. */
+  admissionMaxAgeDays: number;
+  /** Minimum extraction confidence, a ratio in [0, 1]. */
+  admissionMinConfidence: number;
+  admissionSourceScope: AdmissionSourceScope;
+  /** Days an archived candidate stays recoverable before it expires. */
+  archiveRetentionDays: number;
   autoAdmit: boolean;
   autoExport: boolean;
   confirmStore: boolean;
@@ -84,6 +121,18 @@ export interface XpiMemoConfig {
 }
 
 export interface UserConfig {
+  admissionAllowGlobalPreference?: unknown;
+  admissionAllowGlobalWorkflow?: unknown;
+  admissionAllowProjectConstraint?: unknown;
+  admissionAllowProjectDecision?: unknown;
+  admissionAllowProjectGene?: unknown;
+  admissionAllowProjectGotcha?: unknown;
+  admissionAllowSessionContext?: unknown;
+  admissionEvidenceFloor?: unknown;
+  admissionMaxAgeDays?: unknown;
+  admissionMinConfidence?: unknown;
+  admissionSourceScope?: unknown;
+  archiveRetentionDays?: unknown;
   autoAdmit?: unknown;
   autoExport?: unknown;
   confirmStore?: unknown;
@@ -170,6 +219,18 @@ export interface SaveUserConfigOptions {
   values: Partial<
     Pick<
       XpiMemoConfig,
+      | "admissionAllowGlobalPreference"
+      | "admissionAllowGlobalWorkflow"
+      | "admissionAllowProjectConstraint"
+      | "admissionAllowProjectDecision"
+      | "admissionAllowProjectGene"
+      | "admissionAllowProjectGotcha"
+      | "admissionAllowSessionContext"
+      | "admissionEvidenceFloor"
+      | "admissionMaxAgeDays"
+      | "admissionMinConfidence"
+      | "admissionSourceScope"
+      | "archiveRetentionDays"
       | "confirmStore"
       | "eventPresentation"
       | "globalLimit"
@@ -190,6 +251,18 @@ export interface SaveUserConfigOptions {
 }
 
 const WRITABLE_KEYS = new Set([
+  "admissionAllowGlobalPreference",
+  "admissionAllowGlobalWorkflow",
+  "admissionAllowProjectConstraint",
+  "admissionAllowProjectDecision",
+  "admissionAllowProjectGene",
+  "admissionAllowProjectGotcha",
+  "admissionAllowSessionContext",
+  "admissionEvidenceFloor",
+  "admissionMaxAgeDays",
+  "admissionMinConfidence",
+  "admissionSourceScope",
+  "archiveRetentionDays",
   "autoAdmit",
   "autoExport",
   "confirmStore",
@@ -212,6 +285,18 @@ const WRITABLE_KEYS = new Set([
   "sleepMode",
 ]);
 const ENV_KEYS: Record<string, string> = {
+  admissionAllowGlobalPreference: "XPI_MEMO_ADMISSION_ALLOW_GLOBAL_PREFERENCE",
+  admissionAllowGlobalWorkflow: "XPI_MEMO_ADMISSION_ALLOW_GLOBAL_WORKFLOW",
+  admissionAllowProjectConstraint: "XPI_MEMO_ADMISSION_ALLOW_PROJECT_CONSTRAINT",
+  admissionAllowProjectDecision: "XPI_MEMO_ADMISSION_ALLOW_PROJECT_DECISION",
+  admissionAllowProjectGene: "XPI_MEMO_ADMISSION_ALLOW_PROJECT_GENE",
+  admissionAllowProjectGotcha: "XPI_MEMO_ADMISSION_ALLOW_PROJECT_GOTCHA",
+  admissionAllowSessionContext: "XPI_MEMO_ADMISSION_ALLOW_SESSION_CONTEXT",
+  admissionEvidenceFloor: "XPI_MEMO_ADMISSION_EVIDENCE_FLOOR",
+  admissionMaxAgeDays: "XPI_MEMO_ADMISSION_MAX_AGE_DAYS",
+  admissionMinConfidence: "XPI_MEMO_ADMISSION_MIN_CONFIDENCE",
+  admissionSourceScope: "XPI_MEMO_ADMISSION_SOURCE_SCOPE",
+  archiveRetentionDays: "XPI_MEMO_ARCHIVE_RETENTION_DAYS",
   autoAdmit: "XPI_MEMO_AUTO_ADMIT",
   autoExport: "XPI_MEMO_AUTO_EXPORT",
   confirmStore: "XPI_MEMO_CONFIRM_STORE",
@@ -372,6 +457,70 @@ function resolveSleepMode(
   return DEFAULT_XPI_MEMO_CONFIG.sleepMode;
 }
 
+function admissionEvidenceFloor(value: unknown): value is AdmissionEvidenceFloor {
+  return value === "repository-fact" || value === "session-conclusion";
+}
+
+function admissionSourceScope(value: unknown): value is AdmissionSourceScope {
+  return value === "all" || value === "current-project";
+}
+
+/** Confidence is a ratio in [0, 1]; anything else keeps the default. */
+function confidence(value: unknown): value is number {
+  return (
+    typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
+  );
+}
+
+function resolveAdmissionEvidenceFloor(
+  environmentValue: string | undefined,
+  userValue: unknown,
+): AdmissionEvidenceFloor {
+  if (admissionEvidenceFloor(environmentValue)) return environmentValue;
+  if (admissionEvidenceFloor(userValue)) return userValue;
+  return DEFAULT_XPI_MEMO_CONFIG.admissionEvidenceFloor;
+}
+
+function resolveAdmissionSourceScope(
+  environmentValue: string | undefined,
+  userValue: unknown,
+): AdmissionSourceScope {
+  if (admissionSourceScope(environmentValue)) return environmentValue;
+  if (admissionSourceScope(userValue)) return userValue;
+  return DEFAULT_XPI_MEMO_CONFIG.admissionSourceScope;
+}
+
+function resolveAdmissionMinConfidence(
+  environmentValue: string | undefined,
+  userValue: unknown,
+): number {
+  const fromEnvironment = Number(environmentValue);
+  if (environmentValue !== undefined && confidence(fromEnvironment))
+    return fromEnvironment;
+  if (confidence(userValue)) return userValue;
+  return DEFAULT_XPI_MEMO_CONFIG.admissionMinConfidence;
+}
+
+/**
+ * Validators for the admission preference keys (change
+ * admission-preferences-and-pending-rescan). A configured value that fails its
+ * validator is ignored and reported in `ignoredKeys`, instead of rejecting the
+ * whole file — a typo in one preference must not disable every other one.
+ */
+const ADMISSION_PREFERENCE_VALIDATORS: Record<string, (value: unknown) => boolean> = {
+  admissionAllowGlobalPreference: boolean,
+  admissionAllowGlobalWorkflow: boolean,
+  admissionAllowProjectConstraint: boolean,
+  admissionAllowProjectDecision: boolean,
+  admissionAllowProjectGene: boolean,
+  admissionAllowProjectGotcha: boolean,
+  admissionAllowSessionContext: boolean,
+  admissionEvidenceFloor,
+  admissionMaxAgeDays: positiveInteger,
+  admissionMinConfidence: confidence,
+  admissionSourceScope,
+  archiveRetentionDays: positiveInteger,
+};
 /**
  * Offline extraction model: the session sentinel, a `provider/model-id`, or a
  * bare model id. Free text by design, so it fails closed to the sentinel when
@@ -404,7 +553,77 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
     if (value === "false") return false;
     return fallback;
   };
+  const invalidAdmissionKeys = Object.entries(ADMISSION_PREFERENCE_VALIDATORS)
+    .filter(([key, isValid]) => {
+      const value = (user.config as Record<string, unknown>)[key];
+      return value !== undefined && !isValid(value);
+    })
+    .map(([key]) => key);
   const config: XpiMemoConfig = {
+    admissionAllowGlobalPreference: envBool(
+      "XPI_MEMO_ADMISSION_ALLOW_GLOBAL_PREFERENCE",
+      boolean(user.config.admissionAllowGlobalPreference)
+        ? user.config.admissionAllowGlobalPreference
+        : DEFAULT_XPI_MEMO_CONFIG.admissionAllowGlobalPreference,
+    ),
+    admissionAllowGlobalWorkflow: envBool(
+      "XPI_MEMO_ADMISSION_ALLOW_GLOBAL_WORKFLOW",
+      boolean(user.config.admissionAllowGlobalWorkflow)
+        ? user.config.admissionAllowGlobalWorkflow
+        : DEFAULT_XPI_MEMO_CONFIG.admissionAllowGlobalWorkflow,
+    ),
+    admissionAllowProjectConstraint: envBool(
+      "XPI_MEMO_ADMISSION_ALLOW_PROJECT_CONSTRAINT",
+      boolean(user.config.admissionAllowProjectConstraint)
+        ? user.config.admissionAllowProjectConstraint
+        : DEFAULT_XPI_MEMO_CONFIG.admissionAllowProjectConstraint,
+    ),
+    admissionAllowProjectDecision: envBool(
+      "XPI_MEMO_ADMISSION_ALLOW_PROJECT_DECISION",
+      boolean(user.config.admissionAllowProjectDecision)
+        ? user.config.admissionAllowProjectDecision
+        : DEFAULT_XPI_MEMO_CONFIG.admissionAllowProjectDecision,
+    ),
+    admissionAllowProjectGene: envBool(
+      "XPI_MEMO_ADMISSION_ALLOW_PROJECT_GENE",
+      boolean(user.config.admissionAllowProjectGene)
+        ? user.config.admissionAllowProjectGene
+        : DEFAULT_XPI_MEMO_CONFIG.admissionAllowProjectGene,
+    ),
+    admissionAllowProjectGotcha: envBool(
+      "XPI_MEMO_ADMISSION_ALLOW_PROJECT_GOTCHA",
+      boolean(user.config.admissionAllowProjectGotcha)
+        ? user.config.admissionAllowProjectGotcha
+        : DEFAULT_XPI_MEMO_CONFIG.admissionAllowProjectGotcha,
+    ),
+    admissionAllowSessionContext: envBool(
+      "XPI_MEMO_ADMISSION_ALLOW_SESSION_CONTEXT",
+      boolean(user.config.admissionAllowSessionContext)
+        ? user.config.admissionAllowSessionContext
+        : DEFAULT_XPI_MEMO_CONFIG.admissionAllowSessionContext,
+    ),
+    admissionEvidenceFloor: resolveAdmissionEvidenceFloor(
+      envString(env, "XPI_MEMO_ADMISSION_EVIDENCE_FLOOR"),
+      user.config.admissionEvidenceFloor,
+    ),
+    admissionMaxAgeDays:
+      envPositiveInteger(env, "XPI_MEMO_ADMISSION_MAX_AGE_DAYS") ??
+      (positiveInteger(user.config.admissionMaxAgeDays)
+        ? user.config.admissionMaxAgeDays
+        : DEFAULT_XPI_MEMO_CONFIG.admissionMaxAgeDays),
+    admissionMinConfidence: resolveAdmissionMinConfidence(
+      envString(env, "XPI_MEMO_ADMISSION_MIN_CONFIDENCE"),
+      user.config.admissionMinConfidence,
+    ),
+    admissionSourceScope: resolveAdmissionSourceScope(
+      envString(env, "XPI_MEMO_ADMISSION_SOURCE_SCOPE"),
+      user.config.admissionSourceScope,
+    ),
+    archiveRetentionDays:
+      envPositiveInteger(env, "XPI_MEMO_ARCHIVE_RETENTION_DAYS") ??
+      (positiveInteger(user.config.archiveRetentionDays)
+        ? user.config.archiveRetentionDays
+        : DEFAULT_XPI_MEMO_CONFIG.archiveRetentionDays),
     autoAdmit:
       autoAdmitFromEnv(env.XPI_MEMO_AUTO_ADMIT) ??
       (boolean(user.config.autoAdmit)
@@ -518,6 +737,9 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
 
   return {
     config,
-    ignoredKeys: user.ignoredKeys,
+    ignoredKeys: [
+      ...user.ignoredKeys,
+      ...invalidAdmissionKeys,
+    ].sort(),
   };
 }

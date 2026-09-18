@@ -108,6 +108,86 @@ describe("XpiMemo configuration", () => {
     ).toBe(false);
   });
 
+  it("defaults every admission preference to liberal", () => {
+    const { config } = loadConfig({
+      configHome: createTemporaryDirectory(),
+      env: {},
+    });
+
+    expect(config.admissionAllowGlobalPreference).toBe(true);
+    expect(config.admissionAllowGlobalWorkflow).toBe(true);
+    expect(config.admissionAllowProjectConstraint).toBe(true);
+    expect(config.admissionAllowProjectDecision).toBe(true);
+    expect(config.admissionAllowProjectGene).toBe(true);
+    expect(config.admissionAllowProjectGotcha).toBe(true);
+    expect(config.admissionAllowSessionContext).toBe(true);
+    expect(config.admissionEvidenceFloor).toBe("session-conclusion");
+    expect(config.admissionMaxAgeDays).toBe(30);
+    expect(config.admissionMinConfidence).toBe(0.7);
+    expect(config.admissionSourceScope).toBe("all");
+    expect(config.archiveRetentionDays).toBe(30);
+  });
+
+  it("lets an environment variable tighten any admission preference", () => {
+    const { config } = loadConfig({
+      configHome: createTemporaryDirectory(),
+      env: {
+        XPI_MEMO_ADMISSION_ALLOW_PROJECT_GOTCHA: "false",
+        XPI_MEMO_ADMISSION_EVIDENCE_FLOOR: "repository-fact",
+        XPI_MEMO_ADMISSION_MAX_AGE_DAYS: "7",
+        XPI_MEMO_ADMISSION_MIN_CONFIDENCE: "0.9",
+        XPI_MEMO_ADMISSION_SOURCE_SCOPE: "current-project",
+        XPI_MEMO_ARCHIVE_RETENTION_DAYS: "90",
+      },
+    });
+
+    expect(config.admissionAllowProjectGotcha).toBe(false);
+    // An untouched preference keeps its liberal default.
+    expect(config.admissionAllowProjectGene).toBe(true);
+    expect(config.admissionEvidenceFloor).toBe("repository-fact");
+    expect(config.admissionMaxAgeDays).toBe(7);
+    expect(config.admissionMinConfidence).toBe(0.9);
+    expect(config.admissionSourceScope).toBe("current-project");
+    expect(config.archiveRetentionDays).toBe(90);
+  });
+
+  it("ignores an unusable admission preference and reports its key", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        admissionAllowProjectGene: "yes",
+        admissionEvidenceFloor: "whatever",
+        admissionMaxAgeDays: 0,
+        admissionMinConfidence: 2,
+        admissionSourceScope: "elsewhere",
+      }),
+    );
+
+    const { config, ignoredKeys } = loadConfig({
+      configHome,
+      env: {},
+    });
+
+    // A bad preference falls back to its default; the rest of the file stands.
+    expect(config.admissionEvidenceFloor).toBe("session-conclusion");
+    expect(config.admissionMaxAgeDays).toBe(30);
+    expect(config.admissionMinConfidence).toBe(0.7);
+    expect(config.admissionSourceScope).toBe("all");
+    expect(config.admissionAllowProjectGene).toBe(true);
+    expect(config.admissionAllowProjectGotcha).toBe(true);
+    expect(ignoredKeys).toEqual([
+      "admissionAllowProjectGene",
+      "admissionEvidenceFloor",
+      "admissionMaxAgeDays",
+      "admissionMinConfidence",
+      "admissionSourceScope",
+    ]);
+  });
+
   it("loads paused from user config and lets the environment override it", () => {
     const configHome = createTemporaryDirectory();
     mkdirSync(join(configHome, "xpi-memo"), {

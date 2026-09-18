@@ -167,6 +167,30 @@ type PanelLanguage = XpiMemoConfig["language"];
 
 const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
   en: {
+    "choice.admissionAllowGlobalPreference":
+      "Recommend: on · off=keep preferences pending · on=auto-store them",
+    "choice.admissionAllowGlobalWorkflow":
+      "Recommend: on · off=keep workflows pending · on=auto-store them",
+    "choice.admissionAllowProjectConstraint":
+      "Recommend: on · off=keep constraints pending · on=auto-store them",
+    "choice.admissionAllowProjectDecision":
+      "Recommend: on · off=keep decisions pending · on=auto-store them",
+    "choice.admissionAllowProjectGene":
+      "Recommend: on · off=keep repo facts pending · on=auto-store them",
+    "choice.admissionAllowProjectGotcha":
+      "Recommend: on · off=keep gotchas pending · on=auto-store them",
+    "choice.admissionAllowSessionContext":
+      "Recommend: on · off=keep session context pending · on=auto-store it",
+    "choice.admissionEvidenceFloor":
+      "Recommend: session-conclusion · session-conclusion=ok · repository-fact=needs file",
+    "choice.admissionMaxAgeDays":
+      "Recommend: 30 · 7/30/90/365 days back a candidate may auto-enter",
+    "choice.admissionMinConfidence":
+      "Recommend: 0.7 · 0.5/0.7/0.9 minimum extraction confidence",
+    "choice.admissionSourceScope":
+      "Recommend: all · all=every project bank · current-project=this project only",
+    "choice.archiveRetentionDays":
+      "Recommend: 30 · 7/30/90/180 days an archived candidate stays recoverable",
     "choice.autoAdmit":
       "Recommend: on · off=keep verified genes pending · on=auto-store them",
     "choice.autoExport": "Recommend: on · off=no backup · on=periodic Markdown export",
@@ -206,6 +230,30 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "chrome.hint":
       "←/→ tab · ↑/↓ move · Space change · Enter save · Tab field · Esc close",
     "chrome.saved": "Saved · configuration written",
+    "detail.admissionAllowGlobalPreference":
+      "Auto-store preferences without asking · Space toggles on/off, Enter saves",
+    "detail.admissionAllowGlobalWorkflow":
+      "Auto-store workflows without asking · Space toggles on/off, Enter saves",
+    "detail.admissionAllowProjectConstraint":
+      "Auto-store constraints without asking · Space toggles on/off, Enter saves",
+    "detail.admissionAllowProjectDecision":
+      "Auto-store decisions without asking · Space toggles on/off, Enter saves",
+    "detail.admissionAllowProjectGene":
+      "Auto-store repo facts without asking · Space toggles on/off, Enter saves",
+    "detail.admissionAllowProjectGotcha":
+      "Auto-store gotchas without asking · Space toggles on/off, Enter saves",
+    "detail.admissionAllowSessionContext":
+      "Auto-store session context without asking · Space toggles on/off, Enter saves",
+    "detail.admissionEvidenceFloor":
+      "How strong the evidence must be · Space cycles the value, Enter saves",
+    "detail.admissionMaxAgeDays":
+      "How far back a candidate may auto-enter · Space cycles, Enter saves",
+    "detail.admissionMinConfidence":
+      "Lowest extraction confidence allowed · Space cycles, Enter saves",
+    "detail.admissionSourceScope":
+      "Which banks may auto-admit · Space cycles the scope, Enter saves",
+    "detail.archiveRetentionDays":
+      "Recoverable window before an archived candidate expires · Space cycles, Enter saves",
     "detail.autoAdmit":
       "Store a verified project_gene without asking · Space toggles on/off, Enter saves",
     "detail.autoExport":
@@ -250,6 +298,18 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
       "One consolidation you trigger now · human-only · Space, then confirm",
     "detail.sleepMode":
       "When the Agent consolidates memory · Space cycles, Enter saves",
+    "field.admissionAllowGlobalPreference": "Auto admit: preferences",
+    "field.admissionAllowGlobalWorkflow": "Auto admit: workflows",
+    "field.admissionAllowProjectConstraint": "Auto admit: constraints",
+    "field.admissionAllowProjectDecision": "Auto admit: decisions",
+    "field.admissionAllowProjectGene": "Auto admit: repo facts",
+    "field.admissionAllowProjectGotcha": "Auto admit: gotchas",
+    "field.admissionAllowSessionContext": "Auto admit: session context",
+    "field.admissionEvidenceFloor": "Evidence floor",
+    "field.admissionMaxAgeDays": "Max candidate age",
+    "field.admissionMinConfidence": "Min confidence",
+    "field.admissionSourceScope": "Source scope",
+    "field.archiveRetentionDays": "Archive retention",
     "field.autoAdmit": "Auto admit",
     "field.autoExport": "Auto export",
     "field.confirmStore": "Confirm store",
@@ -272,6 +332,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.searchBackend": "Search backend",
     "field.sleep": "Run sleep now",
     "field.sleepMode": "Sleep mode",
+    "group.admission": "Admission",
     "group.display": "Display",
     "group.pipeline": "Pipeline",
     "group.privacy": "Privacy",
@@ -284,6 +345,18 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "info.tier": "L0 session trace → T1 xpi-memo → T2 deferred → T3 deferred",
     "info.today": "today",
     "info.total": "total",
+    "note.admissionAllowGlobalPreference": "Skip the review queue",
+    "note.admissionAllowGlobalWorkflow": "Skip the review queue",
+    "note.admissionAllowProjectConstraint": "Skip the review queue",
+    "note.admissionAllowProjectDecision": "Skip the review queue",
+    "note.admissionAllowProjectGene": "Skip the review queue",
+    "note.admissionAllowProjectGotcha": "Skip the review queue",
+    "note.admissionAllowSessionContext": "Skip the review queue",
+    "note.admissionEvidenceFloor": "Session facts or repo facts",
+    "note.admissionMaxAgeDays": "Older candidates stall",
+    "note.admissionMinConfidence": "Extraction confidence floor",
+    "note.admissionSourceScope": "Every bank or one project",
+    "note.archiveRetentionDays": "Recoverable before deletion",
     "note.autoAdmit": "Auto-store verified genes",
     "note.autoExport": "Periodic export backup",
     "note.confirmStore": "Ask before writing",
@@ -312,6 +385,25 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "tab.status": "Status",
   },
   zh: {
+    "choice.admissionAllowGlobalPreference":
+      "推荐: on · off=偏好进待审 · on=偏好自动入库",
+    "choice.admissionAllowGlobalWorkflow":
+      "推荐: on · off=流程进待审 · on=流程自动入库",
+    "choice.admissionAllowProjectConstraint":
+      "推荐: on · off=约束进待审 · on=约束自动入库",
+    "choice.admissionAllowProjectDecision":
+      "推荐: on · off=决策进待审 · on=决策自动入库",
+    "choice.admissionAllowProjectGene": "推荐: on · off=仓库事实进待审 · on=直接入库",
+    "choice.admissionAllowProjectGotcha": "推荐: on · off=项目坑进待审 · on=坑自动入库",
+    "choice.admissionAllowSessionContext":
+      "推荐: on · off=会话上下文进待审 · on=直接入库",
+    "choice.admissionEvidenceFloor":
+      "推荐: session-conclusion · session-conclusion=会话结论即可 · repository-fact=要有文件出处",
+    "choice.admissionMaxAgeDays": "推荐: 30 · 7/30/90/365 天内的候选才会自动入库",
+    "choice.admissionMinConfidence": "推荐: 0.7 · 0.5/0.7/0.9 最低提取置信度",
+    "choice.admissionSourceScope":
+      "推荐: all · all=所有项目库 · current-project=仅当前项目",
+    "choice.archiveRetentionDays": "推荐: 30 · 7/30/90/180 天归档期, 期内可恢复",
     "choice.autoAdmit": "推荐: on · off=一律进待审 · on=验证通过的基因自动入库",
     "choice.autoExport": "推荐: on · off=不备份 · on=定期导出 Markdown",
     "choice.confirmStore": "推荐: off · off=直接写入 · on=每次写入前问你",
@@ -341,6 +433,25 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "chrome.hint":
       "←/→ 切页 · ↑/↓ 移动 · Space 切换 · Enter 保存/选择 · Tab 跳字段 · Esc 关闭",
     "chrome.saved": "已保存 · 配置已写入",
+    "detail.admissionAllowGlobalPreference":
+      "偏好候选无需确认直接入库 · 空格切换 on/off, Enter 保存",
+    "detail.admissionAllowGlobalWorkflow":
+      "流程候选无需确认直接入库 · 空格切换 on/off, Enter 保存",
+    "detail.admissionAllowProjectConstraint":
+      "约束候选无需确认直接入库 · 空格切换 on/off, Enter 保存",
+    "detail.admissionAllowProjectDecision":
+      "决策候选无需确认直接入库 · 空格切换 on/off, Enter 保存",
+    "detail.admissionAllowProjectGene":
+      "仓库事实候选无需确认直接入库 · 空格切换 on/off, Enter 保存",
+    "detail.admissionAllowProjectGotcha":
+      "项目坑候选无需确认直接入库 · 空格切换 on/off, Enter 保存",
+    "detail.admissionAllowSessionContext":
+      "会话上下文无需确认直接入库 · 空格切换 on/off, Enter 保存",
+    "detail.admissionEvidenceFloor": "多强的证据才能自动入库 · 空格切换, Enter 保存",
+    "detail.admissionMaxAgeDays": "多久以前的候选还能自动入库 · 空格切换, Enter 保存",
+    "detail.admissionMinConfidence": "允许的最低提取置信度 · 空格切换, Enter 保存",
+    "detail.admissionSourceScope": "哪些库可以自动准入 · 空格切换, Enter 保存",
+    "detail.archiveRetentionDays": "归档候选到期前可恢复的天数 · 空格切换, Enter 保存",
     "detail.autoAdmit":
       "验证通过的 project_gene 无需确认直接入库 · 空格开关, Enter 保存",
     "detail.autoExport":
@@ -370,6 +481,18 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "detail.searchBackend": "召回使用哪个搜索引擎 · 空格切换, Enter 保存",
     "detail.sleep": "由你触发的一次记忆整理 · 只与你有关 · 空格后确认, 不写配置",
     "detail.sleepMode": "Agent 何时整理记忆 · 空格切换整理方式, Enter 保存",
+    "field.admissionAllowGlobalPreference": "自动准入: 偏好",
+    "field.admissionAllowGlobalWorkflow": "自动准入: 流程",
+    "field.admissionAllowProjectConstraint": "自动准入: 约束",
+    "field.admissionAllowProjectDecision": "自动准入: 决策",
+    "field.admissionAllowProjectGene": "自动准入: 仓库事实",
+    "field.admissionAllowProjectGotcha": "自动准入: 项目坑",
+    "field.admissionAllowSessionContext": "自动准入: 会话上下文",
+    "field.admissionEvidenceFloor": "证据下限",
+    "field.admissionMaxAgeDays": "候选时效",
+    "field.admissionMinConfidence": "最低置信度",
+    "field.admissionSourceScope": "来源范围",
+    "field.archiveRetentionDays": "归档保留期",
     "field.autoAdmit": "基因自动准入",
     "field.autoExport": "自动导出",
     "field.confirmStore": "存储前确认",
@@ -392,6 +515,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.searchBackend": "搜索后端",
     "field.sleep": "立即整理一次",
     "field.sleepMode": "记忆整理方式",
+    "group.admission": "自动准入",
     "group.display": "界面与反馈",
     "group.pipeline": "记忆管道",
     "group.privacy": "隐私与维护",
@@ -404,6 +528,18 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "info.tier": "L0 会话轨迹 → T1 xpi-memo → T2 延后 → T3 延后",
     "info.today": "今日",
     "info.total": "总数",
+    "note.admissionAllowGlobalPreference": "跳过待审队列",
+    "note.admissionAllowGlobalWorkflow": "跳过待审队列",
+    "note.admissionAllowProjectConstraint": "跳过待审队列",
+    "note.admissionAllowProjectDecision": "跳过待审队列",
+    "note.admissionAllowProjectGene": "跳过待审队列",
+    "note.admissionAllowProjectGotcha": "跳过待审队列",
+    "note.admissionAllowSessionContext": "跳过待审队列",
+    "note.admissionEvidenceFloor": "会话结论或仓库事实",
+    "note.admissionMaxAgeDays": "过老的候选不入库",
+    "note.admissionMinConfidence": "提取置信度下限",
+    "note.admissionSourceScope": "所有库或仅本项目",
+    "note.archiveRetentionDays": "删除前可恢复",
     "note.autoAdmit": "验证通过直接入库",
     "note.autoExport": "定期导出备份",
     "note.confirmStore": "写入前先问你",
@@ -570,6 +706,23 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     ],
   },
   {
+    id: "admission",
+    fields: [
+      "admissionAllowGlobalPreference",
+      "admissionAllowGlobalWorkflow",
+      "admissionAllowProjectConstraint",
+      "admissionAllowProjectDecision",
+      "admissionAllowProjectGene",
+      "admissionAllowProjectGotcha",
+      "admissionAllowSessionContext",
+      "admissionEvidenceFloor",
+      "admissionMaxAgeDays",
+      "admissionMinConfidence",
+      "admissionSourceScope",
+      "archiveRetentionDays",
+    ],
+  },
+  {
     id: "display",
     fields: [
       "language",
@@ -604,6 +757,95 @@ interface SettingsFieldSpec {
  * silently leave a field out of the panel.
  */
 const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
+  admissionAllowGlobalPreference: {
+    environment: "XPI_MEMO_ADMISSION_ALLOW_GLOBAL_PREFERENCE",
+    values: [
+      "off",
+      "on",
+    ],
+  },
+  admissionAllowGlobalWorkflow: {
+    environment: "XPI_MEMO_ADMISSION_ALLOW_GLOBAL_WORKFLOW",
+    values: [
+      "off",
+      "on",
+    ],
+  },
+  admissionAllowProjectConstraint: {
+    environment: "XPI_MEMO_ADMISSION_ALLOW_PROJECT_CONSTRAINT",
+    values: [
+      "off",
+      "on",
+    ],
+  },
+  admissionAllowProjectDecision: {
+    environment: "XPI_MEMO_ADMISSION_ALLOW_PROJECT_DECISION",
+    values: [
+      "off",
+      "on",
+    ],
+  },
+  admissionAllowProjectGene: {
+    environment: "XPI_MEMO_ADMISSION_ALLOW_PROJECT_GENE",
+    values: [
+      "off",
+      "on",
+    ],
+  },
+  admissionAllowProjectGotcha: {
+    environment: "XPI_MEMO_ADMISSION_ALLOW_PROJECT_GOTCHA",
+    values: [
+      "off",
+      "on",
+    ],
+  },
+  admissionAllowSessionContext: {
+    environment: "XPI_MEMO_ADMISSION_ALLOW_SESSION_CONTEXT",
+    values: [
+      "off",
+      "on",
+    ],
+  },
+  admissionEvidenceFloor: {
+    environment: "XPI_MEMO_ADMISSION_EVIDENCE_FLOOR",
+    values: [
+      "repository-fact",
+      "session-conclusion",
+    ],
+  },
+  admissionMaxAgeDays: {
+    environment: "XPI_MEMO_ADMISSION_MAX_AGE_DAYS",
+    values: [
+      "7",
+      "30",
+      "90",
+      "365",
+    ],
+  },
+  admissionMinConfidence: {
+    environment: "XPI_MEMO_ADMISSION_MIN_CONFIDENCE",
+    values: [
+      "0.5",
+      "0.7",
+      "0.9",
+    ],
+  },
+  admissionSourceScope: {
+    environment: "XPI_MEMO_ADMISSION_SOURCE_SCOPE",
+    values: [
+      "all",
+      "current-project",
+    ],
+  },
+  archiveRetentionDays: {
+    environment: "XPI_MEMO_ARCHIVE_RETENTION_DAYS",
+    values: [
+      "7",
+      "30",
+      "90",
+      "180",
+    ],
+  },
   autoAdmit: {
     environment: "XPI_MEMO_AUTO_ADMIT",
     values: [

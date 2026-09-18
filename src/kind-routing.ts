@@ -1,4 +1,9 @@
-import { autoAdmitFromEnv, type XpiMemoConfig } from "./config.js";
+import {
+  type AdmissionEvidenceFloor,
+  type AdmissionSourceScope,
+  autoAdmitFromEnv,
+  type XpiMemoConfig,
+} from "./config.js";
 import type { MemoryKind } from "./kinds.js";
 
 import type { KindAdmissionPolicy } from "./types.js";
@@ -37,6 +42,44 @@ export function getAdmissionPolicy(
 }
 
 /**
+ * Resolved admission preferences (change
+ * admission-preferences-and-pending-rescan): the per-kind switches plus the
+ * scalar floors. `loadConfig` already applied environment-over-config
+ * precedence, so these are the effective values.
+ */
+export interface AdmissionPreferences {
+  allowKinds: Readonly<Record<MemoryKind, boolean>>;
+  evidenceFloor: AdmissionEvidenceFloor;
+  maxAgeDays: number;
+  minConfidence: number;
+  sourceScope: AdmissionSourceScope;
+}
+
+/**
+ * Project a loaded config onto the admission preferences. The defaults are the
+ * config defaults, which are liberal: every kind admits unless the user turns
+ * it off. `KIND_ADMISSION_POLICIES` no longer gates admission — it now only
+ * decides whether a kind runs repository-fact verification.
+ */
+export function admissionPreferences(config: XpiMemoConfig): AdmissionPreferences {
+  return {
+    evidenceFloor: config.admissionEvidenceFloor,
+    maxAgeDays: config.admissionMaxAgeDays,
+    minConfidence: config.admissionMinConfidence,
+    sourceScope: config.admissionSourceScope,
+    allowKinds: {
+      global_preference: config.admissionAllowGlobalPreference,
+      global_workflow: config.admissionAllowGlobalWorkflow,
+      project_constraint: config.admissionAllowProjectConstraint,
+      project_decision: config.admissionAllowProjectDecision,
+      project_gene: config.admissionAllowProjectGene,
+      project_gotcha: config.admissionAllowProjectGotcha,
+      session_context: config.admissionAllowSessionContext,
+    },
+  };
+}
+
+/**
  * Auto-admission rollout (change optimize-offline-extraction-and-auto-admit,
  * design Decision 2). The kill switch wins; an explicitly set
  * `XPI_MEMO_AUTO_ADMIT` then decides on its own, so an env value never mixes
@@ -45,14 +88,20 @@ export function getAdmissionPolicy(
  *
  * Parsing goes through `autoAdmitFromEnv`, the same helper `loadConfig` uses,
  * so the settings panel value and this decision cannot disagree.
+ *
+ * With the rollout on, `kind` narrows the decision to that kind's preference;
+ * omitting it reports the rollout itself. The full precedence is therefore:
+ * kill switch → explicit environment → config file → per-kind preference.
  */
 export function autoAdmitEnabled(
   config: XpiMemoConfig,
   env: NodeJS.ProcessEnv = process.env,
+  kind?: MemoryKind,
 ): boolean {
   const override = env.XPI_MEMO_AUTO_VERIFY;
   if (override === "false" || override === "0") return false;
-  const fromEnv = autoAdmitFromEnv(env.XPI_MEMO_AUTO_ADMIT);
-  if (fromEnv !== undefined) return fromEnv;
-  return config.autoAdmit;
+  const rollout = autoAdmitFromEnv(env.XPI_MEMO_AUTO_ADMIT) ?? config.autoAdmit;
+  if (!rollout) return false;
+  if (kind === undefined) return true;
+  return admissionPreferences(config).allowKinds[kind];
 }
