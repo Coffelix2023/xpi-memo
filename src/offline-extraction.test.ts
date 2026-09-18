@@ -277,6 +277,55 @@ describe("offline extraction boundary (task 3.1)", () => {
     expect(result.diagnostics.budgetExecutions).toBe(1);
   });
 
+  it("answers budget-exhausted before bounding or screening the events (design Decision 3)", async () => {
+    const dataDir = temporaryDirectory();
+    // The same events with no spent budget are refused by the safety screen,
+    // so a budget answer proves the events were never read.
+    const events = [
+      createL0Event("user_message", 1, {
+        text: "-----BEGIN PRIVATE KEY-----\\nmissing end marker",
+      }),
+    ];
+    const screened = await runOfflineExtraction(
+      options({
+        events,
+        runner: async () => [],
+      }),
+    );
+    expect(screened.status).toBe("refused");
+
+    const ledger = createExtractionBudgetLedger({
+      sessionId: "session-1",
+      statePath: join(dataDir, "extraction-budget.json"),
+    });
+    ledger.recordExecution();
+    let called = false;
+    const result = await runOfflineExtraction(
+      options({
+        events,
+        ledger,
+        limits: {
+          maxCharsPerSession: 5_000,
+          maxExecutionsPerSession: 1,
+          maxProposalsPerSession: 20,
+        },
+        runner: async () => {
+          called = true;
+          return [];
+        },
+      }),
+    );
+
+    expect(result.status).toBe("budget-exhausted");
+    expect(called).toBe(false);
+    if (result.status !== "budget-exhausted") throw new Error("unreachable");
+    expect(result.diagnostics).toMatchObject({
+      budgetChars: 0,
+      budgetExecutions: 1,
+      budgetProposals: 0,
+    });
+  });
+
   it("records the execution in the ledger after a completed run", async () => {
     const dataDir = temporaryDirectory();
     const ledger = createExtractionBudgetLedger({

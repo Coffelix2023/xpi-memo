@@ -199,6 +199,20 @@ function diagnostics(
   };
 }
 
+/** Default per-session limits, applied when the caller passes none. */
+function executionAllowed(
+  ledger: ExtractionBudgetLedger,
+  limits?: ExtractionBudgetLimits,
+): boolean {
+  return ledger.executionAllowed(
+    limits ?? {
+      maxCharsPerSession: DEFAULT_OFFLINE_EXTRACTION_MAX_CHARS_PER_SESSION,
+      maxExecutionsPerSession: DEFAULT_OFFLINE_EXTRACTION_MAX_EXECUTIONS_PER_SESSION,
+      maxProposalsPerSession: DEFAULT_OFFLINE_EXTRACTION_MAX_PROPOSALS_PER_SESSION,
+    },
+  );
+}
+
 /**
  * Run the offline extraction boundary. Never throws: disabled, unavailable,
  * timed-out, failed, and completed all return a bounded diagnostic result.
@@ -223,6 +237,23 @@ export async function runOfflineExtraction(
     };
   }
 
+  // Budget first (design Decision 3): reading the per-session counter is O(1),
+  // so a spent budget answers without bounding, screening, or handing any
+  // event to the runner.
+  if (options.ledger && !executionAllowed(options.ledger, options.limits)) {
+    return {
+      diagnostics: diagnostics(
+        "budget-exhausted",
+        options.events,
+        options.maxEvents,
+        options.maxInputChars,
+        options.timeoutMs,
+        options.ledger,
+      ),
+      status: "budget-exhausted",
+    };
+  }
+
   const events = boundedEvents(
     options.events,
     options.maxEvents,
@@ -242,31 +273,6 @@ export async function runOfflineExtraction(
       ),
       status: "refused",
     };
-  }
-  if (options.ledger) {
-    const limits = options.limits;
-    if (
-      !options.ledger.executionAllowed(
-        limits ?? {
-          maxCharsPerSession: DEFAULT_OFFLINE_EXTRACTION_MAX_CHARS_PER_SESSION,
-          maxExecutionsPerSession:
-            DEFAULT_OFFLINE_EXTRACTION_MAX_EXECUTIONS_PER_SESSION,
-          maxProposalsPerSession: DEFAULT_OFFLINE_EXTRACTION_MAX_PROPOSALS_PER_SESSION,
-        },
-      )
-    ) {
-      return {
-        diagnostics: diagnostics(
-          "budget-exhausted",
-          events,
-          options.maxEvents,
-          options.maxInputChars,
-          options.timeoutMs,
-          options.ledger,
-        ),
-        status: "budget-exhausted",
-      };
-    }
   }
 
   if (!options.runner) {
