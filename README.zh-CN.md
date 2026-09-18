@@ -9,7 +9,7 @@
 ## 功能
 
 - **T1 受治理记忆** — 路由（全局/项目/会话）、带候选确认的写入治理、策略驱动的召回
-- **记忆激活回路** — 显式用户意图（偏好、工作流、项目决策、坑点、会话上下文）从提示中确定性捕获，按 L0 事件位置 + 内容指纹幂等；会话结束时还有一条门控的离线提取路径（默认关闭）
+- **记忆激活回路** — 显式用户意图（偏好、工作流、项目决策、坑点、会话上下文）从提示中确定性捕获，按 L0 事件位置 + 内容指纹幂等；会话结束时还有一条门控的离线提取路径（默认关闭），TUI 下运行时在输入框上方显示进度提示
 - **人类可读的可观测性** — 固定的 7 类分类法（偏好、工作流、仓库事实、约束、决策、坑点、会话上下文），其角色、作用域与信任状态在控制台、状态与导出中一致
 - **L0 会话轨迹** — 每会话一份无损追加式 JSONL 日志（10 MB 轮转）；状态如何变化的事件真相（日志与记忆溯源都由它派生，bank 保存的是当前状态）
 - **Markdown 导出** — 人类可读的 `MEMORY.md`（由 bank 当前状态投影，带 L0 注释）+ 由 L0 折叠出的日志；增量、隐私脱敏、对 Git 友好
@@ -71,6 +71,8 @@ brew install ripgrep               # 全文检索（macOS）；Fedora 上用 dnf
 
 **自动捕获。** 当你在提示里显式声明一条长期有效的偏好、工作流、项目决策、坑点或有边界的会话上下文时，激活回路会把它走一遍与 `xpi_memo_remember` 相同的治理路径——不需要额外调用工具。全局偏好/工作流直接落库；项目决策、约束与坑点会变成待审候选（见 [GUIDE.md § Activation loop](./GUIDE.md#activation-loop)）。
 
+**自动准入。** `project_gene` 候选的仓库事实校验通过后直接入库，除非显式关闭准入：配置文件里的 `autoAdmit: false`（`/xpi-memo` 的设置标签可切换）或 `XPI_MEMO_AUTO_ADMIT=false`。关闭期间校验结果记为 `shadow-verified`，候选留在待审队列。
+
 ## 配置
 
 默认数据目录：`~/.pi/agent/xpi-memo/`
@@ -86,6 +88,8 @@ brew install ripgrep               # 全文检索（macOS）；Fedora 上用 dnf
 - `XPI_MEMO_L0_ENABLED`
 - `XPI_MEMO_LIMIT` / `XPI_MEMO_GLOBAL_LIMIT` / `XPI_MEMO_PROJECT_LIMIT`
 - `XPI_MEMO_AUTO_EXPORT`
+- `XPI_MEMO_AUTO_VERIFY` = kill switch（`false`/`0` 关闭仓库事实校验——所有候选转入人工待审）
+- `XPI_MEMO_AUTO_ADMIT` = `true|false`（覆盖配置文件的 `autoAdmit`，默认 `true`；未设置时校验通过的 `project_gene` 自动入库，设为 `false` 则留在待审队列并留下有界审计）
 - `XPI_MEMO_EXCLUDE_TOOL_RESULTS`
 - `XPI_MEMO_PRIVACY`
 - `XPI_MEMO_SEARCH_BACKEND` = `auto|mnemosyne|ripgrep|qmd`

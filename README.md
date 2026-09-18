@@ -9,7 +9,7 @@ A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension
 ## Features
 
 - **T1 Governed Memory** — routing (global/project/session), write governance with candidate confirmation, policy-driven recall
-- **Memory Activation Loop** — explicit user intent (preferences, workflow, project decisions, gotchas, session context) is captured deterministically from the prompt, idempotent per L0 event + content fingerprint, with a gated offline extraction path (disabled by default) at session shutdown
+- **Memory Activation Loop** — explicit user intent (preferences, workflow, project decisions, gotchas, session context) is captured deterministically from the prompt, idempotent per L0 event + content fingerprint, with a gated offline extraction path (disabled by default) at session shutdown that shows a progress line above the editor in the TUI
 - **Human-Readable Observability** — canonical 7-kind taxonomy (Preference, Workflow, Repository fact, Constraint, Decision, Gotcha, Session context) with roles, scopes, and trust states shared by console, status, and export
 - **L0 Session Trace** — lossless append-only JSONL log per session (10 MB rotation); the event truth for how state changed (daily logs and memory provenance derive from it, while the bank holds the current state)
 - **Markdown Export** — human-readable `MEMORY.md` (projected from the bank's current state, L0-annotated) + daily logs folded from L0; incremental, privacy redaction, Git-friendly
@@ -70,6 +70,8 @@ Field rows are laid out as `label / note / value`. Putting the cursor on a field
 
 **Automatic capture.** When you explicitly state a durable preference, workflow, project decision, gotcha, or bounded session context in a prompt, the activation loop routes it through the same governance path as `xpi_memo_remember` — no extra tool call needed. Global preferences/workflows store directly; project decisions, constraints, and gotchas become review candidates (see [GUIDE.md § Activation loop](./GUIDE.md#activation-loop)).
 
+**Auto-admission.** A `project_gene` candidate whose repository-fact verification passes is stored directly unless admission is off: `autoAdmit: false` in the config file (Settings tab in `/xpi-memo`) or `XPI_MEMO_AUTO_ADMIT=false`. While off, the verification is recorded as `shadow-verified` and the candidate waits in the review queue.
+
 ## Configuration
 
 Default data directory: `~/.pi/agent/xpi-memo/`
@@ -86,7 +88,7 @@ Environment variables:
 - `XPI_MEMO_LIMIT` / `XPI_MEMO_GLOBAL_LIMIT` / `XPI_MEMO_PROJECT_LIMIT`
 - `XPI_MEMO_AUTO_EXPORT`
 - `XPI_MEMO_AUTO_VERIFY` = kill switch (`false`/`0` disables repository-fact verification — every candidate queues for manual review)
-- `XPI_MEMO_AUTO_ADMIT` = `true|false` (default `false`; shadow rollout — verified candidates stay pending with a bounded audit trail unless this is exactly `true`, and even then only `project_gene` auto-stores)
+- `XPI_MEMO_AUTO_ADMIT` = `true|false` (overrides the config file's `autoAdmit`, default `true`; when unset, a verified `project_gene` candidate auto-stores, and `false` keeps it pending with a bounded audit trail)
 - `XPI_MEMO_EXCLUDE_TOOL_RESULTS`
 - `XPI_MEMO_PRIVACY`
 - `XPI_MEMO_SEARCH_BACKEND` = `auto|mnemosyne|ripgrep|qmd`
