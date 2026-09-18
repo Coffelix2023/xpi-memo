@@ -2516,14 +2516,17 @@ export default function xpiMemo(
 
   pi.registerCommand("xpi-memo-rescan", {
     description:
-      "Re-judge every queued memory candidate under the current admission preferences",
+      "Preview a re-judgement of every queued memory candidate; --apply runs it",
     handler: async (args, ctx) => {
       const runtime = createRuntime(ctx.cwd, dependencies, trustFor(ctx, dependencies));
+      const parsed = (args ?? "").split(WS_SPLIT);
       // `--current-project` scopes the walk to this session's bank; the panel's
       // admission scope is a different setting and does not apply here.
-      const currentProjectOnly = (args ?? "")
-        .split(WS_SPLIT)
-        .includes("--current-project");
+      const currentProjectOnly = parsed.includes("--current-project");
+      // Executing is opt-in: the walk spawns one mnemosyne process per admitted
+      // candidate, so a bare invocation only reports what that would cost. An
+      // unrecognized argument is read as "no --apply", which is the safe way.
+      const apply = parsed.includes("--apply");
       const scopeBank = runtime.context.projectBank;
       if (currentProjectOnly && !scopeBank) {
         ctx.ui.notify("No project bank for this session: nothing to rescan.", "info");
@@ -2531,26 +2534,49 @@ export default function xpiMemo(
       }
       // The guard above guarantees a bank is present when scoping.
       const scope = currentProjectOnly ? (scopeBank ?? undefined) : undefined;
-      // Expire first: a record past its retention window must not be judged
-      // again just because nobody looked at it in time.
-      const purged = runtime.candidates.purgeExpired();
-      // Preview before the walk: the queue composition is cheap to read and
-      // tells the user what this is about to cost, per bank.
-      const preview = previewRescan(runtime.candidates, scope);
       const scopeLabel = currentProjectOnly ? " in this project" : "";
-      ctx.ui.notify(
-        `Rescan preview: ${preview.total} queued${scopeLabel} — ${formatRescanPreview(preview)}`,
-        "info",
-      );
-      const outcome = await rescanPendingCandidates({
-        auditLog: runtime.audit,
-        ...(scope === undefined
+      const scopeOption =
+        scope === undefined
           ? {}
           : {
               bank: scope,
-            }),
+            };
+
+      if (!apply) {
+        // Same preferences, same `admit()`, no writes: the queue keeps its
+        // bytes and the walk never reaches a model.
+        const preview = previewRescan(runtime.candidates, scope);
+        const projection = await rescanPendingCandidates({
+          ...scopeOption,
+          candidates: runtime.candidates,
+          dryRun: true,
+        });
+        ctx.ui.notify(
+          [
+            `Rescan preview: ${projection.total} queued${scopeLabel} — ${formatRescanPreview(preview)}`,
+            `Would store ${projection.stored}, archive ${projection.archived}.`,
+            "No model calls. Each stored candidate then spawns the mnemosyne CLI once, which computes one local embedding.",
+            "Re-run with --apply to execute.",
+          ].join("\n"),
+          "info",
+        );
+        return;
+      }
+
+      // Expire first: a record past its retention window must not be judged
+      // again just because nobody looked at it in time.
+      const purged = runtime.candidates.purgeExpired();
+      const surface = getSurface(ctx);
+      surface.begin("store");
+      const outcome = await rescanPendingCandidates({
+        ...scopeOption,
+        auditLog: runtime.audit,
         candidates: runtime.candidates,
-      });
+        onProgress: (progress) =>
+          surface.progress(
+            `${progress.processed}/${progress.total} · ${progress.stored} stored`,
+          ),
+      }).finally(() => surface.clear());
       const counts = [
         `${outcome.stored} stored`,
         `${outcome.archived} archived`,
@@ -3265,6 +3291,16 @@ export default function xpiMemo(
       ).catch(() => {
         // Extraction failure must not block session shutdown.
       });
+    } else {
+      // A missing progress line is a configuration choice, not a failure. Name
+      // the closed gate where the user would look for the line (task 4.1).
+      const closedGate = config.offlineExtractionEnabled
+        ? "l0Enabled is off"
+        : "offlineExtractionEnabled is false";
+      ctx.ui.notify(
+        `Offline extraction is off (${closedGate}): nothing extracts at session end, so no extraction progress line appears. Turn it on in the /xpi-memo console.`,
+        "info",
+      );
     }
   });
 

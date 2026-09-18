@@ -1078,7 +1078,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     ).toBe(true);
   });
 
-  it("rescans the queue on demand and reports bounded counts", async () => {
+  it("previews the queue on demand and only writes when asked (tasks 1.2, 1.3)", async () => {
     const dataDir = createTemporaryDirectory();
     const statePath = join(dataDir, "candidates.json");
     const stale = {
@@ -1125,7 +1125,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       run: async () => "",
     });
 
-    await commandHandler(commands, "xpi-memo-rescan")("", {
+    const context = {
       cwd: dataDir,
       mode: "rpc",
       ui: {
@@ -1133,13 +1133,28 @@ describe("xpi-memo bootstrap entrypoint", () => {
           notifications.push(message);
         },
       },
-    } as never);
+    } as never;
+    const before = readFileSync(statePath, "utf8");
 
+    // No argument: judged and reported, nothing written.
+    await commandHandler(commands, "xpi-memo-rescan")("", context);
+    const preview = notifications.join("\n");
+    expect(preview).toContain("Rescan preview: 1 queued");
+    expect(preview).toContain("Would store 0, archive 1.");
+    // The cost is stated, because none of it is a model call.
+    expect(preview).toContain("No model calls");
+    expect(preview).toContain("--apply");
+    // Bounded output: counts, never a body.
+    expect(preview).not.toContain(stale.content);
+    expect(readFileSync(statePath, "utf8")).toBe(before);
+
+    // --apply is the run itself: the same numbers, now executed.
+    notifications.length = 0;
+    await commandHandler(commands, "xpi-memo-rescan")("--apply", context);
     const output = notifications.join("\n");
     expect(output).toContain("1 queued candidate");
     expect(output).toContain("0 stored");
     expect(output).toContain("1 archived");
-    // Bounded output: counts, never a body.
     expect(output).not.toContain(stale.content);
     const state = JSON.parse(readFileSync(statePath, "utf8"));
     expect(state.candidates[stale.id].candidate.status).toBe("archived");
@@ -1209,12 +1224,19 @@ describe("xpi-memo bootstrap entrypoint", () => {
       },
     } as never;
 
-    // Without the flag the preview names every bank it would walk.
+    // Without the flag the preview names every bank it would walk, and writes
+    // nothing: a preview that judged would have consumed the queue it describes.
     await commandHandler(commands, "xpi-memo-rescan")("", ctx);
     expect(notifications.join("\n")).toContain("project-rescan-scope (1)");
     expect(notifications.join("\n")).toContain("project-other (1)");
     let state = JSON.parse(readFileSync(statePath, "utf8"));
-    // Both banks were judged: neither is left pending.
+    expect(state.candidates[mine.id].candidate.status).toBe("pending");
+    expect(state.candidates[theirs.id].candidate.status).toBe("pending");
+
+    // --apply walks every bank: neither is left pending.
+    notifications.length = 0;
+    await commandHandler(commands, "xpi-memo-rescan")("--apply", ctx);
+    state = JSON.parse(readFileSync(statePath, "utf8"));
     expect(state.candidates[mine.id].candidate.status).not.toBe("pending");
     expect(state.candidates[theirs.id].candidate.status).not.toBe("pending");
 
@@ -1238,17 +1260,186 @@ describe("xpi-memo bootstrap entrypoint", () => {
     );
     notifications.length = 0;
     await commandHandler(commands, "xpi-memo-rescan")("--current-project", ctx);
-    const scoped = notifications.join("\n");
-    expect(scoped).toContain("in this project");
-    expect(scoped).toContain("project-rescan-scope (1)");
+    const scopedPreview = notifications.join("\n");
+    expect(scopedPreview).toContain("in this project");
+    expect(scopedPreview).toContain("project-rescan-scope (1)");
     // The other bank is not part of this scope and is not even previewed.
-    expect(scoped).not.toContain("project-other");
+    expect(scopedPreview).not.toContain("project-other");
+    state = JSON.parse(readFileSync(statePath, "utf8"));
+    expect(state.candidates[mine.id].candidate.status).toBe("pending");
+    expect(state.candidates[theirs.id].candidate.status).toBe("pending");
+
+    notifications.length = 0;
+    await commandHandler(commands, "xpi-memo-rescan")("--current-project --apply", ctx);
+    const scoped = notifications.join("\n");
+    expect(scoped).toContain("Rescan over 1 queued candidate in this project");
     state = JSON.parse(readFileSync(statePath, "utf8"));
     // Only this project's record left the queue.
     expect(state.candidates[mine.id].candidate.status).not.toBe("pending");
     expect(state.candidates[theirs.id].candidate.status).toBe("pending");
   });
 
+  it("shows the rescan progress line and clears it (tasks 2.1, 2.2)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const statePath = join(dataDir, "candidates.json");
+    const queued = (id: string) => ({
+      conflictState: "none",
+      content: `Body of ${id}`,
+      createdAt: new Date().toISOString(),
+      evidenceSummary: "test",
+      id,
+      kind: "project_decision",
+      rationale: "Proposed by offline extraction.",
+      reason: "project-decision",
+      status: "pending",
+      targetBank: "project-progress",
+      targetScope: "project",
+      evidence: {
+        confidence: 0.9,
+        provenance: "activation:offline-extraction",
+        source: `session:${id}`,
+        timestamp: new Date().toISOString(),
+        type: "l0-conclusion",
+      },
+    });
+    const fixtures = [
+      queued("candidate-progress-1"),
+      queued("candidate-progress-2"),
+      queued("candidate-progress-3"),
+    ];
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        audit: [],
+        candidates: Object.fromEntries(
+          fixtures.map((candidate) => [
+            candidate.id,
+            {
+              candidate,
+              // The rescan writes `stored.operation`, so the fixture needs a
+              // real one: an empty object would fail inside the adapter.
+              operation: {
+                confidence: candidate.evidence.confidence,
+                content: candidate.content,
+                dataDir,
+                kind: candidate.kind,
+                provenance: candidate.evidence.provenance,
+                scope: candidate.targetScope,
+                targetBank: candidate.targetBank,
+                source: {
+                  evidenceType: candidate.evidence.type,
+                  source: candidate.evidence.source,
+                  timestamp: candidate.evidence.timestamp,
+                },
+              },
+            },
+          ]),
+        ),
+        version: 1,
+      }),
+    );
+    const notifications: string[] = [];
+    const widgets: Array<{
+      content: unknown;
+      key: string;
+    }> = [];
+    const progressLines: string[] = [];
+    /** The mnemosyne run is the only moment the walk is observable from here. */
+    const renderMountedWidget = () => {
+      const mounted = widgets
+        .filter(({ content }) => typeof content === "function")
+        .at(-1);
+      if (mounted === undefined) return;
+      const build = mounted.content as (
+        tui: unknown,
+        theme: unknown,
+      ) => {
+        dispose(): void;
+        render(): string[];
+      };
+      const component = build(
+        {
+          requestRender: () => undefined,
+        },
+        {
+          fg: (_color: string, value: string) => value,
+        },
+      );
+      progressLines.push(component.render()[0] ?? "");
+      component.dispose();
+    };
+    const { commands } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => ({
+        id: "rescan-progress",
+        label: "rescan-progress",
+      }),
+      run: async () => {
+        renderMountedWidget();
+        return "Stored: memory-1";
+      },
+    });
+    const context = {
+      cwd: dataDir,
+      mode: "tui",
+      ui: {
+        notify(message: string) {
+          notifications.push(message);
+        },
+        setWidget(key: string, content: unknown) {
+          widgets.push({
+            content,
+            key,
+          });
+        },
+      },
+    } as never;
+
+    await commandHandler(commands, "xpi-memo-rescan")("--apply", context);
+
+    // The line above the editor carries the counts while the walk runs.
+    expect(progressLines.join("\n")).toContain("1/3 · 1 stored");
+    // Then it is gone, and the summary is the durable report.
+    expect(widgets.at(-1)).toEqual({
+      content: undefined,
+      key: "xpi-memo-surface",
+    });
+    expect(notifications.join("\n")).toContain("3 stored");
+  });
+
+  it("names the closed extraction gate instead of leaving the progress line unexplained (task 4.1)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const notifications: string[] = [];
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      resolveProjectIdentity: () => null,
+    });
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!shutdown) throw new Error("hook not registered");
+
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      {
+        cwd: dataDir,
+        mode: "rpc",
+        ui: {
+          notify(message: string) {
+            notifications.push(message);
+          },
+        },
+      },
+    );
+
+    expect(notifications.join("\n")).toContain("offlineExtractionEnabled is false");
+  });
   it("reports nothing to rescan when --current-project has no project", async () => {
     const dataDir = createTemporaryDirectory();
     const notifications: string[] = [];

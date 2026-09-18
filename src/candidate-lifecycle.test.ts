@@ -9,7 +9,31 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * Every state write goes through `writeFileSync(<state>.tmp)` before the
+ * rename, so counting those paths counts whole-file snapshots. The mock keeps
+ * the real implementation and only observes it.
+ */
+const fileWrites = vi.hoisted(() => ({
+  paths: [] as string[],
+}));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    writeFileSync(
+      path: Parameters<typeof actual.writeFileSync>[0],
+      data: Parameters<typeof actual.writeFileSync>[1],
+      options?: Parameters<typeof actual.writeFileSync>[2],
+    ) {
+      fileWrites.paths.push(String(path));
+      return actual.writeFileSync(path, data, options);
+    },
+  };
+});
+
 import { createAuditLog } from "./audit.js";
 import { createCandidateStore } from "./candidate-lifecycle.ts";
 import { DEFAULT_XPI_MEMO_CONFIG, type XpiMemoConfig } from "./config.ts";
@@ -956,5 +980,84 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
       status: "skipped",
     });
     expect(operations).toHaveLength(0);
+  });
+});
+
+describe("candidate store batch writes (rescan tasks 3.1)", () => {
+  function seededStore(dataDir: string) {
+    const { adapter } = createAdapter();
+    const statePath = join(dataDir, "candidates.json");
+    const store = createCandidateStore({
+      adapter,
+      statePath,
+    });
+    const first = createCandidate({
+      id: "candidate-batch-1",
+    });
+    const second = createCandidate({
+      id: "candidate-batch-2",
+    });
+    store.add(first, createOperation());
+    store.add(second, createOperation());
+    return {
+      first,
+      second,
+      statePath,
+      store,
+    };
+  }
+
+  it("collapses a whole walk into one state write", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { first, second, statePath, store } = seededStore(dataDir);
+    fileWrites.paths.length = 0;
+
+    await store.batch(async () => {
+      store.archive(first.id);
+      store.archive(second.id);
+    });
+
+    // Two mutations, one snapshot instead of two.
+    expect(fileWrites.paths).toEqual([
+      `${statePath}.tmp`,
+    ]);
+    expect(store.listArchived().map((candidate) => candidate.id)).toEqual([
+      first.id,
+      second.id,
+    ]);
+  });
+
+  it("still writes what happened when the batched work throws", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { first, statePath, store } = seededStore(dataDir);
+    fileWrites.paths.length = 0;
+
+    await expect(
+      store.batch(async () => {
+        store.archive(first.id);
+        throw new Error("walk failed halfway");
+      }),
+    ).rejects.toThrow("walk failed halfway");
+
+    // A failure half way through must not undo the archive that succeeded.
+    expect(fileWrites.paths).toEqual([
+      `${statePath}.tmp`,
+    ]);
+    const persisted = JSON.parse(readFileSync(statePath, "utf8"));
+    expect(persisted.candidates[first.id].candidate.status).toBe("archived");
+  });
+
+  it("keeps ordinary writes immediate outside a batch", () => {
+    const dataDir = createTemporaryDirectory();
+    const { first, statePath, store } = seededStore(dataDir);
+    fileWrites.paths.length = 0;
+
+    store.archive(first.id);
+
+    expect(fileWrites.paths).toEqual([
+      `${statePath}.tmp`,
+    ]);
+    const persisted = JSON.parse(readFileSync(statePath, "utf8"));
+    expect(persisted.candidates[first.id].candidate.status).toBe("archived");
   });
 });

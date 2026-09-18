@@ -256,3 +256,17 @@ Existing banks under `~/.pi/agent/memoharness/` are not auto-migrated; copy what
 ## Troubleshooting
 
 See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md).
+
+### No extraction progress line above the editor
+The line that says `正在提取记忆候选...` and walks four stages is gated, and both gates are closed the way a fresh install ships:
+
+- **It needs extraction to be on.** Nothing runs unless `offlineExtractionEnabled` **and** `l0Enabled` are both `true`. With either off, the session ends without any extraction, so there is nothing to show; the extension now says so in a one-line notice at session end (`Offline extraction is off (offlineExtractionEnabled is false): ...`).
+- **It needs a surface that survives.** Compaction shows the line inline. Session shutdown starts the same run fire-and-forget, but the widget would land on a context that is already tearing down, so shutdown carries none by design (and a non-TUI session shows none at all).
+
+Open both gates from `/xpi-memo` → **Settings** (`离线提取` / Offline extraction), or in `~/.config/xpi-memo/config.json`:
+
+```json
+{ "offlineExtractionEnabled": true, "l0Enabled": true }
+```
+
+`/xpi-memo-status` echoes both values under `config`, so you can confirm the gate before a long session rather than after it.

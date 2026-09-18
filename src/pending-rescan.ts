@@ -11,11 +11,24 @@ import type { AuditLog } from "./audit.js";
 import type { CandidateStore } from "./candidate-lifecycle.js";
 
 export interface RescanOutcome {
-  /** Records moved out of the queue because the preferences held them back. */
+  /**
+   * Records moved out of the queue because the preferences held them back.
+   * A dry run counts the ones it would move.
+   */
   archived: number;
-  /** Records written to T1. */
+  /** Records written to T1. A dry run counts the ones it would write. */
   stored: number;
   /** Records the rescan looked at. */
+  total: number;
+}
+
+/** Live counters for a `N/M · S stored` line; see `onProgress`. */
+export interface RescanProgress {
+  archived: number;
+  /** Candidates judged so far, of `total`. */
+  processed: number;
+  stored: number;
+  /** Size of the queue this walk started with. */
   total: number;
 }
 
@@ -24,6 +37,15 @@ export interface RescanOptions {
   /** Restrict the rescan to one bank; omitted means every bank. */
   bank?: string;
   candidates: CandidateStore;
+  /**
+   * Judge only (change rescan-visibility-and-throughput, task 1.1). Every
+   * candidate still goes through the same `admit()`, but nothing is written:
+   * no T1 memory, no archive, no audit entry, no state file. `RescanOutcome`
+   * then reads as a projection rather than as a result.
+   */
+  dryRun?: boolean;
+  /** Called after each candidate, so a caller can show progress (task 2.1). */
+  onProgress?: (progress: RescanProgress) => void;
 }
 
 /** What a rescan would look at, per bank: a read, never a judgement. */
@@ -98,27 +120,46 @@ export async function rescanPendingCandidates(
   };
   // Snapshot first: archiving mutates the store during the walk.
   const queued = queuedFor(options.candidates, options.bank);
-  // Sequential by design: every iteration rewrites the candidate state file, so
-  // parallel admits would race on the same file.
-  for (const candidate of queued) {
-    outcome.total += 1;
-    // biome-ignore lint/performance/noAwaitInLoops: sequential by design.
-    const result = await options.candidates.admit(candidate.id);
-    const admitted = result.status === "stored";
-    if (admitted) {
-      outcome.stored += 1;
-    } else {
-      options.candidates.archive(candidate.id);
-      outcome.archived += 1;
+  // Sequential by design: each iteration spawns a mnemosyne process, and the
+  // walk shares one in-memory state, so concurrency would only raise the CPU
+  // peak. The walk also shares one state write (task 3.1) — or none at all when
+  // it is a dry run, which must leave the queue byte-identical.
+  const walk = async (): Promise<void> => {
+    for (const candidate of queued) {
+      outcome.total += 1;
+      // biome-ignore lint/performance/noAwaitInLoops: sequential by design.
+      const result = await options.candidates.admit(candidate.id, {
+        dryRun: options.dryRun,
+      });
+      const admitted = result.status === "stored";
+      if (admitted) {
+        outcome.stored += 1;
+      } else {
+        if (!options.dryRun) options.candidates.archive(candidate.id);
+        outcome.archived += 1;
+      }
+      // Audit entries record what happened; a dry run has nothing to record.
+      if (!options.dryRun)
+        options.auditLog?.record("candidate-rescan", {
+          candidateId: candidate.id,
+          decision: admitted ? "stored" : "archived",
+          kind: candidate.kind,
+          reason: result.reason ?? "admitted",
+          scope: candidate.targetScope,
+          status: result.status,
+        });
+      options.onProgress?.({
+        archived: outcome.archived,
+        processed: outcome.total,
+        stored: outcome.stored,
+        total: queued.length,
+      });
     }
-    options.auditLog?.record("candidate-rescan", {
-      candidateId: candidate.id,
-      decision: admitted ? "stored" : "archived",
-      kind: candidate.kind,
-      reason: result.reason ?? "admitted",
-      scope: candidate.targetScope,
-      status: result.status,
-    });
+  };
+  if (options.dryRun) {
+    await walk();
+  } else {
+    await options.candidates.batch(walk);
   }
   return outcome;
 }

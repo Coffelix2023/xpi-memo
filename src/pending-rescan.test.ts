@@ -2,7 +2,7 @@
  * Pending-candidate rescan acceptance (change
  * admission-preferences-and-pending-rescan, tasks 4.1-4.4).
  */
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,6 +17,7 @@ import type { PendingCandidate } from "./pending-candidate.js";
 import {
   formatRescanPreview,
   previewRescan,
+  type RescanProgress,
   rescanPendingCandidates,
 } from "./pending-rescan.js";
 
@@ -423,5 +424,152 @@ describe("pending candidate rescan", () => {
       total: 0,
     });
     expect(formatRescanPreview(preview)).toBe("");
+  });
+
+  it("dry-runs the judgement without moving a byte (task 1.1)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const statePath = join(dataDir, "candidates.json");
+    const auditPath = join(dataDir, "audit.json");
+    const { adapter, operations } = createAdapter();
+    const store = createCandidateStore({
+      adapter,
+      statePath,
+    });
+    const admitted = createCandidate({
+      id: "candidate-dry-kept",
+      targetBank: "project-a",
+    });
+    const stale = createCandidate({
+      createdAt: "2020-01-01T00:00:00.000Z",
+      id: "candidate-dry-dropped",
+      targetBank: "project-b",
+    });
+    store.add(admitted, createOperation(admitted));
+    store.add(stale, createOperation(stale));
+    const before = readFileSync(statePath, "utf8");
+
+    const projection = await rescanPendingCandidates({
+      auditLog: createAuditLog({
+        statePath: auditPath,
+      }),
+      candidates: store,
+      dryRun: true,
+    });
+
+    // The same judgement a real run makes; only the effects are missing.
+    expect(projection).toEqual({
+      archived: 1,
+      stored: 1,
+      total: 2,
+    });
+    expect(readFileSync(statePath, "utf8")).toBe(before);
+    expect(existsSync(auditPath)).toBe(false);
+    expect(operations).toHaveLength(0);
+    expect(store.list()).toHaveLength(2);
+    expect(store.listArchived()).toEqual([]);
+
+    // Nothing was consumed: the real run still finds the whole queue.
+    expect(
+      await rescanPendingCandidates({
+        candidates: store,
+      }),
+    ).toEqual(projection);
+    expect(operations).toHaveLength(1);
+    expect(store.listArchived().map((candidate) => candidate.id)).toEqual([
+      stale.id,
+    ]);
+  });
+
+  it("reports progress after every candidate (task 2.1)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const statePath = join(dataDir, "candidates.json");
+    const { adapter } = createAdapter();
+    const store = createCandidateStore({
+      adapter,
+      statePath,
+    });
+    const fixtures = [
+      createCandidate({
+        id: "candidate-progress-1",
+      }),
+      createCandidate({
+        createdAt: "2020-01-01T00:00:00.000Z",
+        id: "candidate-progress-2",
+      }),
+      createCandidate({
+        id: "candidate-progress-3",
+      }),
+    ];
+    for (const candidate of fixtures) store.add(candidate, createOperation(candidate));
+    const updates: RescanProgress[] = [];
+
+    await rescanPendingCandidates({
+      candidates: store,
+      onProgress: (update) => updates.push(update),
+    });
+
+    expect(updates).toEqual([
+      {
+        archived: 0,
+        processed: 1,
+        stored: 1,
+        total: 3,
+      },
+      {
+        archived: 1,
+        processed: 2,
+        stored: 1,
+        total: 3,
+      },
+      {
+        archived: 1,
+        processed: 3,
+        stored: 2,
+        total: 3,
+      },
+    ]);
+  });
+
+  it("writes the queue once for the whole walk, not once per candidate (task 3.1)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const statePath = join(dataDir, "candidates.json");
+    const { adapter } = createAdapter();
+    const seen = {
+      duringWalk: [] as string[],
+    };
+    const store = createCandidateStore({
+      adapter,
+      commit: async () => {
+        // Every write is deferred to the end of the walk, so the file still
+        // holds every candidate while the walk is running.
+        seen.duringWalk.push(readFileSync(statePath, "utf8"));
+        return {
+          memoryId: "memory-1",
+          status: "stored",
+        };
+      },
+      statePath,
+    });
+    const first = createCandidate({
+      id: "candidate-batch-1",
+    });
+    const second = createCandidate({
+      id: "candidate-batch-2",
+    });
+    store.add(first, createOperation(first));
+    store.add(second, createOperation(second));
+    const before = readFileSync(statePath, "utf8");
+
+    await rescanPendingCandidates({
+      candidates: store,
+    });
+
+    expect(seen.duringWalk).toEqual([
+      before,
+      before,
+    ]);
+    // One snapshot at the end holds both admissions.
+    expect(store.list()).toEqual([]);
+    expect(JSON.parse(readFileSync(statePath, "utf8")).candidates).toEqual({});
   });
 });

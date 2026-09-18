@@ -60,6 +60,16 @@ export interface CandidateLifecycleResult {
   status: "conflict" | "rejected" | "skipped" | "stored" | "unresolved";
 }
 
+/**
+ * `dryRun` answers the admission question — `stored` or `skipped` — without
+ * writing anything: no T1 write, no L0 event, no state file. Verification only
+ * enriches evidence, so skipping it changes no outcome
+ * (change rescan-visibility-and-throughput, task 1.1).
+ */
+export interface AdmitOptions {
+  dryRun?: boolean;
+}
+
 export interface CandidateStore {
   add(
     candidate: PendingCandidate,
@@ -71,12 +81,19 @@ export interface CandidateStore {
    * Returns `stored` for auto-stored candidates, `skipped` (pending or
    * shadow-verified) otherwise; the candidate is never lost.
    */
-  admit(candidateId: string): Promise<CandidateLifecycleResult>;
+  admit(candidateId: string, options?: AdmitOptions): Promise<CandidateLifecycleResult>;
   /**
    * Move a candidate out of the review queue without losing it: the record
    * keeps its content and gets a retention deadline.
    */
   archive(candidateId: string): CandidateLifecycleResult;
+  /**
+   * Coalesce the state writes inside `run` into one at the end
+   * (rescan-visibility-and-throughput, task 3.1). The walk stays in memory and
+   * the file is written from `finally`, so a throw still persists what already
+   * happened. Nested calls join the outermost batch.
+   */
+  batch<T>(run: () => Promise<T>): Promise<T>;
   confirm(candidateId: string): Promise<CandidateLifecycleResult>;
   correct(
     candidateId: string,
@@ -284,6 +301,36 @@ export function createCandidateStore({
 }: CreateCandidateStoreOptions): CandidateStore {
   const state = loadState(statePath);
 
+  // ponytail: one flag, not a write queue. Every mutation is a whole-file
+  // snapshot, so the only thing a batch saves is the number of stringify+rename
+  // passes. Ceiling: the state lives in memory only until the batch closes.
+  let batching = false;
+  let writePending = false;
+
+  /** One file write, or a promise to make one when the batch closes. */
+  function persistState(): void {
+    if (batching) {
+      writePending = true;
+      return;
+    }
+    saveState(statePath, state);
+  }
+
+  async function batch<T>(run: () => Promise<T>): Promise<T> {
+    const outermost = !batching;
+    batching = true;
+    try {
+      return await run();
+    } finally {
+      if (outermost) {
+        batching = false;
+        if (writePending) {
+          writePending = false;
+          saveState(statePath, state);
+        }
+      }
+    }
+  }
   function add(
     candidate: PendingCandidate,
     operation: T1MemoryOperation,
@@ -301,7 +348,7 @@ export function createCandidateStore({
       candidate,
       operation,
     };
-    saveState(statePath, state);
+    persistState();
     return {
       status: "stored",
     };
@@ -386,7 +433,7 @@ export function createCandidateStore({
     }
     delete state.candidates[candidateId];
     audit(state, "candidate-confirmed", candidateId);
-    saveState(statePath, state);
+    persistState();
     return {
       ...(outcome.memoryId
         ? {
@@ -408,7 +455,10 @@ export function createCandidateStore({
    * 3. verification — evidence enrichment only; a failure no longer gates.
    * 4. write, or leave the candidate in the review queue.
    */
-  async function admit(candidateId: string): Promise<CandidateLifecycleResult> {
+  async function admit(
+    candidateId: string,
+    options: AdmitOptions = {},
+  ): Promise<CandidateLifecycleResult> {
     const stored = state.candidates[candidateId];
     if (!stored) return notFound();
     const candidate = stored.candidate;
@@ -417,14 +467,15 @@ export function createCandidateStore({
     // 1. Hard rails.
     const rail = hardRailReason(candidate);
     if (rail) {
-      l0?.recordSafe("candidate_refused", {
-        bank: candidate.targetBank,
-        candidateId,
-        decision: "refused",
-        kind: candidate.kind,
-        reason: rail,
-        scope: candidate.targetScope,
-      });
+      if (!options.dryRun)
+        l0?.recordSafe("candidate_refused", {
+          bank: candidate.targetBank,
+          candidateId,
+          decision: "refused",
+          kind: candidate.kind,
+          reason: rail,
+          scope: candidate.targetScope,
+        });
       return {
         reason: rail,
         status: "rejected",
@@ -451,20 +502,29 @@ export function createCandidateStore({
     }
     if (blocked) {
       // Not admitted, not lost: the candidate stays for review with a bounded
-      // reason on the trace.
-      l0?.recordSafe("candidate_held", {
-        bank: candidate.targetBank,
-        candidateId,
-        decision: "pending",
-        kind: candidate.kind,
-        reason: blocked,
-        scope: candidate.targetScope,
-      });
+      // reason on the trace. A dry run reports that reason without recording it.
+      if (!options.dryRun)
+        l0?.recordSafe("candidate_held", {
+          bank: candidate.targetBank,
+          candidateId,
+          decision: "pending",
+          kind: candidate.kind,
+          reason: blocked,
+          scope: candidate.targetScope,
+        });
       return {
         reason: blocked,
         status: "skipped",
       };
     }
+    // A dry run stops here. The judgment above is the whole answer: the write,
+    // the verification and the audit are effects, and a preview has none of them.
+    // Verification only enriches evidence, so skipping it decides nothing.
+    if (options.dryRun)
+      return {
+        reason: "admitted",
+        status: "stored",
+      };
 
     // 3. Verification is enrichment, not a gate: run it only for kinds that
     //    have a verifier, and keep going either way.
@@ -561,7 +621,7 @@ export function createCandidateStore({
     if (!stored) return notFound();
     delete state.candidates[candidateId];
     audit(state, "candidate-rejected", candidateId);
-    saveState(statePath, state);
+    persistState();
     return {
       reason: "user-rejected-candidate",
       status: "rejected",
@@ -586,7 +646,7 @@ export function createCandidateStore({
     await adapter.store(operation);
     delete state.candidates[candidateId];
     audit(state, "candidate-corrected", candidateId);
-    saveState(statePath, state);
+    persistState();
     return {
       status: "stored",
     };
@@ -600,7 +660,7 @@ export function createCandidateStore({
       conflictState: "reported",
     };
     audit(state, "conflict-reported", candidateId);
-    saveState(statePath, state);
+    persistState();
     return {
       reason: "candidate-conflict-reported",
       status: "conflict",
@@ -625,7 +685,7 @@ export function createCandidateStore({
       status: ARCHIVED_STATUS,
     };
     audit(state, "candidate-archived", candidateId);
-    saveState(statePath, state);
+    persistState();
     return {
       reason: "candidate-archived",
       status: "skipped",
@@ -646,7 +706,7 @@ export function createCandidateStore({
       status: "pending",
     };
     audit(state, "candidate-restored", candidateId);
-    saveState(statePath, state);
+    persistState();
     return {
       reason: "candidate-restored",
       status: "skipped",
@@ -667,7 +727,7 @@ export function createCandidateStore({
       audit(state, "candidate-archive-purged", id);
       delete state.candidates[id];
     }
-    saveState(statePath, state);
+    persistState();
     return removed;
   }
 
@@ -675,6 +735,7 @@ export function createCandidateStore({
     add,
     admit,
     archive,
+    batch,
     confirm,
     correct,
     list,

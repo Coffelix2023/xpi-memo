@@ -104,6 +104,16 @@ Environment variables:
 - `XPI_MEMO_EVENT_PRESENTATION` = `true|false` (default `true`; `false` silences footer/status lifecycle events)
 - `XPI_MEMO_PASSIVE_FEEDBACK` = `true|false` (default `true`; `false` stops passive usage-feedback writes)
 
+
+### No extraction progress line?
+
+Offline extraction is gated and ships **off**. Nothing extracts unless `offlineExtractionEnabled` and `l0Enabled` are both `true`, and the progress line only exists while extraction runs, so a default install never shows one. Turn both on in `/xpi-memo` → Settings, or set them in the config file:
+
+```json
+{ "offlineExtractionEnabled": true, "l0Enabled": true }
+```
+
+Session end now names the closed gate instead of staying silent. [GUIDE.md § No extraction progress line](./GUIDE.md#no-extraction-progress-line-above-the-editor) has the full walk-through.
 See [GUIDE.md](./GUIDE.md) for the full config table with defaults and effects.
 
 ## Development
