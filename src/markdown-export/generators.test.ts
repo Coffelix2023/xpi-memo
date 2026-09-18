@@ -85,6 +85,10 @@ describe("transformer", () => {
       assistant_message: {
         text: "done",
       },
+      candidate_auto_admitted: {
+        candidateId: "c1",
+        kind: "project_gene",
+      },
       candidate_auto_verified: {
         candidateId: "c1",
         filePath: "AGENTS.md",
@@ -98,6 +102,16 @@ describe("transformer", () => {
         content: "draft",
         kind: "global_preference",
         reason: "high-impact",
+      },
+      candidate_held: {
+        candidateId: "c1",
+        kind: "project_decision",
+        reason: "stale-candidate",
+      },
+      candidate_refused: {
+        candidateId: "c1",
+        kind: "project_decision",
+        reason: "unresolved-conflict",
       },
       candidate_rejected: {
         candidateId: "c1",

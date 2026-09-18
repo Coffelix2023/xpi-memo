@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createAuditLog } from "./audit.js";
 import { createCandidateStore } from "./candidate-lifecycle.js";
+import { DEFAULT_XPI_MEMO_CONFIG } from "./config.js";
 import {
   createExtractionBudgetLedger,
   type ExtractionBudgetLimits,
@@ -50,8 +51,14 @@ function governanceRuntime(
   const audit = createAuditLog({
     statePath: join(dataDir, "audit.json"),
   });
+  const config = {
+    ...DEFAULT_XPI_MEMO_CONFIG,
+    dataDir,
+    paused,
+  };
   const candidates = createCandidateStore({
     adapter: adapter(stored),
+    config,
     statePath: join(dataDir, "candidates.json"),
   });
   const l0 = createL0Coordinator({
@@ -66,10 +73,7 @@ function governanceRuntime(
     adapter: adapter(stored),
     audit,
     candidates,
-    config: {
-      dataDir,
-      paused,
-    },
+    config,
     context: {
       dataDir,
       projectBank,
@@ -249,7 +253,7 @@ describe("offline extraction governance (task 3.2)", () => {
     expect(runtime.candidates.list()).toHaveLength(1);
   });
 
-  it("routes a global preference to the candidate queue (not direct storage)", async () => {
+  it("stores a global preference directly under the default preference", async () => {
     const dataDir = temporaryDirectory();
     const stored: T1MemoryOperation[] = [];
     const runtime = governanceRuntime(dataDir, stored);
@@ -267,11 +271,11 @@ describe("offline extraction governance (task 3.2)", () => {
     expect(results).toMatchObject([
       {
         kind: "global_preference",
-        status: "candidate",
+        status: "stored",
       },
     ]);
-    expect(stored).toHaveLength(0);
-    expect(runtime.candidates.list()).toHaveLength(1);
+    expect(stored).toHaveLength(1);
+    expect(runtime.candidates.list()).toHaveLength(0);
   });
 
   it("rejects prohibited content without storing or candidating it", async () => {
@@ -325,7 +329,7 @@ describe("offline extraction governance (task 3.2)", () => {
     expect(runtime.candidates.list()).toHaveLength(0);
   });
 
-  it("queues a project decision as a candidate when project context exists", async () => {
+  it("stores a project decision directly when project context exists", async () => {
     const dataDir = temporaryDirectory();
     const stored: T1MemoryOperation[] = [];
     const runtime = governanceRuntime(dataDir, stored, "project-demo");
@@ -343,11 +347,11 @@ describe("offline extraction governance (task 3.2)", () => {
     expect(results).toMatchObject([
       {
         kind: "project_decision",
-        status: "candidate",
+        status: "stored",
       },
     ]);
-    expect(stored).toHaveLength(0);
-    expect(runtime.candidates.list()).toHaveLength(1);
+    expect(stored).toHaveLength(1);
+    expect(runtime.candidates.list()).toHaveLength(0);
   });
 
   it("records rejection for a project kind when the project bank cannot be created", async () => {

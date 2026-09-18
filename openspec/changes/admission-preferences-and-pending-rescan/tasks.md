@@ -1,17 +1,17 @@
 ## 1. 配置与偏好解析
 
-- [ ] 1.1 在 `config.ts` 定义 `admissionPreferences`（kinds / minConfidence / evidenceFloor / sourceScope / maxAgeDays）与归档保留期的默认值、类型、`WRITABLE_KEYS` 与 `ENV_KEYS` 条目；验证 `pnpm test src/config.test.ts` 覆盖默认值与环境变量覆盖
-- [ ] 1.2 在 `kind-routing.ts` 导出偏好解析，按 kill switch → 显式环境变量 → 配置文件 → kind 默认策略四级顺序解析，并让 `autoAdmitEnabled` 复用同一解析；验证 `pnpm test src/kind-routing.test.ts` 的四级优先级用例通过
-- [ ] 1.3 让非法偏好取值回退到该字段默认值并进入 `ignoredKeys`，不因单个非法键拒绝整份配置；验证 `pnpm test src/config.test.ts` 新增的非法值用例通过
-- [ ] 1.4 把 kind 默认策略改为自动准入（`KIND_ADMISSION_POLICIES` 保留为偏好缺省值来源）；验证 `pnpm test src/kind-routing.test.ts src/auto-admission.integration.test.ts` 全绿
+- [x] 1.1 在 `config.ts` 定义 `admissionPreferences`（kinds / minConfidence / evidenceFloor / sourceScope / maxAgeDays）与归档保留期的默认值、类型、`WRITABLE_KEYS` 与 `ENV_KEYS` 条目；验证 `pnpm test src/config.test.ts` 覆盖默认值与环境变量覆盖
+- [x] 1.2 在 `kind-routing.ts` 导出偏好解析，按 kill switch → 显式环境变量 → 配置文件 → kind 默认策略四级顺序解析，并让 `autoAdmitEnabled` 复用同一解析；验证 `pnpm test src/kind-routing.test.ts` 的四级优先级用例通过
+- [x] 1.3 让非法偏好取值回退到该字段默认值并进入 `ignoredKeys`，不因单个非法键拒绝整份配置；验证 `pnpm test src/config.test.ts` 新增的非法值用例通过
+- [x] 1.4 把 kind 默认策略改为自动准入（`KIND_ADMISSION_POLICIES` 保留为偏好缺省值来源）；验证 `pnpm test src/kind-routing.test.ts src/auto-admission.integration.test.ts` 全绿
 
 ## 2. 准入判定链
 
-- [ ] 2.1 在 `admit()` 内插入硬底线判定（内容策略、未解冲突、空内容），命中即拒绝且不进入偏好判定；验证 `pnpm test src/candidate-lifecycle.test.ts` 新增用例证明全自动偏好也无法放行
-- [ ] 2.2 插入纯内存的偏好判定（kind 启用、置信度、来源范围、时效窗口），早于仓库事实验证执行；验证新增用例覆盖每一项拒绝路径
-- [ ] 2.3 把仓库事实验证的结论从准入条件改为证据增强：验证失败、缺少声明、工具不可用都不再阻止准入；验证 `pnpm test src/candidate-lifecycle.test.ts src/auto-admission.integration.test.ts src/tool-verification.test.ts`
-- [ ] 2.4 让未升级的 `l0-conclusion` 也可按偏好准入（证据类型不再是必要条件），同时保留 `l0-conclusion` → `verified-repository-fact` 的白名单升级路径；验证 `pnpm test src/evidence-upgrade.test.ts`
-- [ ] 2.5 为自动准入的写入在 audit 与 L0 上记录可筛的 `auto` 决定标记；验证新增断言检查标记存在且不含候选正文
+- [x] 2.1 在 `admit()` 内插入硬底线判定（内容策略、未解冲突、空内容），命中即拒绝且不进入偏好判定；验证 `pnpm test src/candidate-lifecycle.test.ts` 新增用例证明全自动偏好也无法放行
+- [x] 2.2 插入纯内存的偏好判定（kind 启用、置信度、来源范围、时效窗口），早于仓库事实验证执行；验证新增用例覆盖每一项拒绝路径
+- [x] 2.3 把仓库事实验证的结论从准入条件改为证据增强：验证失败、缺少声明、工具不可用都不再阻止准入；验证 `pnpm test src/candidate-lifecycle.test.ts src/auto-admission.integration.test.ts src/tool-verification.test.ts`
+- [x] 2.4 让未升级的 `l0-conclusion` 也可按偏好准入（证据类型不再是必要条件），同时保留 `l0-conclusion` → `verified-repository-fact` 的白名单升级路径；验证 `pnpm test src/evidence-upgrade.test.ts`
+- [x] 2.5 为自动准入的写入在 audit 与 L0 上记录可筛的 `auto` 决定标记；验证新增断言检查标记存在且不含候选正文
 
 ## 3. 归档与到期清理
 

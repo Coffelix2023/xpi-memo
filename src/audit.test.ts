@@ -39,6 +39,7 @@ describe("bounded T1 audit metadata", () => {
       "extraction",
       "tool-verified",
       "tool-verification-failed",
+      "candidate-auto-admitted",
     ]);
   });
   it("serializes tool-verified verification evidence (task 7.1)", () => {

@@ -241,8 +241,9 @@ describe("offline extraction auto-admission (tasks 9.1-9.4)", () => {
     expect(readCandidates(setup.candidatesPath)).toHaveLength(0);
   });
 
-  it("keeps the candidate pending when XPI_MEMO_AUTO_ADMIT=false overrides the config default (stabilize 2.1/4.2)", async () => {
+  it("holds every candidate when XPI_MEMO_AUTO_ADMIT=false overrides the config default", async () => {
     const setup = createRuntime({
+      autoAdmit: false,
       verifiers: new Map([
         [
           "project_gene",
@@ -267,17 +268,16 @@ describe("offline extraction auto-admission (tasks 9.1-9.4)", () => {
       status: "candidate",
     });
     expect(setup.stored).toHaveLength(0);
-    // The shadow outcome is audited with bounded evidence, not silently skipped.
-    const entry = findAudit(setup.auditPath, "tool-verified");
-    expect(entry?.metadata.status).toBe("shadow");
-    expect(entry?.metadata.decision).toBe("shadow-verified");
+    // The candidate is held before verification runs, so no verification
+    // result is recorded either.
+    expect(findAudit(setup.auditPath, "tool-verified")).toBeUndefined();
     // The candidate survives for manual Store/Later/Reject.
     expect(readCandidates(setup.candidatesPath)).toHaveLength(1);
   });
 
-  it("keeps a gene proposal pending when it has no repository-fact declaration (stabilize 4.2)", async () => {
-    // Real verifier (no mocks): a proposal without a declaration is not
-    // verifiable and must land in the review queue.
+  it("admits a gene proposal that has no repository-fact declaration", async () => {
+    // Real verifier (no mocks): a proposal without a declaration cannot be
+    // verified, and the default preference admits it anyway.
     const setup = createRuntime({
       verifiers: VERIFIERS,
     });
@@ -291,16 +291,17 @@ describe("offline extraction auto-admission (tasks 9.1-9.4)", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
-      status: "candidate",
+      status: "stored",
     });
-    expect(readCandidates(setup.candidatesPath)).toHaveLength(1);
-    expect(setup.stored).toHaveLength(0);
+    expect(readCandidates(setup.candidatesPath)).toHaveLength(0);
+    expect(setup.stored).toHaveLength(1);
+    // The unverifiable declaration is still visible on the audit trail.
     expect(
       findAudit(setup.auditPath, "tool-verification-failed")?.metadata.reason,
     ).toBe("no-declaration");
   });
 
-  it("queues a gene proposal whose tool verification failed (task 9.2)", async () => {
+  it("admits a gene proposal whose tool verification failed (task 9.2)", async () => {
     const setup = createRuntime({
       verifiers: new Map([
         [
@@ -322,17 +323,16 @@ describe("offline extraction auto-admission (tasks 9.1-9.4)", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
-      status: "candidate",
+      status: "stored",
     });
-    // The candidate survived in candidates.json with its original evidence.
-    const pending = readCandidates(setup.candidatesPath);
-    expect(pending).toHaveLength(1);
-    expect(pending[0]?.candidate.evidence.type).toBe("l0-conclusion");
+    // No upgrade without a passing verification, but the write still happens.
+    expect(setup.stored).toHaveLength(1);
+    expect(setup.stored[0]?.source.evidenceType).toBe("l0-conclusion");
+    expect(readCandidates(setup.candidatesPath)).toHaveLength(0);
     // audit.json records why verification failed.
     expect(
       findAudit(setup.auditPath, "tool-verification-failed")?.metadata.reason,
     ).toBe("no-match");
-    expect(setup.stored).toHaveLength(0);
   });
 
   it("skips tool verification for decision proposals (task 9.3)", async () => {
@@ -356,10 +356,10 @@ describe("offline extraction auto-admission (tasks 9.1-9.4)", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
-      status: "candidate",
+      status: "stored",
     });
-    expect(readCandidates(setup.candidatesPath)).toHaveLength(1);
-    expect(setup.stored).toHaveLength(0);
+    expect(readCandidates(setup.candidatesPath)).toHaveLength(0);
+    expect(setup.stored).toHaveLength(1);
     expect(findAudit(setup.auditPath, "tool-verified")).toBeUndefined();
   });
 

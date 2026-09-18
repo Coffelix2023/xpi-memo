@@ -120,10 +120,16 @@ function prose(event: L0Event, filters: ExportFilters): string {
       return `Memory candidate created [${text(payload.kind)}]: ${text(payload.content ?? payload.reason)}`;
     case "candidate_auto_verified":
       return `Memory candidate auto-verified [${text(payload.kind)}]: ${text(payload.filePath)}`;
+    case "candidate_auto_admitted":
+      return `Memory candidate auto-admitted [${text(payload.kind)}]`;
     case "candidate_confirmed":
       return `Memory candidate confirmed [${text(payload.kind)}]`;
     case "candidate_rejected":
       return `Memory candidate rejected [${text(payload.kind)}]: ${text(payload.reason)}`;
+    case "candidate_held":
+      return `Memory candidate held for review [${text(payload.kind)}]: ${text(payload.reason)}`;
+    case "candidate_refused":
+      return `Memory candidate refused by a hard rail [${text(payload.kind)}]: ${text(payload.reason)}`;
     case "tool_verification_failed":
       return `Memory tool verification failed [${text(payload.kind)}]: ${text(payload.reason)}`;
     case "tool_verification_shadow":

@@ -11,8 +11,13 @@ import { dirname } from "node:path";
 import type { AuditLog } from "./audit.js";
 import { DEFAULT_XPI_MEMO_CONFIG, type XpiMemoConfig } from "./config.js";
 import { classifyProhibitedContent } from "./content-policy.js";
+import type { EvidenceRecord } from "./evidence.js";
 import { upgradeEvidence } from "./evidence-upgrade.js";
-import { autoAdmitEnabled } from "./kind-routing.js";
+import {
+  type AdmissionPreferences,
+  admissionPreferences,
+  autoAdmitEnabled,
+} from "./kind-routing.js";
 import type { MemoryKind } from "./kinds.js";
 import type { L0Event, L0EventType } from "./l0/types.js";
 import type { MnemosyneAdapter, T1MemoryOperation } from "./operations.js";
@@ -85,6 +90,8 @@ interface CreateCandidateStoreOptions {
   }>;
   /** Loaded config; its `autoAdmit` decides when the env var is unset. */
   config?: XpiMemoConfig;
+  /** Current project bank, for the `current-project` source scope. */
+  currentProjectBank?: string | null;
   /** Admission-policy env override (XPI_MEMO_AUTO_VERIFY); defaults to process.env. */
   env?: NodeJS.ProcessEnv;
   /** L0 recorder for auto-verification events (task 5.3); optional, fail-open. */
@@ -170,11 +177,72 @@ function notFound(): CandidateLifecycleResult {
   };
 }
 
+/**
+ * Hard rails (change admission-preferences-and-pending-rescan, design
+ * Decision 1): never configurable, and checked before any preference so a
+ * liberal setting cannot let them through. Returns the blocking reason, or
+ * `null` when the candidate passes.
+ */
+function hardRailReason(candidate: PendingCandidate): string | null {
+  if (candidate.content.trim().length === 0) return "empty-content";
+  const classification = classifyProhibitedContent({
+    content: candidate.content,
+  });
+  if (classification) return `prohibited-content:${classification}`;
+  if (candidate.conflictState !== "none") return "unresolved-conflict";
+  return null;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Whether `createdAt` is older than `maxAgeDays`. An unparseable timestamp
+ * counts as fresh: the age window exists to skip stale candidates, and a
+ * malformed date is no evidence of staleness.
+ */
+function olderThanDays(createdAt: string, maxAgeDays: number, now: Date): boolean {
+  const created = Date.parse(createdAt);
+  if (Number.isNaN(created)) return false;
+  return now.getTime() - created > maxAgeDays * MS_PER_DAY;
+}
+
+/**
+ * The preference half of the admission decision: pure in-memory checks, no
+ * file read and no tool call. Returns the blocking reason, or `null` when the
+ * candidate may enter T1.
+ */
+function preferenceBlockReason(input: {
+  candidate: PendingCandidate;
+  currentProjectBank: string | null;
+  evidenceType: EvidenceRecord["type"];
+  now: Date;
+  preferences: AdmissionPreferences;
+}): string | null {
+  const { candidate, currentProjectBank, evidenceType, preferences } = input;
+  const { confidence } = candidate.evidence;
+  if (typeof confidence === "number" && confidence < preferences.minConfidence)
+    return "below-min-confidence";
+  if (
+    preferences.sourceScope === "current-project" &&
+    (currentProjectBank === null || candidate.targetBank !== currentProjectBank)
+  )
+    return "outside-source-scope";
+  if (olderThanDays(candidate.createdAt, preferences.maxAgeDays, input.now))
+    return "stale-candidate";
+  if (
+    preferences.evidenceFloor === "repository-fact" &&
+    evidenceType !== "verified-repository-fact"
+  )
+    return "below-evidence-floor";
+  return null;
+}
+
 export function createCandidateStore({
   adapter,
   auditLog,
   beforeStore,
   commit,
+  currentProjectBank,
   config,
   env,
   l0,
@@ -289,62 +357,113 @@ export function createCandidateStore({
   }
 
   /**
-   * Single admission decision (change stabilize-candidate-auto-admission):
-   * verify a pending candidate through its kind policy, upgrade its evidence
-   * only along the sanctioned path, and store only under the explicit
-   * rollout. Anything else (policy skip, verification failure, shadow mode,
-   * persistence failure) leaves the candidate pending with its original
-   * evidence.
+   * Single admission decision (change admission-preferences-and-pending-rescan,
+   * design Decision 1). The order is fixed and deliberate:
+   *
+   * 1. hard rails — content policy, unresolved conflict, empty content. Never
+   *    configurable, and first so a liberal preference cannot pass them.
+   * 2. preferences — pure in-memory checks, run before any file or tool access
+   *    so the default liberal path skips verification it does not need.
+   * 3. verification — evidence enrichment only; a failure no longer gates.
+   * 4. write, or leave the candidate in the review queue.
    */
   async function admit(candidateId: string): Promise<CandidateLifecycleResult> {
     const stored = state.candidates[candidateId];
     if (!stored) return notFound();
-    // Kind policy first (t1-governance decision order): accumulate and
-    // manual-confirm kinds never reach the verifier.
+    const candidate = stored.candidate;
+    const loadedConfig = config ?? DEFAULT_XPI_MEMO_CONFIG;
+
+    // 1. Hard rails.
+    const rail = hardRailReason(candidate);
+    if (rail) {
+      l0?.recordSafe("candidate_refused", {
+        bank: candidate.targetBank,
+        candidateId,
+        decision: "refused",
+        kind: candidate.kind,
+        reason: rail,
+        scope: candidate.targetScope,
+      });
+      return {
+        reason: rail,
+        status: "rejected",
+      };
+    }
+
+    // 2. Preferences. The rollout switch and the per-kind switch resolve
+    //    together in `autoAdmitEnabled` (kill switch → env → config → kind).
+    // `paused` is a runtime gate that outranks every preference: while memory
+    // work is stopped, nothing is admitted automatically.
+    let blocked: string | null;
+    if (loadedConfig.paused) {
+      blocked = "paused";
+    } else if (!autoAdmitEnabled(loadedConfig, env, candidate.kind)) {
+      blocked = "auto-admit-disabled";
+    } else {
+      blocked = preferenceBlockReason({
+        candidate,
+        currentProjectBank: currentProjectBank ?? null,
+        evidenceType: candidate.evidence.type,
+        now: new Date(),
+        preferences: admissionPreferences(loadedConfig),
+      });
+    }
+    if (blocked) {
+      // Not admitted, not lost: the candidate stays for review with a bounded
+      // reason on the trace.
+      l0?.recordSafe("candidate_held", {
+        bank: candidate.targetBank,
+        candidateId,
+        decision: "pending",
+        kind: candidate.kind,
+        reason: blocked,
+        scope: candidate.targetScope,
+      });
+      return {
+        reason: blocked,
+        status: "skipped",
+      };
+    }
+
+    // 3. Verification is enrichment, not a gate: run it only for kinds that
+    //    have a verifier, and keep going either way.
     const verification = await verifyCandidateIfNeeded(
       {
-        content: stored.candidate.content,
-        kind: stored.candidate.kind,
-        repositoryFact: stored.candidate.repositoryFact,
+        content: candidate.content,
+        kind: candidate.kind,
+        repositoryFact: candidate.repositoryFact,
       },
       {
         env,
         verifiers,
       },
     );
-    if (verification.status !== "verified") {
-      if (verification.status === "failed") {
-        // Spec (t1-governance): failed verification is visible in the L0
-        // trace; the candidate itself stays pending for manual review.
-        l0?.recordSafe("tool_verification_failed", {
-          bank: stored.candidate.targetBank,
-          candidateId,
-          decision: "pending",
-          kind: stored.candidate.kind,
-          reason: verification.reason,
-          scope: stored.candidate.targetScope,
-        });
-        auditLog?.record("tool-verification-failed", {
-          candidateId,
-          decision: "pending",
-          kind: stored.candidate.kind,
-          reason: verification.reason,
-          scope: stored.candidate.targetScope,
-        });
-      }
-      return {
+    if (verification.status === "failed") {
+      // Visible on both traces, and no longer a reason to hold the candidate:
+      // the preference decision above already admitted it.
+      l0?.recordSafe("tool_verification_failed", {
+        bank: candidate.targetBank,
+        candidateId,
+        decision: "auto-admitted",
+        kind: candidate.kind,
         reason: verification.reason,
-        status: "skipped",
-      };
+        scope: candidate.targetScope,
+      });
+      auditLog?.record("tool-verification-failed", {
+        candidateId,
+        decision: "auto-admitted",
+        kind: candidate.kind,
+        reason: verification.reason,
+        scope: candidate.targetScope,
+      });
     }
-    // Evidence upgrade guard (task 2.4): only l0-conclusion conclusions are
-    // upgraded; every other evidence type (including verified-tool-result)
-    // keeps its semantics and never reaches upgradeEvidence, so the
+    // Evidence upgrade guard (task 2.4): only a verified `l0-conclusion` is
+    // upgraded; every other evidence type keeps its semantics, so the
     // whitelist can never throw here.
     const upgraded =
-      stored.candidate.evidence.type === "l0-conclusion"
-        ? upgradeEvidence(stored.candidate, verification)
-        : stored.candidate;
+      verification.status === "verified" && candidate.evidence.type === "l0-conclusion"
+        ? upgradeEvidence(candidate, verification)
+        : candidate;
     const operation = {
       ...stored.operation,
       confidence: upgraded.evidence.confidence,
@@ -356,67 +475,44 @@ export function createCandidateStore({
         timestamp: upgraded.evidence.timestamp,
       },
     };
-    // Rollout (design Decisions 2/4): auto-storage is on unless the env var or
-    // the config file turns it off, and applies to project_gene only —
-    // project_constraint stays shadow even with a registered verifier.
-    // Anything else is a bounded shadow outcome.
-    if (
-      stored.candidate.kind === "project_gene" &&
-      autoAdmitEnabled(config ?? DEFAULT_XPI_MEMO_CONFIG, env)
-    ) {
-      const result = await persistConfirmed(operation, candidateId);
-      if (result.status !== "stored") return result;
+
+    // 4. Write.
+    const result = await persistConfirmed(operation, candidateId);
+    if (result.status !== "stored") return result;
+    // The filterable auto mark (task 2.5): every write through this path is
+    // automatic, so one decision marker covers them all.
+    auditLog?.record("candidate-auto-admitted", {
+      candidateId,
+      decision: "auto-admitted",
+      kind: candidate.kind,
+      scope: candidate.targetScope,
+    });
+    if (verification.status === "verified")
       auditLog?.record("tool-verified", {
         candidateId,
         decision: "auto-stored",
         excerpt: verification.excerpt,
         filePath: verification.filePath,
-        kind: stored.candidate.kind,
+        kind: candidate.kind,
         line: verification.line,
-        scope: stored.candidate.targetScope,
+        scope: candidate.targetScope,
         status: "stored",
       });
-      l0?.recordSafe("candidate_auto_verified", {
-        bank: stored.candidate.targetBank,
-        candidateId,
-        evidenceType: upgraded.evidence.type,
-        filePath: verification.filePath,
-        kind: stored.candidate.kind,
-        scope: stored.candidate.targetScope,
-      });
-      l0?.recordSafe("candidate_confirmed", {
-        bank: stored.candidate.targetBank,
-        candidateId,
-        evidenceType: upgraded.evidence.type,
-        kind: stored.candidate.kind,
-        scope: stored.candidate.targetScope,
-      });
-      return result;
-    }
-    // Shadow mode: verified, recorded, candidate kept pending — never a
-    // silent skip and never a T1 write.
-    auditLog?.record("tool-verified", {
+    l0?.recordSafe("candidate_auto_admitted", {
+      bank: candidate.targetBank,
       candidateId,
-      decision: "shadow-verified",
-      excerpt: verification.excerpt,
-      filePath: verification.filePath,
-      kind: stored.candidate.kind,
-      line: verification.line,
-      scope: stored.candidate.targetScope,
-      status: "shadow",
+      evidenceType: upgraded.evidence.type,
+      kind: candidate.kind,
+      scope: candidate.targetScope,
     });
-    l0?.recordSafe("tool_verification_shadow", {
-      bank: stored.candidate.targetBank,
+    l0?.recordSafe("candidate_confirmed", {
+      bank: candidate.targetBank,
       candidateId,
-      evidenceType: stored.candidate.evidence.type,
-      filePath: verification.filePath,
-      kind: stored.candidate.kind,
-      scope: stored.candidate.targetScope,
+      evidenceType: upgraded.evidence.type,
+      kind: candidate.kind,
+      scope: candidate.targetScope,
     });
-    return {
-      reason: "shadow-verified",
-      status: "skipped",
-    };
+    return result;
   }
 
   async function reject(candidateId: string): Promise<CandidateLifecycleResult> {

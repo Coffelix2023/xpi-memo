@@ -1055,6 +1055,8 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        // Explicit confirmation flow under test: keep the queue behaviour.
+        XPI_MEMO_AUTO_ADMIT: "false",
         XPI_MEMO_DATA_DIR: dataDir,
       },
       run,
@@ -1113,6 +1115,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_AUTO_ADMIT: "false",
         XPI_MEMO_DATA_DIR: dataDir,
         XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
       },
@@ -1152,6 +1155,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_AUTO_ADMIT: "false",
         XPI_MEMO_DATA_DIR: dataDir,
       },
       run,
@@ -2006,6 +2010,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_AUTO_ADMIT: "false",
         XPI_MEMO_DATA_DIR: dataDir,
       },
       isProjectTrusted: () => true,
@@ -2096,6 +2101,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_AUTO_ADMIT: "false",
         XPI_MEMO_DATA_DIR: dataDir,
       },
       run,
@@ -2138,6 +2144,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_AUTO_ADMIT: "false",
         XPI_MEMO_CONFIRM_STORE: "true",
         XPI_MEMO_DATA_DIR: dataDir,
       },
@@ -2186,6 +2193,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_AUTO_ADMIT: "false",
         XPI_MEMO_CONFIRM_STORE: "true",
         XPI_MEMO_DATA_DIR: dataDir,
       },
@@ -2229,6 +2237,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_AUTO_ADMIT: "false",
         XPI_MEMO_CONFIRM_STORE: "true",
         XPI_MEMO_DATA_DIR: dataDir,
       },
@@ -2285,6 +2294,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_AUTO_ADMIT: "false",
         XPI_MEMO_DATA_DIR: dataDir,
       },
       run,
@@ -2329,6 +2339,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const { tools } = loadExtension({
       env: {
         XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_AUTO_ADMIT: "false",
         XPI_MEMO_CONFIRM_STORE: "true",
         XPI_MEMO_DATA_DIR: dataDir,
         XPI_MEMO_LANGUAGE: "zh",
@@ -3666,10 +3677,13 @@ describe("xpi-memo bootstrap entrypoint", () => {
     };
     const extraction = audit.entries.find((entry) => entry.action === "extraction");
     expect(extraction?.metadata).toMatchObject({
-      candidateCount: 1,
+      // The valid proposal is admitted under the default preference, so it
+      // counts as stored rather than queued.
+      candidateCount: 0,
       invalidProposals: 2,
       proposalsTotal: 4,
       rejectedCount: 1,
+      storedCount: 1,
       validProposals: 2,
     });
     expect(auditText).not.toContain("runner-secret");

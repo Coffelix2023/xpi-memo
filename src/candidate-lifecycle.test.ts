@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAuditLog } from "./audit.js";
 import { createCandidateStore } from "./candidate-lifecycle.ts";
-import { DEFAULT_XPI_MEMO_CONFIG } from "./config.ts";
+import { DEFAULT_XPI_MEMO_CONFIG, type XpiMemoConfig } from "./config.ts";
 import { createEvidenceRecord } from "./evidence.ts";
 import { createEventLogReader } from "./l0/event-log-reader.js";
 import { createL0Coordinator } from "./l0/l0-runtime.js";
@@ -34,7 +34,9 @@ function createCandidate(overrides: Partial<PendingCandidate> = {}): PendingCand
   return {
     conflictState: "none",
     content: "Use pnpm for repository scripts.",
-    createdAt: "2026-01-01T00:00:00.000Z",
+    // Fresh enough to pass the admission age window; the window itself is
+    // covered by its own case.
+    createdAt: new Date().toISOString(),
     evidence: createEvidenceRecord({
       confidence: 0.9,
       provenance: "session:42",
@@ -504,7 +506,7 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
     return {
       conflictState: "none",
       content: GENE_CONTENT,
-      createdAt: "2026-01-01T00:00:00.000Z",
+      createdAt: new Date().toISOString(),
       evidence,
       evidenceSummary: `${evidence.type} from ${evidence.source} (${evidence.provenance})`,
       id: "candidate-gene",
@@ -530,7 +532,7 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
     };
   }
 
-  it("shadow-verifies a gene candidate when the config file disables auto-admit (stabilize 2.1)", async () => {
+  it("holds a gene candidate when the config file disables auto-admit", async () => {
     const dataDir = createTemporaryDirectory();
     const { adapter, operations } = createAdapter();
     const store = createCandidateStore({
@@ -554,21 +556,22 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
     const result = await store.admit(candidate.id);
 
     expect(result).toEqual({
-      reason: "shadow-verified",
+      reason: "auto-admit-disabled",
       status: "skipped",
     });
     expect(operations).toHaveLength(0);
     const pending = store.list();
     expect(pending).toHaveLength(1);
-    // Shadow keeps the original evidence: no upgrade without the rollout.
+    // Held before verification ran, so the evidence is untouched.
     expect(pending[0]?.evidence.type).toBe("l0-conclusion");
   });
 
-  it("auto-stores a verified gene candidate with upgraded evidence under explicit opt-in (stabilize 3.2)", async () => {
+  it("auto-stores a verified gene candidate with upgraded evidence by default", async () => {
     const dataDir = createTemporaryDirectory();
     const { adapter, operations } = createAdapter();
     const store = createCandidateStore({
       adapter,
+      env: {},
       statePath: join(dataDir, "candidates.json"),
       verifiers: new Map([
         [
@@ -576,9 +579,6 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
           async () => VERIFIED,
         ],
       ]),
-      env: {
-        XPI_MEMO_AUTO_ADMIT: "true",
-      },
     });
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
@@ -594,7 +594,7 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
     expect(store.list()).toEqual([]);
   });
 
-  it("keeps a failed candidate pending with its original evidence (task 5.2)", async () => {
+  it("admits a candidate whose verification failed, with its original evidence", async () => {
     const dataDir = createTemporaryDirectory();
     const { adapter, operations } = createAdapter();
     const store = createCandidateStore({
@@ -616,27 +616,23 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
 
     const result = await store.admit(candidate.id);
 
-    expect(result).toEqual({
-      reason: "no-match",
-      status: "skipped",
-    });
-    expect(operations).toHaveLength(0);
-    const pending = store.list();
-    expect(pending).toHaveLength(1);
-    expect(pending[0]?.evidence.type).toBe("l0-conclusion");
+    // Verification is enrichment, not a gate: the write still happens and the
+    // evidence keeps its original type.
+    expect(result.status).toBe("stored");
+    expect(operations).toHaveLength(1);
+    expect(operations[0]?.source.evidenceType).toBe("l0-conclusion");
+    expect(store.list()).toEqual([]);
   });
 
-  it("records candidate_auto_verified and candidate_confirmed L0 events under explicit opt-in (stabilize 3.2)", async () => {
+  it("records candidate_auto_admitted and candidate_confirmed L0 events (task 2.5)", async () => {
     const dataDir = createTemporaryDirectory();
     const { adapter } = createAdapter();
     const { events, l0 } = createL0Recorder();
     const store = createCandidateStore({
       adapter,
-      env: {
-        XPI_MEMO_AUTO_ADMIT: "true",
-      },
-      l0,
       statePath: join(dataDir, "candidates.json"),
+      l0,
+      env: {},
       verifiers: new Map([
         [
           "project_gene",
@@ -650,16 +646,15 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
     await store.admit(candidate.id);
 
     expect(events.map((event) => event.type)).toEqual([
-      "candidate_auto_verified",
+      "candidate_auto_admitted",
       "candidate_confirmed",
     ]);
     expect(events[0]?.payload.candidateId).toBe(candidate.id);
-    expect(events[0]?.payload.filePath).toBe("AGENTS.md");
     expect(events[0]?.payload.evidenceType).toBe("verified-repository-fact");
     expect(events[1]?.payload.candidateId).toBe(candidate.id);
   });
 
-  it("records tool_verification_failed when verification fails (task 5.2, spec)", async () => {
+  it("records tool_verification_failed and still admits the candidate (task 5.2, spec)", async () => {
     const dataDir = createTemporaryDirectory();
     const { adapter } = createAdapter();
     const { events, l0 } = createL0Recorder();
@@ -685,9 +680,12 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
 
     expect(events.map((event) => event.type)).toEqual([
       "tool_verification_failed",
+      "candidate_auto_admitted",
+      "candidate_confirmed",
     ]);
     expect(events[0]?.payload.reason).toBe("no-match");
-    expect(store.list()).toHaveLength(1);
+    // A failed verification no longer strands the candidate in the queue.
+    expect(store.list()).toHaveLength(0);
   });
 
   it("routes gene candidates to the registered verifier (task 5.4)", async () => {
@@ -696,6 +694,7 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
     let verifierCalls = 0;
     const store = createCandidateStore({
       adapter,
+      env: {},
       statePath: join(dataDir, "candidates.json"),
       verifiers: new Map([
         [
@@ -707,9 +706,6 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
           },
         ],
       ]),
-      env: {
-        XPI_MEMO_AUTO_ADMIT: "false",
-      },
     });
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
@@ -717,14 +713,11 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
     const result = await store.admit(candidate.id);
 
     expect(verifierCalls).toBe(1);
-    expect(result).toEqual({
-      reason: "shadow-verified",
-      status: "skipped",
-    });
-    expect(store.list()).toHaveLength(1);
+    expect(result.status).toBe("stored");
+    expect(store.list()).toHaveLength(0);
   });
 
-  it("skips verification for manual-confirm kinds without calling a verifier (task 5.4)", async () => {
+  it("admits a manual-confirm kind without calling a verifier (task 5.4)", async () => {
     const dataDir = createTemporaryDirectory();
     const { adapter, operations } = createAdapter();
     const store = createCandidateStore({
@@ -745,12 +738,11 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
 
     const result = await store.admit(candidate.id);
 
-    expect(result).toEqual({
-      reason: "policy:manual-confirm",
-      status: "skipped",
-    });
-    expect(operations).toHaveLength(0);
-    expect(store.list()).toHaveLength(1);
+    // The kind default no longer gates admission, and its verifier is still
+    // not consulted.
+    expect(result.status).toBe("stored");
+    expect(operations).toHaveLength(1);
+    expect(store.list()).toHaveLength(0);
   });
 
   it("writes a tool-verified audit entry with verification evidence (task 7.3)", async () => {
@@ -762,6 +754,7 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
       auditLog: createAuditLog({
         statePath: auditPath,
       }),
+      env: {},
       statePath: join(dataDir, "candidates.json"),
       verifiers: new Map([
         [
@@ -769,9 +762,6 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
           async () => VERIFIED,
         ],
       ]),
-      env: {
-        XPI_MEMO_AUTO_ADMIT: "false",
-      },
     });
     const candidate = createGeneCandidate();
     store.add(candidate, createGeneOperation());
@@ -786,8 +776,8 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
     expect(entry?.metadata.candidateId).toBe(candidate.id);
     expect(entry?.metadata.filePath).toBe("AGENTS.md");
     expect(entry?.metadata.excerpt).toContain("src/index.ts");
-    expect(entry?.metadata.decision).toBe("shadow-verified");
-    expect(entry?.metadata.status).toBe("shadow");
+    expect(entry?.metadata.decision).toBe("auto-stored");
+    expect(entry?.metadata.status).toBe("stored");
     expect(entry?.metadata.line).toBe(12);
     expect(Number.isNaN(Date.parse(entry?.timestamp ?? ""))).toBe(false);
   });
@@ -825,6 +815,146 @@ describe("candidate auto-admission (stabilize tasks 2.1-2.4)", () => {
       .find((item) => item.action === "tool-verification-failed");
     expect(entry?.metadata.candidateId).toBe(candidate.id);
     expect(entry?.metadata.reason).toBe("no-match");
+    expect(entry?.metadata.decision).toBe("auto-admitted");
+    expect(operations).toHaveLength(1);
+  });
+  it("refuses empty content before it can ever be admitted", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { adapter, operations } = createAdapter();
+    const store = createCandidateStore({
+      adapter,
+      env: {},
+      statePath: join(dataDir, "candidates.json"),
+    });
+    const candidate = {
+      ...createGeneCandidate(),
+      content: "   ",
+    };
+
+    // The content policy is the hard rail for empty content: it never reaches
+    // the queue, so no preference setting can admit it either.
+    expect(store.add(candidate, createGeneOperation())).toEqual({
+      reason: "prohibited-content:empty-content",
+      status: "rejected",
+    });
+    expect(store.list()).toEqual([]);
+    expect(operations).toHaveLength(0);
+  });
+
+  it("refuses a candidate with an unresolved conflict", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { adapter, operations } = createAdapter();
+    const store = createCandidateStore({
+      adapter,
+      env: {},
+      statePath: join(dataDir, "candidates.json"),
+    });
+    const candidate = {
+      ...createGeneCandidate(),
+      conflictState: "reported" as const,
+    };
+    store.add(candidate, createGeneOperation());
+
+    const result = await store.admit(candidate.id);
+
+    expect(result).toEqual({
+      reason: "unresolved-conflict",
+      status: "rejected",
+    });
+    expect(operations).toHaveLength(0);
+  });
+
+  // Every preference that can hold a candidate, one case each.
+  it.each<
+    [
+      string,
+      Partial<XpiMemoConfig>,
+      string,
+    ]
+  >([
+    [
+      "below the confidence floor",
+      {
+        admissionMinConfidence: 0.9,
+      },
+      "below-min-confidence",
+    ],
+    [
+      "outside the source scope",
+      {
+        admissionSourceScope: "current-project",
+      },
+      "outside-source-scope",
+    ],
+    [
+      "below the evidence floor",
+      {
+        admissionEvidenceFloor: "repository-fact",
+      },
+      "below-evidence-floor",
+    ],
+    [
+      "with its kind disabled",
+      {
+        admissionAllowProjectGene: false,
+      },
+      "auto-admit-disabled",
+    ],
+    [
+      "while memory is paused",
+      {
+        paused: true,
+      },
+      "paused",
+    ],
+  ])("holds a gene candidate %s", async (_label, overrides, reason) => {
+    const dataDir = createTemporaryDirectory();
+    const { adapter, operations } = createAdapter();
+    const store = createCandidateStore({
+      adapter,
+      // The candidate targets another project bank, so the narrowed scope
+      // rejects it.
+      currentProjectBank: "project-p-other",
+      env: {},
+      statePath: join(dataDir, "candidates.json"),
+      config: {
+        ...DEFAULT_XPI_MEMO_CONFIG,
+        ...overrides,
+      },
+    });
+    const candidate = createGeneCandidate();
+    store.add(candidate, createGeneOperation());
+
+    const result = await store.admit(candidate.id);
+
+    expect(result).toEqual({
+      reason,
+      status: "skipped",
+    });
+    expect(operations).toHaveLength(0);
+    expect(store.list()).toHaveLength(1);
+  });
+
+  it("holds a candidate older than the admission age window", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { adapter, operations } = createAdapter();
+    const store = createCandidateStore({
+      adapter,
+      env: {},
+      statePath: join(dataDir, "candidates.json"),
+    });
+    const candidate = {
+      ...createGeneCandidate(),
+      createdAt: "2020-01-01T00:00:00.000Z",
+    };
+    store.add(candidate, createGeneOperation());
+
+    const result = await store.admit(candidate.id);
+
+    expect(result).toEqual({
+      reason: "stale-candidate",
+      status: "skipped",
+    });
     expect(operations).toHaveLength(0);
   });
 });

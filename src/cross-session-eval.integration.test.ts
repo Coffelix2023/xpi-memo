@@ -405,6 +405,8 @@ describe("cross-session behavior evaluation fixtures (task 5.1)", () => {
     const { run, storedByBank } = backend(dataDir);
     const env = {
       XDG_CONFIG_HOME: dataDir,
+      // The correction asserts the explicit confirmation path.
+      XPI_MEMO_AUTO_ADMIT: "false",
       XPI_MEMO_DATA_DIR: dataDir,
       XPI_MEMO_RECALL_POLICY: "active",
     };
