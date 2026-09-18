@@ -7,7 +7,7 @@ const HEAD_HALF_WIDTH = 0.6;
 const TRAIL_LENGTH = 7;
 const SUCCESS_MS = 1_500;
 
-export type SurfaceAction = "recall" | "inject" | "store" | "compact";
+export type SurfaceAction = "recall" | "inject" | "store" | "compact" | "extract";
 
 function kittIntensity(time: number, index: number, length: number): number {
   const range = length - 1;
@@ -45,6 +45,7 @@ export function shimmerText(text: string, time: number, theme: SurfaceTheme): st
 function label(action: SurfaceAction): string {
   return {
     compact: "正在保留记忆",
+    extract: "正在提取记忆候选...",
     inject: "正在注入记忆",
     recall: "正在检索记忆",
     store: "正在保存记忆",
@@ -84,6 +85,7 @@ export const successText = (action: SurfaceAction, count?: number): string => {
   if (action === "recall") return `✦ 已检索 ${count ?? 0} 条记忆`;
   if (action === "inject") return `✦ 已注入 ${count ?? 0} 条记忆`;
   if (action === "compact") return "✦ 已保留记忆上下文";
+  if (action === "extract") return "✦ 已提取记忆候选";
   return "✦ 已保存记忆";
 };
 

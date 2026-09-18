@@ -80,6 +80,7 @@ function createToolContext(
     model?: unknown;
     modelRegistry?: unknown;
     select?: string;
+    setWidget?: (key: string, content: unknown) => void;
   } = {},
 ) {
   const {
@@ -89,6 +90,7 @@ function createToolContext(
     model = undefined,
     modelRegistry = undefined,
     select = undefined,
+    setWidget = undefined,
   } = options;
   return {
     cwd,
@@ -97,11 +99,11 @@ function createToolContext(
     model,
     modelRegistry,
     ui: {
+      setWidget: setWidget ?? (() => undefined),
       confirm: async () => confirm,
       notify: () => undefined,
       select: async () => select,
       setStatus: () => undefined,
-      setWidget: () => undefined,
     },
   } as unknown as Parameters<ToolDefinition["execute"]>[4];
 }
@@ -3474,6 +3476,81 @@ describe("xpi-memo bootstrap entrypoint", () => {
       rejectedCount: 0,
       storedCount: 0,
       validProposals: 0,
+    });
+  });
+
+  it("shimmers an extraction progress line above the editor, then clears it (task 5.1)", async () => {
+    const dataDir = createTemporaryDirectory();
+    const widgets: Array<{
+      content: unknown;
+      key: string;
+    }> = [];
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_OFFLINE_EXTRACTION_ENABLED: "true",
+      },
+      offlineExtractionRunner: async () => [],
+      resolveProjectIdentity: () => null,
+    });
+    const input = events.find(({ name }) => name === "input");
+    const shutdown = events.find(({ name }) => name === "session_shutdown");
+    if (!input || !shutdown) throw new Error("hooks not registered");
+    const context = createToolContext({
+      mode: "tui",
+      setWidget: (key, content) => {
+        widgets.push({
+          content,
+          key,
+        });
+      },
+    });
+    await input.handler(
+      {
+        source: "interactive",
+        text: "hello",
+        type: "input",
+      },
+      context,
+    );
+    await shutdown.handler(
+      {
+        type: "session_shutdown",
+      },
+      context,
+    );
+
+    // The progress line is a widget above the editor; the shimmer component
+    // renders the descriptive text the spec requires.
+    const begun = widgets.find(({ content }) => typeof content === "function");
+    expect(begun?.key).toBe("xpi-memo-surface");
+    if (begun === undefined) throw new Error("extract widget not shown");
+    const component = (
+      begun.content as (
+        tui: unknown,
+        theme: unknown,
+      ) => {
+        dispose(): void;
+        render(): string[];
+      }
+    )(
+      {
+        requestRender: () => undefined,
+      },
+      {
+        fg: (_color: string, value: string) => value,
+      },
+    );
+    try {
+      expect(component.render()[0]).toContain("正在提取记忆候选...");
+    } finally {
+      component.dispose();
+    }
+    // A finished extraction stops and cleans the indicator up.
+    expect(widgets.at(-1)).toEqual({
+      content: undefined,
+      key: "xpi-memo-surface",
     });
   });
 

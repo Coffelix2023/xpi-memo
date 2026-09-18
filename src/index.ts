@@ -562,6 +562,7 @@ function createRuntime(
   const candidates = createCandidateStore({
     adapter,
     auditLog: audit,
+    config: configResult.config,
     env: dependencies.env,
     l0,
     statePath: join(configResult.config.dataDir, "candidates.json"),
@@ -627,10 +628,30 @@ async function runOfflineExtractionForLifecycle(
   l0: L0Coordinator,
   audit: AuditLog,
   trigger: "session_shutdown" | "session_before_compact",
+  surface: ReturnType<typeof createMemorySurface>,
+): Promise<void> {
+  // Shimmer above the editor for the whole attempt (design Decision 1);
+  // every exit path — completed, failed, budget-exhausted — clears it.
+  surface.begin("extract");
+  try {
+    await extractOfflineMemories(ctx, config, dependencies, l0, audit, trigger);
+  } finally {
+    surface.clear();
+  }
+}
+
+async function extractOfflineMemories(
+  ctx: ExtensionContext,
+  config: ReturnType<typeof loadConfig>["config"],
+  dependencies: XpiMemoDependencies,
+  l0: L0Coordinator,
+  audit: AuditLog,
+  trigger: "session_shutdown" | "session_before_compact",
 ): Promise<void> {
   const cwd = ctx.cwd;
   const sessionId = l0.sessionId();
   if (!sessionId) return;
+
   const ledger = createExtractionBudgetLedger({
     sessionId,
     statePath: join(config.dataDir, "extraction-budget.json"),
@@ -3074,6 +3095,7 @@ export default function xpiMemo(
           l0ForHooks(),
           auditForHooks(),
           "session_before_compact",
+          getSurface(ctx),
         );
       } catch {
         // Extraction failure must not block compact.
@@ -3113,6 +3135,7 @@ export default function xpiMemo(
           l0ForHooks(),
           auditForHooks(),
           "session_shutdown",
+          getSurface(ctx),
         );
       } catch {
         // Extraction failure must not block session shutdown.
