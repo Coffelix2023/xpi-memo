@@ -174,7 +174,7 @@ describe("glimpse window document is self-contained", () => {
     // One <style> block, and it carries each module's signature rule.
     expect(html.split("<style>").length - 1).toBe(1);
     for (const marker of [
-      "--win-w: 800px", // base
+      "--h-header: 56px", // base
       ".app-sidebar", // chrome
       ".btn", // components
       ".kpi-grid", // status view

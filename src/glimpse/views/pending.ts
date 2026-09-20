@@ -1,10 +1,10 @@
 import { describeMemoryKindOrNull } from "../../kinds.js";
 import type { PanelLanguage } from "../../panel-text.js";
-import type { PendingCandidate } from "../../pending-candidate.js";
+import { type PendingCandidate, rationaleText } from "../../pending-candidate.js";
 import { localeFor, relativeAge } from "../format.js";
 import { el, esc, textEl } from "../html.js";
 import { PENDING_SHORT } from "../short-codes.js";
-import { glimpseText } from "../text.js";
+import { fillTemplate, glimpseText } from "../text.js";
 
 /**
  * The pending view: a 240px candidate list beside a 316px detail pane.
@@ -27,6 +27,22 @@ export interface PendingViewInput {
 interface PendingContext {
   language: PanelLanguage;
   now: number;
+}
+
+/**
+ * The evidence row: the same three facts the stored `evidenceSummary` names,
+ * built from the record and rendered through the dictionary.
+ *
+ * Built rather than parsed — a source containing " from " would be misread by a
+ * split, and the record is right there beside the summary it produced.
+ */
+function evidenceLine(candidate: PendingCandidate, language: PanelLanguage): string {
+  const { evidence } = candidate;
+  return fillTemplate(glimpseText("pending.evidence.format", language), {
+    provenance: evidence.provenance,
+    source: evidence.source,
+    type: evidence.type,
+  });
 }
 
 /** The six detail rows, in the order the terminal panel shows them. */
@@ -52,11 +68,11 @@ function detailRows(candidate: PendingCandidate, ctx: PendingContext): string {
     ],
     [
       "pending.evidence",
-      candidate.evidenceSummary,
+      evidenceLine(candidate, language),
     ],
     [
       "pending.rationale",
-      candidate.rationale,
+      rationaleText(candidate.rationale, language),
     ],
     [
       "pending.content",

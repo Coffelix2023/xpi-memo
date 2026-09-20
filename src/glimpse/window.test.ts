@@ -74,6 +74,9 @@ function stubActions(overrides: Partial<ConsoleActions> = {}): ConsoleActions {
   };
 }
 
+/** The config the window types its writes against; nothing here mutates it. */
+const TEST_CONFIG = DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig;
+
 /** A model without the language, which `openGlimpsePanel` owns. */
 function modelWithoutLanguage() {
   const { language: _language, ...rest } = modelFixture();
@@ -103,6 +106,7 @@ describe("glimpse window (5.1)", () => {
 
     const panel = openGlimpsePanel({
       actions: stubActions(),
+      config: TEST_CONFIG,
       initialView: "pending",
       language: "zh",
       model: modelWithoutLanguage(),
@@ -130,6 +134,7 @@ describe("glimpse window (5.1)", () => {
 
     const panel = openGlimpsePanel({
       actions: stubActions(),
+      config: TEST_CONFIG,
       initialView: "pending",
       language: "zh",
       model: modelWithoutLanguage(),
@@ -155,6 +160,7 @@ describe("glimpse window (5.1)", () => {
       actions: stubActions({
         save,
       }),
+      config: TEST_CONFIG,
       initialView: "pending",
       language: "zh",
       model: modelWithoutLanguage(),
@@ -183,6 +189,7 @@ describe("glimpse window (5.1)", () => {
       actions: stubActions({
         save,
       }),
+      config: TEST_CONFIG,
       initialView: "settings",
       language: "zh",
       model: modelWithoutLanguage(),
@@ -203,8 +210,131 @@ describe("glimpse window (5.1)", () => {
     });
     // Re-rendered in place, so the window does not close on a language switch.
     expect(opened.html).toHaveLength(1);
+    // The re-render lands on the view the user was on: the settings page is
+    // the only section marked active, and it does not carry `hidden`.
+    expect(opened.html[0]).toContain('data-page="settings" aria-label="settings">');
     expect(opened.html[0]).toContain('lang="en"');
     expect(opened.closed()).toBe(0);
+
+    await opened.emit("closed");
+    await panel;
+  });
+
+  it("types an edited setting through the config and moves the row with it", async () => {
+    const opened = fakeWindow();
+    const save = vi.fn();
+    // Real rows, because the write is typed by the field's own configured
+    // value: `recallPolicy` is a string and `paused` a boolean.
+    const rows = settingsItems(TEST_CONFIG, {});
+    const panel = openGlimpsePanel({
+      actions: stubActions({
+        save,
+      }),
+      config: TEST_CONFIG,
+      initialView: "settings",
+      language: "zh",
+      prefsPath: prefsPath(),
+      model: {
+        ...modelWithoutLanguage(),
+        rows,
+      },
+      resolveModule: async () => ({
+        open: () => opened.win,
+      }),
+    });
+
+    await opened.emit("message", {
+      id: "paused",
+      type: "setting",
+      value: "on",
+    });
+    await opened.emit("message", {
+      id: "recallPolicy",
+      type: "setting",
+      value: "assist",
+    });
+
+    expect(save).toHaveBeenNthCalledWith(1, {
+      paused: true,
+    });
+    expect(save).toHaveBeenNthCalledWith(2, {
+      recallPolicy: "assist",
+    });
+    // The row carries the value the next render draws, so a later re-render
+    // cannot show the value the user just replaced.
+    expect(rows.find((row) => row.id === "recallPolicy")?.currentValue).toBe("assist");
+
+    await opened.emit("closed");
+    await panel;
+  });
+
+  it("drops a setting this window does not own", async () => {
+    const opened = fakeWindow();
+    const save = vi.fn();
+    const panel = openGlimpsePanel({
+      actions: stubActions({
+        save,
+      }),
+      config: TEST_CONFIG,
+      initialView: "settings",
+      language: "zh",
+      model: modelWithoutLanguage(),
+      prefsPath: prefsPath(),
+      resolveModule: async () => ({
+        open: () => opened.win,
+      }),
+    });
+
+    // An id no row carries, and a blank value, which the terminal panel reads
+    // as "leave it alone". Neither may reach the config file.
+    await opened.emit("message", {
+      id: "notAField",
+      type: "setting",
+      value: "on",
+    });
+    await opened.emit("message", {
+      id: "recallPolicy",
+      type: "setting",
+      value: "",
+    });
+
+    expect(save).not.toHaveBeenCalled();
+
+    await opened.emit("closed");
+    await panel;
+  });
+
+  it("runs sleep through the confirmation rather than the configuration", async () => {
+    const opened = fakeWindow();
+    const save = vi.fn();
+    const sleep = vi.fn(async () => undefined);
+    const confirm = vi.fn(async () => true);
+    const panel = openGlimpsePanel({
+      actions: stubActions({
+        confirm,
+        save,
+        sleep,
+      }),
+      config: TEST_CONFIG,
+      initialView: "settings",
+      language: "zh",
+      model: modelWithoutLanguage(),
+      prefsPath: prefsPath(),
+      resolveModule: async () => ({
+        open: () => opened.win,
+      }),
+    });
+
+    await opened.emit("message", {
+      id: "sleep",
+      type: "setting",
+      value: "run",
+    });
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(sleep).toHaveBeenCalledOnce();
+    // `sleep` is an action, not a key: it must never be persisted.
+    expect(save).not.toHaveBeenCalled();
 
     await opened.emit("closed");
     await panel;
@@ -221,6 +351,7 @@ describe("glimpse window (5.1)", () => {
         reviewCandidate,
         reviewDecision,
       }),
+      config: TEST_CONFIG,
       initialView: "pending",
       language: "zh",
       model: modelWithoutLanguage(),
@@ -251,6 +382,7 @@ describe("glimpse window (5.1)", () => {
       actions: stubActions({
         reviewCandidate,
       }),
+      config: TEST_CONFIG,
       initialView: "pending",
       language: "zh",
       model: modelWithoutLanguage(),
@@ -275,6 +407,7 @@ describe("glimpse window (5.1)", () => {
     const opened = fakeWindow();
     const panel = openGlimpsePanel({
       actions: stubActions(),
+      config: TEST_CONFIG,
       initialView: "pending",
       language: "zh",
       model: modelWithoutLanguage(),
@@ -302,6 +435,7 @@ describe("glimpse window (5.1)", () => {
         reviewDecision,
         save,
       }),
+      config: TEST_CONFIG,
       initialView: "pending",
       language: "zh",
       model: modelWithoutLanguage(),
@@ -353,6 +487,7 @@ describe("glimpse unavailable (5.1 fallback)", () => {
     await expect(
       openGlimpsePanel({
         actions: stubActions(),
+        config: TEST_CONFIG,
         initialView: "pending",
         language: "zh",
         model: modelWithoutLanguage(),
@@ -366,6 +501,7 @@ describe("glimpse unavailable (5.1 fallback)", () => {
     await expect(
       openGlimpsePanel({
         actions: stubActions(),
+        config: TEST_CONFIG,
         initialView: "pending",
         language: "zh",
         model: modelWithoutLanguage(),
@@ -383,6 +519,7 @@ describe("glimpse failure falls back (5.4)", () => {
     await expect(
       openGlimpsePanel({
         actions: stubActions(),
+        config: TEST_CONFIG,
         initialView: "pending",
         language: "zh",
         model: modelWithoutLanguage(),
@@ -404,6 +541,7 @@ describe("glimpse failure falls back (5.4)", () => {
           throw new Error("store failed");
         },
       }),
+      config: TEST_CONFIG,
       initialView: "pending",
       language: "zh",
       model: modelWithoutLanguage(),

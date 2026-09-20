@@ -15,7 +15,10 @@ import {
   type MemoryIntentSkipReason,
 } from "./memory-intent.js";
 import type { MnemosyneAdapter, T1MemoryOperation } from "./operations.js";
-import { generatePendingCandidate } from "./pending-candidate.js";
+import {
+  generatePendingCandidate,
+  RATIONALE_T1_GOVERNANCE,
+} from "./pending-candidate.js";
 import { routeMemoryKind } from "./routing.js";
 import { runT1Write } from "./t1-lifecycle.js";
 
@@ -257,7 +260,7 @@ export async function activateExplicitMemoryIntent(
     explicitStable:
       operation.kind === "global_preference" || operation.kind === "global_workflow",
     kind: operation.kind,
-    rationale: "This memory requires T1 write governance before persistence.",
+    rationale: RATIONALE_T1_GOVERNANCE,
     reason: pendingReason(operation.kind),
   });
 

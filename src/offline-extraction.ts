@@ -20,6 +20,7 @@ import type {
 import {
   generatePendingCandidate,
   type PendingCandidateReason,
+  RATIONALE_OFFLINE_EXTRACTION,
 } from "./pending-candidate.js";
 import { routeMemoryKind } from "./routing.js";
 import { runT1Write } from "./t1-lifecycle.js";
@@ -643,7 +644,7 @@ async function addCandidate(
     context: runtime.context,
     evidence: evidenceRecordFor(proposal),
     kind: operation.kind,
-    rationale: "Proposed by offline extraction; requires T1 write governance.",
+    rationale: RATIONALE_OFFLINE_EXTRACTION,
     reason: pendingReasonFor(operation.kind),
     repositoryFact: proposal.repositoryFact,
   });

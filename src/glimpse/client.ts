@@ -12,6 +12,7 @@
  *   { type: "theme",    value: "dark" | "light" }
  *   { type: "language", value: "en" | "zh", view: <current view> }
  *   { type: "review",   index: number, decision: "store" | "reject" | "later" }
+ *   { type: "setting",  id: string, value: string }
  *   { type: "close" }
  *
  * A language change is answered by re-rendering the whole document, because the
@@ -29,6 +30,7 @@
  *   .group-head[data-group][aria-expanded]      settings accordion heads, each
  *                                               followed by `.group-body`
  *   #P3-1-L1 .field-row[data-field]             settings rows
+ *   #P3-1-L1 .field-row .f-control[data-field]  the row's own editor, when it has one
  *   #P3-1-A1 .detail-block[data-field]          one detail block per group
  *   #P0-1-W1 / #P0-1-W2 / #P0-1-B2              theme, language, close
  */
@@ -138,14 +140,50 @@ export const CLIENT_SCRIPT = `
   }
 
   function focusField(key) {
+    var control = null;
     all("#P3-1-L1 .field-row").forEach(function (row) {
-      row.classList.toggle("is-focused", row.dataset.field === key);
+      var focused = row.dataset.field === key;
+      row.classList.toggle("is-focused", focused);
+      if (focused) control = row.querySelector(".f-control");
     });
+    // Real focus follows the highlight. A highlighted row that does not hold
+    // the keyboard would swallow Space, and a select only opens its own menu
+    // for the element that has focus.
+    if (control && typeof control.focus === "function") control.focus();
     all("#P3-1-A1 .detail-block").forEach(function (block) {
       if (block.dataset.field === key) block.removeAttribute("hidden");
       else block.setAttribute("hidden", "");
     });
   }
+
+  /**
+   * A control reports its own change; the row only says which field it is.
+   *
+   * Delegated on the document because the controls live inside server-rendered
+   * rows and are therefore re-created on every language re-render.
+   */
+  document.addEventListener("change", function (event) {
+    var target = event.target;
+    if (!target || typeof target.closest !== "function") return;
+    var control = target.closest("#P3-1-L1 .f-control");
+    if (!control || control.disabled || !control.dataset.field) return;
+    // The language row is the one setting that redraws every label, and the
+    // header toggle already has a message that carries the current view for
+    // exactly that re-render. Both routes converge on the same handler.
+    if (control.dataset.field === "language") {
+      send({
+        type: "language",
+        value: control.value,
+        view: activeView()
+      });
+      return;
+    }
+    send({
+      type: "setting",
+      id: control.dataset.field,
+      value: control.value
+    });
+  });
 
   /* ---------- pointer intent ---------- */
 
@@ -212,6 +250,10 @@ export const CLIENT_SCRIPT = `
 
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {
+      // An open control popup owns Escape: there the key means "cancel this
+      // choice", not "close the window".
+      var target = event.target;
+      if (target && target.tagName === "SELECT") return;
       event.preventDefault();
       send({ type: "close" });
       return;

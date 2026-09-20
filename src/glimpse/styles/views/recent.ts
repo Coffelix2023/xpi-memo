@@ -6,19 +6,31 @@
  */
 export const RECENT_VIEW_STYLES = `
 /* ═══════════════════════════════════════════════════════════════
-   最近页：六列 grid 表格
-   内宽 572 = 符号 40 + 动作 100 + 类型 80 + 库 1fr(152) + 状态 120 + 时间 80
+   最近页：五列 grid 表格
+   内宽 572 = 符号 40 + 动作 96 + 详情 1fr(268) + 状态 96 + 时间 72
+   类型与库两列已并进详情列：审计日志按 action 写不同的 metadata，
+   最高频的 feedback 两者都没有，独立成列只会得到一整列「—」。
    ═══════════════════════════════════════════════════════════════ */
+/* 页首说明：静态文案，一行，跟随语言切换重绘。 */
+.view-hint {
+  flex: none;
+  margin: 0 0 var(--space-3);
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
 .table-wrap {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* flex:1 而不是 height:100%：页首说明占了高度后，100% 会连说明一起算进溢出 */
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
 .tr {
   display: grid;
-  grid-template-columns: 40px 100px 80px minmax(80px, 1fr) 120px 80px;
+  grid-template-columns: 40px 96px minmax(120px, 1fr) 96px 72px;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);

@@ -1,7 +1,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import type { AuditEntry } from "./audit.js";
+import type { AuditEntry, AuditMetadata } from "./audit.js";
 import type { ExactIdReadCapability } from "./banks.ts";
 import type { L0Status } from "./cli/l0.js";
 import type { EmbeddingMode } from "./config.js";
@@ -95,6 +95,8 @@ export interface MemoryStatus {
     bank?: string;
     kind?: string;
     label?: string;
+    /** The audit entry's own (allow-listed, body-free) metadata block. */
+    metadata?: AuditMetadata;
     role?: "standing" | "contextual";
     memoryScope?: "global" | "project" | "session";
     trustState?: string;
@@ -339,6 +341,7 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
       action: entry.action,
       bank: entry.bank,
       kind: entry.kind,
+      metadata: entry.metadata,
       ...(describeMemoryKindOrNull(entry.kind)
         ? {
             label: describeMemoryKindOrNull(entry.kind)?.label,

@@ -4,6 +4,11 @@ import { createEvidenceRecord } from "./evidence.ts";
 import {
   generatePendingCandidate,
   type PendingCandidateInput,
+  RATIONALE_OFFLINE_EXTRACTION,
+  RATIONALE_REPO_IMPORT,
+  RATIONALE_T1_GOVERNANCE,
+  RATIONALE_USER_STATED,
+  rationaleText,
 } from "./pending-candidate.js";
 
 const UUID_PATTERN = /^[0-9a-f-]{36}$/;
@@ -135,5 +140,31 @@ describe("T1 pending candidate generation", () => {
       excerpt: "pnpm",
       path: "package.json",
     });
+  });
+});
+
+describe("candidate rationale copy", () => {
+  it("pins the sentences that are already stored in candidates.json", () => {
+    // `rationaleText` looks a reason up *by value*, so editing one of these
+    // without adding a dictionary key silently drops that reason back to
+    // English. Pinning them here makes the edit deliberate.
+    expect([
+      RATIONALE_T1_GOVERNANCE,
+      RATIONALE_REPO_IMPORT,
+      RATIONALE_OFFLINE_EXTRACTION,
+      RATIONALE_USER_STATED,
+    ]).toEqual([
+      "This memory requires T1 write governance before persistence.",
+      "Imported from repository Markdown; requires T1 write governance.",
+      "Proposed by offline extraction; requires T1 write governance.",
+      "The user stated this as a durable preference.",
+    ]);
+  });
+
+  it("renders a reason it does not know as stored", () => {
+    // A record written by an older build is still a record.
+    expect(rationaleText("Reviewed by hand last Tuesday.", "zh")).toBe(
+      "Reviewed by hand last Tuesday.",
+    );
   });
 });

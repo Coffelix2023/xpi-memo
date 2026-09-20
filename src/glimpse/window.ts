@@ -1,4 +1,6 @@
+import type { XpiMemoConfig } from "../config.js";
 import type { CandidateDecision, ConsoleActions } from "../console.js";
+import { settingsSaveValue } from "../console.js";
 import type { PanelLanguage } from "../panel-text.js";
 import { renderDocument, type ViewId } from "./document.js";
 import type { GlimpseModule, GlimpseWindow } from "./module.js";
@@ -36,6 +38,12 @@ export const WINDOW_TITLE = "XpiMemo T1 Console";
 export interface GlimpsePanelOptions {
   /** The same actions the terminal panel receives. */
   actions: ConsoleActions;
+  /**
+   * The live configuration. The window needs it to type a write: the panel
+   * carries values as strings, and only the config says whether "on" is a
+   * boolean or a string.
+   */
+  config: XpiMemoConfig;
   initialView: ViewId;
   language: PanelLanguage;
   /** Everything the views need except the language, which can change here. */
@@ -54,6 +62,11 @@ type PanelMessage =
     }
   | {
       type: "close";
+    }
+  | {
+      id: string;
+      type: "setting";
+      value: string;
     }
   | {
       type: "language";
@@ -134,6 +147,18 @@ function parseMessage(data: unknown): PanelMessage | null {
             decision: message.decision as CandidateDecision,
             index: message.index,
             type: "review",
+          }
+        : null;
+    case "setting":
+      // An empty id names no field; an empty value is dropped by the handler,
+      // which is where the panel's "blank means leave it alone" rule lives.
+      return typeof message.id === "string" &&
+        message.id.length > 0 &&
+        typeof message.value === "string"
+        ? {
+            id: message.id,
+            type: "setting",
+            value: message.value,
           }
         : null;
     default:
@@ -219,12 +244,15 @@ export async function openGlimpsePanel(options: GlimpsePanelOptions): Promise<bo
             savePanelPreferences(options.prefsPath, prefs);
             return;
           case "language": {
-            state.language = message.value;
-            // Carry the choice into the configuration so both surfaces agree.
-            options.actions.save({
-              language: message.value,
-            });
-            win.setHTML(buildHtml(options, state));
+            // The re-render is whole-document, so the view the user was on has
+            // to be adopted before it: without this the window lands back on
+            // the initial view on every language switch.
+            if (message.view) state.view = message.view;
+            applyLanguage(message.value);
+            return;
+          }
+          case "setting": {
+            await applySetting(message);
             return;
           }
           case "review": {
@@ -240,6 +268,57 @@ export async function openGlimpsePanel(options: GlimpsePanelOptions): Promise<bo
             return;
           }
         }
+      }
+
+      /**
+       * Language changes redraw every label, so they own the whole document.
+       *
+       * The row's own value moves first: a re-render draws from the model, and
+       * a row left on the old value would put the old language back in the
+       * select after the switch that was meant to change it.
+       */
+      function applyLanguage(value: PanelLanguage): void {
+        const row = options.model.rows.find((entry) => entry.id === "language");
+        if (row) row.currentValue = value;
+        state.language = value;
+        // Carry the choice into the configuration so both surfaces agree.
+        options.actions.save({
+          language: value,
+        });
+        win.setHTML(buildHtml(options, state));
+      }
+
+      /**
+       * Apply one edited setting.
+       *
+       * Mirrors the terminal panel's `changeField`: the row's value moves
+       * before the write, and `sleep` is special because it is an action
+       * rather than a stored key.
+       */
+      async function applySetting(message: {
+        id: string;
+        value: string;
+      }): Promise<void> {
+        const row = options.model.rows.find((entry) => entry.id === message.id);
+        // An unknown id names no field this window owns; a blank value is the
+        // terminal panel's "leave it alone". Neither reaches the config.
+        if (!row || message.value.length === 0) return;
+
+        if (row.id === "sleep") {
+          // The action row writes no configuration, so its value always
+          // returns to `off`: it queues one run, it does not hold a state.
+          row.currentValue = "off";
+          if (message.value !== "run") return;
+          const confirmed = await options.actions.confirm(
+            "Run one-shot sleep",
+            "Sleep performs one authorized T1 consolidation and is not persisted.",
+          );
+          if (confirmed) await options.actions.sleep();
+          return;
+        }
+
+        row.currentValue = message.value;
+        options.actions.save(settingsSaveValue(row.id, message.value, options.config));
       }
     });
 

@@ -40,6 +40,7 @@ import { decodeSourceMetadata } from "./operations.js";
 import {
   generatePendingCandidate,
   type PendingCandidateReason,
+  RATIONALE_REPO_IMPORT,
 } from "./pending-candidate.js";
 import { routeMemoryKind } from "./routing.js";
 
@@ -465,7 +466,7 @@ export async function reimportRepoExport(
       context: runtime.context,
       evidence,
       kind: entry.kind,
-      rationale: "Imported from repository Markdown; requires T1 write governance.",
+      rationale: RATIONALE_REPO_IMPORT,
       reason: pendingReasonFor(entry.kind),
     });
     if (!candidate) {

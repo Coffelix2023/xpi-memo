@@ -245,6 +245,13 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "note.searchBackend": "Pick first available",
     "note.sleep": "Run one consolidation",
     "note.sleepMode": "When and how to tidy",
+    "rationale.offlineExtraction":
+      "Proposed by offline extraction; requires T1 write governance.",
+    "rationale.repoImport":
+      "Imported from repository Markdown; requires T1 write governance.",
+    "rationale.t1Governance":
+      "This memory requires T1 write governance before persistence.",
+    "rationale.userStated": "The user stated this as a durable preference.",
     "tab.pending": "Pending",
     "tab.recent": "Recent",
     "tab.settings": "Settings",
@@ -443,6 +450,10 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "note.searchBackend": "自动选可用后端",
     "note.sleep": "执行一次记忆整理",
     "note.sleepMode": "整理时机与方式",
+    "rationale.offlineExtraction": "离线提取的建议 · 需经 T1 写入治理才能落库",
+    "rationale.repoImport": "从仓库 Markdown 导入 · 需经 T1 写入治理才能落库",
+    "rationale.t1Governance": "这条记忆需经 T1 写入治理才能落库",
+    "rationale.userStated": "用户明确陈述为长期偏好",
     "tab.pending": "待审",
     "tab.recent": "最近",
     "tab.settings": "设置",
@@ -457,4 +468,19 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
 export function panelText(key: string, language: PanelLanguage): string {
   const selected: Record<string, string> | undefined = PANEL_TEXT[language];
   return selected?.[key] ?? PANEL_TEXT.en[key] ?? key;
+}
+
+const PLACEHOLDER_PATTERN = /\{(\w+)\}/g;
+
+/**
+ * Replace `{name}` slots, leaving unknown slots visible instead of blank.
+ *
+ * Lives beside the dictionary because every composed panel line — the recall
+ * summary, the evidence summary — is a dictionary template plus its slots.
+ */
+export function fillTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(
+    PLACEHOLDER_PATTERN,
+    (slot, name: string) => values[name] ?? slot,
+  );
 }

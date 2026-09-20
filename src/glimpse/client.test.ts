@@ -49,6 +49,7 @@ describe("glimpse in-page client", () => {
       "language",
       "review",
       "close",
+      "setting",
     ]) {
       expect(CLIENT_SCRIPT, type).toContain(`type: "${type}"`);
     }
@@ -92,6 +93,7 @@ describe("glimpse in-page client", () => {
       ".group-body",
       ".field-row",
       "button[data-decision]",
+      ".f-control",
     ]) {
       expect(CLIENT_SCRIPT, selector).toContain(selector);
     }

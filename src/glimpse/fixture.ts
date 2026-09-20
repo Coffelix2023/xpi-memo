@@ -1,4 +1,4 @@
-import type { PendingCandidate } from "../pending-candidate.js";
+import { type PendingCandidate, RATIONALE_USER_STATED } from "../pending-candidate.js";
 import { SETTINGS_GROUPS } from "../settings-groups.js";
 import type { MemoryStatus } from "../status.js";
 import type { GlimpseModel } from "./views/index.js";
@@ -44,9 +44,12 @@ export function statusFixture(overrides: Partial<MemoryStatus> = {}): MemoryStat
         "default",
       ],
     },
+    // Real audit shapes: the actions and statuses this build actually writes,
+    // with each action's own metadata block. `feedback` and `recall` carry the
+    // per-action fields the row summary reads.
     recentEntries: [
       {
-        action: "store",
+        action: "confirmation",
         bank: "xpi-memo",
         kind: "project_decision",
         status: "stored",
@@ -54,31 +57,43 @@ export function statusFixture(overrides: Partial<MemoryStatus> = {}): MemoryStat
       },
       {
         action: "recall",
-        bank: "xpi-memo",
-        kind: "global_preference",
-        status: "hit",
+        status: "recalled",
         timestamp: "2026-09-20T10:18:00.000Z",
+        metadata: {
+          backend: "mnemosyne",
+          injectedCount: 3,
+          // The search query. It is the user's own words, so the row summary
+          // must not reprint it — the view test asserts it stays out.
+          reason: "restore project context decisions",
+          resultCount: 8,
+        },
       },
       {
-        action: "candidate",
-        bank: "xpi-memo",
-        kind: "project_constraint",
-        status: "pending",
+        action: "feedback",
         timestamp: "2026-09-20T10:05:00.000Z",
+        metadata: {
+          feedback: "used",
+          feedbackMode: "passive",
+          targetMemoryId: "cd7a990fc903a7d6",
+          usage: "injected",
+        },
       },
       {
-        action: "reject",
+        action: "rejection",
         bank: "default",
         kind: "global_workflow",
         status: "rejected",
         timestamp: "2026-09-19T09:51:00.000Z",
       },
       {
-        action: "degrade",
-        bank: "xpi-memo",
-        kind: "project_gotcha",
-        status: "degraded",
+        action: "extraction",
+        status: "timed-out",
         timestamp: "2026-09-18T09:40:00.000Z",
+        metadata: {
+          candidateCount: 0,
+          outcome: "timed-out",
+          storedCount: 0,
+        },
       },
     ],
     retrieval: {
@@ -117,7 +132,7 @@ export function candidateFixture(
       "explicit-user-statement from input:session (input:user-statement)",
     id: "candidate-1",
     kind: "global_preference",
-    rationale: "The user stated this as a durable preference.",
+    rationale: RATIONALE_USER_STATED,
     reason: "ambiguous-preference",
     status: "pending",
     targetBank: "default",
@@ -137,17 +152,34 @@ export function candidateFixture(
  * Settings rows matching `SETTINGS_GROUPS` order, with the first row pinned by
  * an environment variable so the locked rendering is exercised.
  */
+/**
+ * The two rows whose value is not the fixture default. `recallPolicy` matches
+ * one of its own enumerated values so the `selected` option is exercised.
+ */
+const FIXTURE_VALUES: Readonly<Record<string, string>> = {
+  recallPolicy: "assist",
+  sleep: "off",
+};
+
 export function settingsRowsFixture(): SettingsRowLike[] {
   return SETTINGS_GROUPS.flatMap((group) =>
-    group.fields.map((id) => ({
-      currentValue: id === "sleep" ? "off" : "auto",
-      id,
-      ...(id === "limit"
-        ? {
-            description: "⊘ XPI_MEMO_LIMIT",
-          }
-        : {}),
-    })),
+    group.fields.map((id) => {
+      const row: SettingsRowLike = {
+        currentValue: FIXTURE_VALUES[id] ?? "auto",
+        id,
+      };
+      // One row of each editable shape plus one pinned row, so every rendering
+      // the view can produce is exercised without building the real table here.
+      if (id === "embeddingModel") row.text = true;
+      if (id === "limit") row.description = "\u2298 XPI_MEMO_LIMIT";
+      if (id === "recallPolicy")
+        row.values = [
+          "active",
+          "assist",
+          "high-value-auto",
+        ];
+      return row;
+    }),
   );
 }
 

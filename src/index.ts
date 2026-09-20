@@ -104,6 +104,7 @@ import {
   generatePendingCandidate,
   type PendingCandidate,
   type PendingCandidateReason,
+  RATIONALE_T1_GOVERNANCE,
 } from "./pending-candidate.ts";
 import {
   formatRescanPreview,
@@ -1063,7 +1064,7 @@ async function executeRemember(
       explicitStable:
         operation.kind === "global_preference" || operation.kind === "global_workflow",
       kind: operation.kind,
-      rationale: "This memory requires T1 write governance before persistence.",
+      rationale: RATIONALE_T1_GOVERNANCE,
       reason: pendingReasonFor(operation.kind),
       evidence,
     });
@@ -2057,6 +2058,11 @@ async function statusForContext(
     action: entry.action,
     bank: entry.metadata.bank,
     kind: entry.metadata.kind,
+    // The whole block travels with the entry. Its keys are allow-listed and
+    // body-free on write (`safeMetadata`), and the panel's row summary reads
+    // per-action fields — feedback's target, recall's hit count — that a fixed
+    // list would have to be widened for on every new audit action.
+    metadata: entry.metadata,
     scope: entry.metadata.scope,
     status: entry.metadata.status,
     timestamp: entry.timestamp,

@@ -31,6 +31,16 @@ function countText(html: string, needle: string): number {
   return html.split(needle).length - 1;
 }
 
+/* The settings row controls. Module scope because a regex rebuilt per call is
+   what `useTopLevelRegex` rejects, and these are read in more than one test. */
+const RECALL_POLICY_SELECT =
+  /<select[^>]*data-field="recallPolicy"[^>]*>[\s\S]*?<\/select>/;
+const EMBEDDING_MODEL_INPUT = /<input[^>]*data-field="embeddingModel"[^>]*>/;
+const CONTROL_FOR_LIMIT = /<(select|input)[^>]*data-field="limit"/;
+const CONTROL_FOR_DATA_DIR = /<(select|input)[^>]*data-field="dataDir"/;
+const ISO_STAMP = /\d{4}-\d{2}-\d{2}T/;
+const CLOCK_TIME = />\d{2}:\d{2}</;
+
 describe("pending view", () => {
   const model = modelFixture();
   const html = renderPendingView({
@@ -69,6 +79,21 @@ describe("pending view", () => {
     expect(countClass(html, "detail-key")).toBe(model.pending.length * 6);
     expect(html).toContain("候选");
     expect(html).toContain("库");
+  });
+
+  it("renders the stored reason in the panel's language", () => {
+    // The fixture's reason is `RATIONALE_USER_STATED`, which is what a record
+    // on disk carries — so this covers the existing queue, not just new
+    // candidates.
+    expect(html).toContain("用户明确陈述为长期偏好");
+    expect(html).not.toContain("The user stated this as a durable preference.");
+  });
+
+  it("renders the evidence row in the panel's language", () => {
+    // The three values are identifiers and stay as they are; the frame around
+    // them is copy and travels through the dictionary.
+    expect(html).toContain("· 来自 input:session（input:user-statement）");
+    expect(html).not.toContain(" from input:session");
   });
 
   it("badges only the candidate that reports a conflict", () => {
@@ -140,30 +165,74 @@ describe("recent view", () => {
     expect(html).toContain('id="P2-1-T1"');
   });
 
+  it("explains what the page is", () => {
+    // The page is a window on the audit log, not a second status view; the
+    // caption is what makes that readable without opening a doc.
+    expect(countClass(html, "view-hint")).toBe(1);
+    expect(html).toContain("取自审计日志");
+    expect(
+      renderRecentView({
+        language: "en",
+        status,
+      }),
+    ).toContain("read from the audit log");
+  });
+
+  it("shows a clock time rather than the raw stamp", () => {
+    // `clockTime` is local-zone HH:MM, so the assertion is on the shape: the
+    // zone of the machine running the suite is not part of the contract.
+    expect(html).toMatch(CLOCK_TIME);
+    expect(html).not.toMatch(ISO_STAMP);
+  });
+
+  it("labels the audit vocabulary it knows", () => {
+    expect(html).toContain(">召回<");
+    expect(html).toContain(">已存入<");
+    expect(html).toContain(">已拒绝<");
+    // The extraction row's status and its `outcome` field share a word; both
+    // read through the same table.
+    expect(html).toContain(">超时<");
+  });
+
   it("renders the header and divider plus one row per entry", () => {
     const entries = status.recentEntries ?? [];
     // The head and the divider are rows too, so the count is entries + 2.
     expect(countClass(html, "tr")).toBe(entries.length + 2);
   });
 
-  it("gives each of the five statuses its semantic classes", () => {
-    // stored / hit / pending / rejected / degraded
-    for (const className of [
+  it("gives each status its own symbol and colour class", () => {
+    // stored / recalled → ok, rejected → danger, timed-out → warn, and the
+    // feedback row carries no status at all → the neutral dot.
+    for (const token of [
       "pill-ok",
       "pill-danger",
       "pill-warn",
       "pill-dim",
-    ]) {
-      expect(html, className).toContain(className);
-    }
-    for (const tint of [
       "t-ok",
       "t-danger",
       "t-warn",
       "t-dim",
     ]) {
-      expect(html, tint).toContain(tint);
+      expect(html, token).toContain(token);
     }
+    expect(html).toContain(">✓<");
+    expect(html).toContain(">✗<");
+    expect(html).toContain(">⚠<");
+  });
+
+  it("summarises a row from the metadata its own action carries", () => {
+    // `feedback` has neither a bank nor a kind. Before the summary cell its row
+    // was a line of dashes; this is the case the page was unreadable for.
+    expect(html).toContain("被动 · 已注入 · #cd7a990fc903a7d6");
+    expect(html).toContain("mnemosyne · 命中 8 · 注入 3");
+    // A row that has a bank and a kind still shows them.
+    expect(html).toContain("Decision · xpi-memo");
+  });
+
+  it("leaves the recall query out of the row", () => {
+    // `recall.reason` holds the search query, which is the user's own words.
+    // The summary table names fields per action; this one must stay unnamed.
+    expect(html).not.toContain("restore project context");
   });
 
   it("switches to the empty state when there is no activity", () => {
@@ -226,6 +295,35 @@ describe("settings view", () => {
   it("renders one row per configured field", () => {
     expect(countClass(html, "field-row")).toBe(rows.length);
     expect(rows).toHaveLength(37);
+  });
+
+  it("renders an editable control for every writable shape", () => {
+    // A field with enumerated values becomes a select, a free-text field an
+    // input. Nothing else in this view owns a control, so the count is the
+    // fixture's two editable rows and no more.
+    expect(countClass(html, "f-control")).toBe(2);
+    // A field with enumerated values becomes a select carrying those values,
+    // with `selected` on the current one.
+    const select = html.match(RECALL_POLICY_SELECT)?.[0] ?? "";
+    expect(select).toContain('aria-label="召回策略"');
+    expect(select).toContain('<option value="active">active</option>');
+    expect(select).toContain('<option selected value="assist">assist</option>');
+    expect(select).toContain(
+      '<option value="high-value-auto">high-value-auto</option>',
+    );
+    // A free-text field becomes an input seeded with the current value.
+    const input = html.match(EMBEDDING_MODEL_INPUT)?.[0] ?? "";
+    expect(input).toContain('type="text"');
+    expect(input).toContain('value="auto"');
+    expect(input).toContain('aria-label="嵌入模型"');
+  });
+
+  it("leaves pinned and read-only fields as plain text", () => {
+    // `limit` is pinned by XPI_MEMO_LIMIT and `dataDir` is never written by
+    // the panel, so neither may offer a control.
+    expect(html).not.toMatch(CONTROL_FOR_LIMIT);
+    expect(html).not.toMatch(CONTROL_FOR_DATA_DIR);
+    expect(html).toContain('<span class="f-value">auto</span>');
   });
 
   it("renders one head per configured group", () => {

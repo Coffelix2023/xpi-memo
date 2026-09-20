@@ -1258,6 +1258,7 @@ export async function openConsole(
   // and `openGlimpsePanel` reports `false` for absent *and* broken Glimpse.
   const handled = await openGlimpsePanel({
     actions,
+    config,
     initialView: "pending",
     language: config.language,
     prefsPath: uiPrefsPath(config.dataDir),

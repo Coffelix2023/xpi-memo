@@ -119,7 +119,7 @@ export const CHROME_STYLES = `
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   sidebar：180×500 垂直导航
+   sidebar：180 宽垂直导航；高度由 .app-body 决定（不再写死 500）
    ═══════════════════════════════════════════════════════════════ */
 .app-sidebar {
   flex: none;
@@ -127,7 +127,6 @@ export const CHROME_STYLES = `
   flex-direction: column;
   gap: var(--space-1);
   width: var(--w-sidebar);
-  height: var(--h-body);
   padding: var(--space-3);
   background: var(--sidebar);
   color: var(--sidebar-foreground);

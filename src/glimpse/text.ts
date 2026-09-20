@@ -1,4 +1,4 @@
-import { type PanelLanguage, panelText } from "../panel-text.js";
+import { fillTemplate, type PanelLanguage, panelText } from "../panel-text.js";
 
 /**
  * Copy the Glimpse window owns, on top of what `panel-text.ts` already has.
@@ -30,6 +30,7 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "pending.content": "content",
     "pending.empty": "No pending memories",
     "pending.evidence": "evidence",
+    "pending.evidence.format": "{type} from {source} ({provenance})",
     "pending.later": "Later",
     "pending.rationale": "rationale",
     "pending.reject": "Reject",
@@ -37,12 +38,48 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "pending.title": "Candidates",
     "pending.type": "type",
     "recent.action": "action",
+    "recent.action.candidate": "candidate",
+    "recent.action.confirmation": "confirmation",
+    "recent.action.deletion": "deletion",
+    "recent.action.extraction": "extraction",
+    "recent.action.fallback": "fallback",
+    "recent.action.feedback": "feedback",
+    "recent.action.recall": "recall",
+    "recent.action.rejection": "rejection",
+    "recent.action.sleep-authorization": "sleep authorization",
+    "recent.action.write": "write",
     "recent.bank": "bank",
+    "recent.count.candidates": "{count} candidates",
+    "recent.count.hits": "{count} hits",
+    "recent.count.injected": "{count} injected",
+    "recent.count.stored": "{count} stored",
+    "recent.detail": "detail",
     "recent.empty": "No recent activity",
     "recent.emptyHint": "Memory events appear here over time",
+    "recent.feedbackMode.explicit": "explicit",
+    "recent.feedbackMode.passive": "passive",
+    "recent.hint": "The last few memory events, newest first, read from the audit log.",
     "recent.kind": "kind",
     "recent.status": "status",
+    "recent.status.budget-exhausted": "budget exhausted",
+    "recent.status.conflict": "conflict",
+    "recent.status.degraded": "degraded",
+    "recent.status.deleted": "deleted",
+    "recent.status.executed": "executed",
+    "recent.status.failed": "failed",
+    "recent.status.no-backend": "no backend",
+    "recent.status.pending": "pending",
+    "recent.status.recalled": "recalled",
+    "recent.status.rejected": "rejected",
+    "recent.status.reported": "reported",
+    "recent.status.routing_rejected": "routing rejected",
+    "recent.status.skipped": "skipped",
+    "recent.status.stored": "stored",
+    "recent.status.timed-out": "timed out",
+    "recent.status.unresolved": "unresolved",
     "recent.time": "time",
+    "recent.usage.injected": "injected",
+    "recent.usage.recalled": "recalled",
     "state.loading": "Loading",
     "status.disk": "disk",
     "status.embeddingAvailable": "available",
@@ -72,6 +109,7 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "pending.content": "内容",
     "pending.empty": "当前没有待审记忆",
     "pending.evidence": "证据",
+    "pending.evidence.format": "{type} · 来自 {source}（{provenance}）",
     "pending.later": "稍后",
     "pending.rationale": "理由",
     "pending.reject": "拒绝",
@@ -79,12 +117,48 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "pending.title": "候选",
     "pending.type": "类型",
     "recent.action": "动作",
+    "recent.action.candidate": "候选生成",
+    "recent.action.confirmation": "确认",
+    "recent.action.deletion": "删除",
+    "recent.action.extraction": "提取",
+    "recent.action.fallback": "降级",
+    "recent.action.feedback": "使用反馈",
+    "recent.action.recall": "召回",
+    "recent.action.rejection": "拒绝",
+    "recent.action.sleep-authorization": "整理授权",
+    "recent.action.write": "写入",
     "recent.bank": "库",
+    "recent.count.candidates": "候选 {count}",
+    "recent.count.hits": "命中 {count}",
+    "recent.count.injected": "注入 {count}",
+    "recent.count.stored": "入库 {count}",
+    "recent.detail": "详情",
     "recent.empty": "暂无活动",
     "recent.emptyHint": "记忆事件会按时间出现在这里",
+    "recent.feedbackMode.explicit": "显式",
+    "recent.feedbackMode.passive": "被动",
+    "recent.hint": "最近发生的记忆事件，取自审计日志（新事件在前）",
     "recent.kind": "类型",
     "recent.status": "状态",
+    "recent.status.budget-exhausted": "预算耗尽",
+    "recent.status.conflict": "冲突",
+    "recent.status.degraded": "降级",
+    "recent.status.deleted": "已删除",
+    "recent.status.executed": "已执行",
+    "recent.status.failed": "失败",
+    "recent.status.no-backend": "无可用后端",
+    "recent.status.pending": "待定",
+    "recent.status.recalled": "已召回",
+    "recent.status.rejected": "已拒绝",
+    "recent.status.reported": "已产出",
+    "recent.status.routing_rejected": "路由拒绝",
+    "recent.status.skipped": "跳过",
+    "recent.status.stored": "已存入",
+    "recent.status.timed-out": "超时",
+    "recent.status.unresolved": "未解决",
     "recent.time": "时间",
+    "recent.usage.injected": "已注入",
+    "recent.usage.recalled": "已召回",
     "state.loading": "加载中",
     "status.disk": "磁盘",
     "status.embeddingAvailable": "可用",
@@ -103,8 +177,6 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
 /** Keys this window owns outright; used by the parity test. */
 export const WINDOW_TEXT_KEYS = Object.keys(WINDOW_TEXT.en);
 
-const PLACEHOLDER_PATTERN = /\{(\w+)\}/g;
-
 /**
  * One window string: this table first, then `panelText` for the shared keys.
  *
@@ -115,13 +187,8 @@ export function glimpseText(key: string, language: PanelLanguage): string {
   return WINDOW_TEXT[language]?.[key] ?? panelText(key, language);
 }
 
-/** Replace `{name}` slots, leaving unknown slots visible instead of blank. */
-export function fillTemplate(template: string, values: Record<string, string>): string {
-  return template.replace(
-    PLACEHOLDER_PATTERN,
-    (slot, name: string) => values[name] ?? slot,
-  );
-}
+/** Re-exported: the dictionary owns the slot syntax, this module used to. */
+export { fillTemplate };
 
 /** The `status.recall` line, composed from the live retrieval state. */
 export function recallLine(

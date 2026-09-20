@@ -48,6 +48,74 @@ function isAction(row: SettingsRowLike): boolean {
   return row.id === "sleep";
 }
 
+/**
+ * The middle cell of a row: an editable control when this window owns the
+ * field, plain text otherwise.
+ *
+ * `settingsItems` has already decided what the panel may write — a field pinned
+ * by an environment variable and a field the panel never writes (the data
+ * directory) both carry no `values` — so this cell only picks the shape that
+ * matches the row it is handed. A pinned row that somehow still carries choices
+ * renders them disabled rather than dropping them: showing the value and saying
+ * why it cannot change beats showing nothing.
+ */
+function valueCell(row: SettingsRowLike, language: PanelLanguage): string {
+  const name = panelText(`field.${row.id}`, language);
+  const locked = isLocked(row)
+    ? {
+        "aria-label": name,
+        disabled: true,
+      }
+    : {
+        "aria-label": name,
+      };
+
+  if (row.text === true) {
+    return el(
+      "input",
+      {
+        class: "f-control",
+        "data-field": row.id,
+        type: "text",
+        value: row.currentValue,
+        ...locked,
+      },
+      "",
+    );
+  }
+
+  const { values } = row;
+  if (values !== undefined && values.length > 0) {
+    return el(
+      "select",
+      {
+        class: "f-control",
+        "data-field": row.id,
+        ...locked,
+      },
+      values
+        .map((value) =>
+          textEl(
+            "option",
+            {
+              selected: value === row.currentValue,
+              value,
+            },
+            value,
+          ),
+        )
+        .join(""),
+    );
+  }
+
+  return textEl(
+    "span",
+    {
+      class: "f-value",
+    },
+    row.currentValue,
+  );
+}
 function fieldRow(
   row: SettingsRowLike,
   language: PanelLanguage,
@@ -78,13 +146,7 @@ function fieldRow(
       },
       panelText(`field.${row.id}`, language),
     ) +
-      textEl(
-        "span",
-        {
-          class: "f-value",
-        },
-        row.currentValue,
-      ) +
+      valueCell(row, language) +
       textEl(
         "span",
         {
