@@ -1,13 +1,684 @@
 # semantic-ui-map — tui-console-panel
 #
-# 双码分工：短码 P1-2-B1 给人念，全路径 chat.composer.send-btn 给机器认。
+# 双码分工：短码 P1-1-B1 给人念，全路径 pending.candidates 给机器认。
 # 本文件跨保真度共享：同一元素在 wireframe 与 hifi 阶段的 id / short 不变，
 # 只有 fidelities 各指一处。字段说明见 docs/semantic-ui-map-schema.md。
 meta:
   project: tui-console-panel
-  version: 2
+  version: 3
   type: spa
-  updated: 2026-09-15 22:10
+  updated: 2026-09-19 19:52
   annotate_default: true
-pages: {}
-elements: {}
+pages:
+  P0:
+    id: shell
+    label: 面板外框
+    route: "#/"
+    status: confirmed
+  P1:
+    id: pending
+    label: 待审
+    route: "#/pending"
+    status: confirmed
+  P2:
+    id: recent
+    label: 最近
+    route: "#/recent"
+    status: confirmed
+  P3:
+    id: settings
+    label: 设置
+    route: "#/settings"
+    status: confirmed
+  P4:
+    id: status
+    label: 状态
+    route: "#/status"
+    status: confirmed
+elements:
+  shell.frame:
+    id: shell.frame
+    short: P0-1-A1
+    label: 面板外框
+    type: panel
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P0-1-A1"
+    children:
+      - shell.tab-bar
+      - shell.info-bar
+      - shell.key-hints
+    behavior:
+      current: 圆角边框包裹整个面板，宽度 78 列，高度取视口与预算的较小值
+  shell.tab-bar:
+    id: shell.tab-bar
+    short: P0-1-C1
+    label: 标签栏
+    type: component
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P0-1-C1"
+    parent: shell.frame
+    children:
+      - shell.tab-pending
+      - shell.tab-recent
+      - shell.tab-settings
+      - shell.tab-status
+    behavior:
+      current: 四个 tab 横向排列，激活项用 accent 加粗，左侧显示待审计数
+  shell.tab-pending:
+    id: shell.tab-pending
+    short: P0-1-B1
+    label: 待审标签
+    type: button
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P0-1-B1"
+    parent: shell.tab-bar
+    aliases:
+      - 待审页签
+    behavior:
+      current: 切到待审页；带未处理候选计数
+  shell.tab-recent:
+    id: shell.tab-recent
+    short: P0-1-B2
+    label: 最近标签
+    type: button
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P0-1-B2"
+    parent: shell.tab-bar
+    aliases:
+      - 最近页签
+    behavior:
+      current: 切到最近页
+  shell.tab-settings:
+    id: shell.tab-settings
+    short: P0-1-B3
+    label: 设置标签
+    type: button
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P0-1-B3"
+    parent: shell.tab-bar
+    aliases:
+      - 设置页签
+    behavior:
+      current: 切到设置页
+  shell.tab-status:
+    id: shell.tab-status
+    short: P0-1-B4
+    label: 状态标签
+    type: button
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P0-1-B4"
+    parent: shell.tab-bar
+    aliases:
+      - 状态页签
+    behavior:
+      current: 切到状态页
+  shell.info-bar:
+    id: shell.info-bar
+    short: P0-1-C2
+    label: 信息条
+    type: component
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P0-1-C2"
+    parent: shell.frame
+    behavior:
+      current: 两行；首行显示 L0→T1→T2→T3 层级，次行显示库名/总数/今日/待审/占用
+  shell.key-hints:
+    id: shell.key-hints
+    short: P0-1-T1
+    label: 快捷键提示行
+    type: text
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P0-1-T1"
+    parent: shell.frame
+    behavior:
+      current: 以 dim 色显示当前页可用的按键；窄终端下换短文案
+  shell.theme-toggle:
+    id: shell.theme-toggle
+    short: P0-1-W1
+    label: 主题切换
+    type: toggle
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P0-1-W1"
+    aliases:
+      - 暗色切换
+    behavior:
+      current: 在暗色与亮色间切换，偏好写入 localStorage
+  shell.lang-toggle:
+    id: shell.lang-toggle
+    short: P0-1-W2
+    label: 语言切换
+    type: toggle
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P0-1-W2"
+    aliases:
+      - 中英文切换
+    behavior:
+      current: 在 zh-CN 与 en 间切换，偏好写入 localStorage
+  pending.candidates:
+    id: pending.candidates
+    short: P1-1-L1
+    label: 候选列表
+    type: list
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P1-1-L1"
+    aliases:
+      - 待审列表
+      - 候选栏
+    behavior:
+      current: 左栏 26 列；每行显示类型、相对时间与冲突标记；↑/↓ 移动焦点
+  pending.detail:
+    id: pending.detail
+    short: P1-1-A1
+    label: 候选详情面板
+    type: panel
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P1-1-A1"
+    aliases:
+      - 待审详情
+    behavior:
+      current: 右栏 49 列；随左栏焦点即时更新，展示类型/库/时间/证据/理由/内容
+  pending.action-menu:
+    id: pending.action-menu
+    short: P1-1-M1
+    label: 候选动作菜单
+    type: modal
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P1-1-M1"
+    aliases:
+      - 存入拒绝菜单
+    behavior:
+      current: Enter 打开；提供存入 / 拒绝 / 稍后三项
+  pending.empty:
+    id: pending.empty
+    short: P1-1-T1
+    label: 候选空态
+    type: text
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P1-1-T1"
+    behavior:
+      current: 无候选时占满 body，提示当前没有待审记忆
+  recent.table:
+    id: recent.table
+    short: P2-1-X1
+    label: 活动表格
+    type: table
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P2-1-X1"
+    aliases:
+      - 最近活动表
+    behavior:
+      current: 五列固定宽度；首列带状态符号与语义色；可滚动
+  recent.empty:
+    id: recent.empty
+    short: P2-1-T1
+    label: 活动空态
+    type: text
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P2-1-T1"
+    behavior:
+      current: 无活动记录时显示「暂无活动」
+  settings.groups:
+    id: settings.groups
+    short: P3-1-L1
+    label: 字段分组容器
+    type: list
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-L1"
+    aliases:
+      - 设置分组
+    behavior:
+      current: 五个组头加二十个字段行；组头可折叠，折叠态用 display 隐藏
+    children:
+      - settings.group-retrieval
+      - settings.group-storage
+      - settings.group-pipeline
+      - settings.group-display
+      - settings.group-privacy
+  settings.group-retrieval:
+    id: settings.group-retrieval
+    short: P3-1-B1
+    label: 召回与检索组头
+    type: button
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-B1"
+    parent: settings.groups
+    behavior:
+      current: 显示折叠箭头与字段计数；Enter 折叠或展开
+  settings.group-storage:
+    id: settings.group-storage
+    short: P3-1-B2
+    label: 存储与提取组头
+    type: button
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-B2"
+    parent: settings.groups
+    behavior:
+      current: 显示折叠箭头与字段计数；Enter 折叠或展开
+  settings.group-pipeline:
+    id: settings.group-pipeline
+    short: P3-1-B3
+    label: 记忆管道组头
+    type: button
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-B3"
+    parent: settings.groups
+    behavior:
+      current: 显示折叠箭头与字段计数；Enter 折叠或展开
+  settings.group-display:
+    id: settings.group-display
+    short: P3-1-B4
+    label: 界面与反馈组头
+    type: button
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-B4"
+    parent: settings.groups
+    behavior:
+      current: 显示折叠箭头与字段计数；Enter 折叠或展开
+  settings.group-privacy:
+    id: settings.group-privacy
+    short: P3-1-B5
+    label: 隐私与维护组头
+    type: button
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-B5"
+    parent: settings.groups
+    behavior:
+      current: 显示折叠箭头与字段计数；Enter 折叠或展开
+  settings.detail:
+    id: settings.detail
+    short: P3-1-A1
+    label: 字段详解区
+    type: panel
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-A1"
+    aliases:
+      - 设置说明区
+    behavior:
+      current: 恒两行；随光标显示字段作用与各选项含义，组头行留空
+  settings.field.recall-policy:
+    id: settings.field.recall-policy
+    short: P3-1-S1
+    label: 召回策略字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S1"
+    parent: settings.groups
+    behavior:
+      current: 三值循环 active / assist / high-value-auto；默认 high-value-auto
+  settings.field.retrieval-mode:
+    id: settings.field.retrieval-mode
+    short: P3-1-S2
+    label: 检索模式字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S2"
+    parent: settings.groups
+    behavior:
+      current: 二值循环 fts5 / hybrid；默认 hybrid
+  settings.field.search-backend:
+    id: settings.field.search-backend
+    short: P3-1-S3
+    label: 搜索后端字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S3"
+    parent: settings.groups
+    behavior:
+      current: 四值循环 auto / mnemosyne / ripgrep / qmd；默认 auto
+  settings.field.limit:
+    id: settings.field.limit
+    short: P3-1-S4
+    label: 单次召回上限字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S4"
+    parent: settings.groups
+    behavior:
+      current: 四值循环 1 / 5 / 10 / 20；默认 5
+  settings.field.global-limit:
+    id: settings.field.global-limit
+    short: P3-1-S5
+    label: 全局召回上限字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S5"
+    parent: settings.groups
+    behavior:
+      current: 四值循环 1 / 5 / 10 / 20；默认 5
+  settings.field.project-limit:
+    id: settings.field.project-limit
+    short: P3-1-S6
+    label: 项目召回上限字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S6"
+    parent: settings.groups
+    behavior:
+      current: 四值循环 1 / 5 / 10 / 20；默认 5
+  settings.field.confirm-store:
+    id: settings.field.confirm-store
+    short: P3-1-S7
+    label: 存储确认字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S7"
+    parent: settings.groups
+    behavior:
+      current: 二值循环 off / on；默认 off
+  settings.field.auto-export:
+    id: settings.field.auto-export
+    short: P3-1-S8
+    label: 自动导出字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S8"
+    parent: settings.groups
+    behavior:
+      current: 二值循环 off / on；默认 on；无环境变量名
+  settings.field.offline-extraction:
+    id: settings.field.offline-extraction
+    short: P3-1-S9
+    label: 离线提取字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S9"
+    parent: settings.groups
+    behavior:
+      current: 二值循环 off / on；无环境变量名
+  settings.field.exclude-tool-results:
+    id: settings.field.exclude-tool-results
+    short: P3-1-S10
+    label: 排除工具结果字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S10"
+    parent: settings.groups
+    behavior:
+      current: 二值循环 off / on；无环境变量名
+  settings.field.data-dir:
+    id: settings.field.data-dir
+    short: P3-1-S11
+    label: 数据目录字段
+    type: text
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S11"
+    parent: settings.groups
+    behavior:
+      current: 只读展示，不可编辑；无环境变量名
+  settings.field.paused:
+    id: settings.field.paused
+    short: P3-1-S12
+    label: 记忆暂停字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S12"
+    parent: settings.groups
+    behavior:
+      current: 二值循环 off / on；默认 off
+  settings.field.l0-enabled:
+    id: settings.field.l0-enabled
+    short: P3-1-S13
+    label: L0 轨迹字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S13"
+    parent: settings.groups
+    behavior:
+      current: 二值循环 off / on；无环境变量名
+  settings.field.profile-injection:
+    id: settings.field.profile-injection
+    short: P3-1-S14
+    label: 画像注入字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S14"
+    parent: settings.groups
+    behavior:
+      current: 二值循环 off / on；无环境变量名
+  settings.field.language:
+    id: settings.field.language
+    short: P3-1-S15
+    label: 界面语言字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S15"
+    parent: settings.groups
+    behavior:
+      current: 二值循环 zh-CN / en；默认 zh-CN
+  settings.field.event-presentation:
+    id: settings.field.event-presentation
+    short: P3-1-S16
+    label: 事件呈现字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S16"
+    parent: settings.groups
+    behavior:
+      current: 多值循环；无环境变量名
+  settings.field.passive-feedback:
+    id: settings.field.passive-feedback
+    short: P3-1-S17
+    label: 被动反馈字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S17"
+    parent: settings.groups
+    behavior:
+      current: 二值循环 off / on；无环境变量名
+  settings.field.privacy:
+    id: settings.field.privacy
+    short: P3-1-S18
+    label: 隐私级别字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S18"
+    parent: settings.groups
+    behavior:
+      current: 多值循环；无环境变量名
+  settings.field.sleep-mode:
+    id: settings.field.sleep-mode
+    short: P3-1-S19
+    label: 整理模式字段
+    type: select
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S19"
+    parent: settings.groups
+    behavior:
+      current: 四值循环 disabled / dedicated / session-model / mechanical；无环境变量名
+  settings.field.sleep-action:
+    id: settings.field.sleep-action
+    short: P3-1-S20
+    label: 整理动作行
+    type: button
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P3-1-S20"
+    parent: settings.groups
+    aliases:
+      - 执行整理
+    behavior:
+      current: 非配置项；Enter 触发一次授权整理并弹出确认
+  status.metric-cards:
+    id: status.metric-cards
+    short: P4-1-A1
+    label: 指标卡组
+    type: panel
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P4-1-A1"
+    aliases:
+      - 状态指标卡
+    behavior:
+      current: 四张卡各 17 列，显示库名、记录数、磁盘占用、今日增量
+  status.usage-bar:
+    id: status.usage-bar
+    short: P4-1-C1
+    label: 占用条
+    type: component
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P4-1-C1"
+    aliases:
+      - 容量条
+    behavior:
+      current: 二十格字符画；分子为今日事件量，分母为近七日峰值
+  status.sparkline:
+    id: status.sparkline
+    short: P4-1-C2
+    label: 事件量趋势
+    type: component
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P4-1-C2"
+    aliases:
+      - 七日趋势
+    behavior:
+      current: 八级字符画展示近七日每日事件量；ASCII 降级时退化为计数条
+  status.snapshot:
+    id: status.snapshot
+    short: P4-1-A2
+    label: 原始快照
+    type: panel
+    status: confirmed
+    stage_created: hifi
+    fidelities:
+      wireframe: null
+      hifi: "#P4-1-A2"
+    aliases:
+      - 状态 JSON
+    behavior:
+      current: 可滚动的原始 JSON 行，作为指标卡的补充而非主体

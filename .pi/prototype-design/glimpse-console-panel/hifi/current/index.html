@@ -1,0 +1,2222 @@
+<!DOCTYPE html>
+<html class="dark" lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XpiMemo T1 Console — Glimpse 面板原型</title>
+<script>
+/* 首帧前应用主题与语言，避免闪烁。只改 DOM；语言变量由主脚本启动时读回。 */
+(function () {
+  try {
+    var prefs = JSON.parse(localStorage.getItem("xpi-memo-glimpse-proto") || "{}");
+    if (prefs.theme === "light") document.documentElement.classList.remove("dark");
+    if (prefs.lang === "en") document.documentElement.lang = "en";
+  } catch (e) {
+    /* localStorage 不可用（隐私模式等）时静默回落默认值 */
+  }
+})();
+</script>
+<style>
+      /* ═══════════════════════════════════════════════════════════════
+         Design tokens — 数值逐字取自 <项目根>/THEMES.md (shadcn oklch)。
+         本文件不新增色值；下面的派生变量只做语义重命名或 calc，不改数值。
+         ═══════════════════════════════════════════════════════════════ */
+      :root {
+        --background: oklch(0.9818 0.0054 95.0986);
+        --foreground: oklch(0.3438 0.0269 95.7226);
+        --card: oklch(0.9818 0.0054 95.0986);
+        --card-foreground: oklch(0.1908 0.0020 106.5859);
+        --popover: oklch(1.0000 0 0);
+        --popover-foreground: oklch(0.2671 0.0196 98.9390);
+        --primary: oklch(0.6171 0.1375 39.0427);
+        --primary-foreground: oklch(1.0000 0 0);
+        --secondary: oklch(0.9245 0.0138 92.9892);
+        --secondary-foreground: oklch(0.4334 0.0177 98.6048);
+        --muted: oklch(0.9341 0.0153 90.2390);
+        --muted-foreground: oklch(0.6059 0.0075 97.4233);
+        --accent: oklch(0.9245 0.0138 92.9892);
+        --accent-foreground: oklch(0.2671 0.0196 98.9390);
+        --destructive: oklch(0.1908 0.0020 106.5859);
+        --destructive-foreground: oklch(1.0000 0 0);
+        --border: oklch(0.8847 0.0069 97.3627);
+        --input: oklch(0.7621 0.0156 98.3528);
+        --ring: oklch(0.6171 0.1375 39.0427);
+        --chart-1: oklch(0.5583 0.1276 42.9956);
+        --chart-2: oklch(0.6898 0.1581 290.4107);
+        --chart-3: oklch(0.8816 0.0276 93.1280);
+        --chart-4: oklch(0.8822 0.0403 298.1792);
+        --chart-5: oklch(0.5608 0.1348 42.0584);
+        --sidebar: oklch(0.9663 0.0080 98.8792);
+        --sidebar-foreground: oklch(0.3590 0.0051 106.6524);
+        --sidebar-primary: oklch(0.6171 0.1375 39.0427);
+        --sidebar-primary-foreground: oklch(0.9881 0 0);
+        --sidebar-accent: oklch(0.9245 0.0138 92.9892);
+        --sidebar-accent-foreground: oklch(0.3250 0 0);
+        --sidebar-border: oklch(0.9401 0 0);
+        --sidebar-ring: oklch(0.7731 0 0);
+        --font-sans: Inter, ui-sans-serif, sans-serif, system-ui;
+        --font-serif: Noto Serif, ui-serif, serif;
+        --font-mono: JetBrains Mono, ui-monospace, monospace;
+        --radius: 0.5rem;
+        --shadow-color: oklch(0 0 0);
+        --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
+        --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 2px 4px -1px hsl(0 0% 0% / 0.10);
+        --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 4px 6px -1px hsl(0 0% 0% / 0.10);
+      }
+
+      .dark {
+        --background: oklch(0.2679 0.0036 106.6427);
+        --foreground: oklch(0.8074 0.0142 93.0137);
+        --card: oklch(0.2679 0.0036 106.6427);
+        --card-foreground: oklch(0.9818 0.0054 95.0986);
+        --popover: oklch(0.3085 0.0035 106.6039);
+        --popover-foreground: oklch(0.9211 0.0040 106.4781);
+        --primary: oklch(0.6724 0.1308 38.7559);
+        --primary-foreground: oklch(1.0000 0 0);
+        --secondary: oklch(0.9818 0.0054 95.0986);
+        --secondary-foreground: oklch(0.3085 0.0035 106.6039);
+        --muted: oklch(0.2213 0.0038 106.7070);
+        --muted-foreground: oklch(0.7713 0.0169 99.0657);
+        --accent: oklch(0.2130 0.0078 95.4245);
+        --accent-foreground: oklch(0.9663 0.0080 98.8792);
+        --destructive: oklch(0.6368 0.2078 25.3313);
+        --destructive-foreground: oklch(1.0000 0 0);
+        --border: oklch(0.3618 0.0101 106.8928);
+        --input: oklch(0.4336 0.0113 100.2195);
+        --ring: oklch(0.6724 0.1308 38.7559);
+        --chart-1: oklch(0.5583 0.1276 42.9956);
+        --chart-2: oklch(0.6898 0.1581 290.4107);
+        --chart-3: oklch(0.2130 0.0078 95.4245);
+        --chart-4: oklch(0.3074 0.0516 289.3230);
+        --chart-5: oklch(0.5608 0.1348 42.0584);
+        --sidebar: oklch(0.2357 0.0024 67.7077);
+        --sidebar-foreground: oklch(0.8074 0.0142 93.0137);
+        --sidebar-primary: oklch(0.3250 0 0);
+        --sidebar-primary-foreground: oklch(0.9881 0 0);
+        --sidebar-accent: oklch(0.1680 0.0020 106.6177);
+        --sidebar-accent-foreground: oklch(0.8074 0.0142 93.0137);
+        --sidebar-border: oklch(0.9401 0 0);
+        --sidebar-ring: oklch(0.7731 0 0);
+        --font-sans: Inter, ui-sans-serif, sans-serif, system-ui;
+        --font-serif: Noto Serif, ui-serif, serif;
+        --font-mono: JetBrains Mono, ui-monospace, monospace;
+        --radius: 0.5rem;
+        --shadow-color: oklch(0 0 0);
+        --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
+        --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 2px 4px -1px hsl(0 0% 0% / 0.10);
+        --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 4px 6px -1px hsl(0 0% 0% / 0.10);
+      }
+
+      /* ═══════════════════════════════════════════════════════════════
+         几何与刻度：窗口固定 800×600（TUI-DESIGN.md §1 的尺寸契约）。
+         纵向 56 + 500 + 44 = 600；横向 180 + 620 = 800。
+         间距走 8pt 节奏；圆角由 --radius 派生，与 shadcn 一致。
+         ═══════════════════════════════════════════════════════════════ */
+      :root {
+        --win-w: 800px;
+        --win-h: 600px;
+        --h-header: 56px;
+        --h-body: 500px;
+        --h-footer: 44px;
+        --w-sidebar: 180px;
+        --w-content: 620px;
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-6: 24px;
+        --space-8: 32px;
+        --radius-sm: calc(var(--radius) - 4px);
+        --radius-md: calc(var(--radius) - 2px);
+        --radius-lg: var(--radius);
+        --radius-xl: calc(var(--radius) + 4px);
+      }
+
+      /* ---------- reset ---------- */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      /* hidden 属性必须能盖住显式 display（.pane-split / .table-wrap 都是 flex）。
+         UA 的 [hidden]{display:none} 与类选择器同权重，作者样式在后就会赢。 */
+      [hidden] {
+        display: none !important;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--background);
+        color: var(--foreground);
+        font-family: var(--font-sans);
+        font-size: 14px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button {
+        font: inherit;
+        color: inherit;
+      }
+
+      /* ---------- 路由：非活动页面容器隐藏（SPA 契约） ---------- */
+      .tabpage {
+        display: none;
+      }
+
+      .tabpage.is-active {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+
+      /* ═══════════════════════════════════════════════════════════════
+         窗口外壳：固定 800×600，三段纵向布局
+         ═══════════════════════════════════════════════════════════════ */
+      .stage {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--space-4);
+        min-height: 100vh;
+        padding: var(--space-8) var(--space-4);
+      }
+
+      .window {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        width: var(--win-w);
+        height: var(--win-h);
+        overflow: hidden;
+        background: var(--card);
+        color: var(--card-foreground);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        box-shadow: var(--shadow-lg);
+      }
+
+      .app-body {
+        display: flex;
+        flex: none;
+        height: var(--h-body);
+        overflow: hidden;
+      }
+
+      .app-content {
+        flex: none;
+        width: var(--w-content);
+        height: var(--h-body);
+        padding: var(--space-6);
+        overflow: hidden;
+      }
+
+      /* ═══════════════════════════════════════════════════════════════
+         基础组件：btn / badge / pill / card（shadcn 外观）
+         ═══════════════════════════════════════════════════════════════ */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2);
+        height: 32px;
+        padding: 0 var(--space-4);
+        border: 1px solid transparent;
+        border-radius: var(--radius-md);
+        background: none;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background-color 120ms ease, border-color 120ms ease;
+      }
+
+      .btn-primary {
+        background: var(--primary);
+        color: var(--primary-foreground);
+        font-weight: 600;
+      }
+
+      .btn-primary:hover {
+        background: color-mix(in oklab, var(--primary) 88%, var(--foreground));
+      }
+
+      .btn-secondary {
+        background: var(--secondary);
+        color: var(--secondary-foreground);
+        border-color: var(--border);
+      }
+
+      .btn-secondary:hover {
+        background: var(--accent);
+        color: var(--accent-foreground);
+      }
+
+      .btn-destructive {
+        background: var(--destructive);
+        color: var(--destructive-foreground);
+        font-weight: 600;
+      }
+
+      .btn-destructive:hover {
+        background: color-mix(in oklab, var(--destructive) 88%, var(--foreground));
+      }
+
+      .btn:focus-visible,
+      .nav-item:focus-visible,
+      .icon-btn:focus-visible,
+      .tb-btn:focus-visible,
+      .group-head:focus-visible,
+      .candidate-item:focus-visible,
+      .snapshot:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 2px;
+      }
+
+      /* 状态胶囊：圆角背景 + 语义色，用于运行状态与活动状态 */
+      .badge,
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+        padding: 2px var(--space-3);
+        border: 1px solid;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      /* THEMES.md 无 success/warning 语义色：成功复用 secondary，警告复用 accent */
+      .badge-ok,
+      .pill-ok {
+        /* 徽标统一用 muted 底 + foreground 字：secondary 在暗色下本身就是亮色，
+           配 foreground 会变成白字白底。语义靠边框与符号前缀区分。 */
+        background: var(--muted);
+        border-color: var(--border);
+        color: var(--foreground);
+      }
+
+      /* 状态符号：只上色，不带胶囊背景（胶囊只给状态文字用） */
+      .t-ok {
+        color: var(--foreground);
+      }
+
+      .t-warn {
+        color: var(--primary);
+      }
+
+      .t-danger {
+        color: var(--destructive);
+      }
+
+      .t-dim {
+        color: var(--muted-foreground);
+      }
+
+      .badge-warn,
+      .pill-warn {
+        background: color-mix(in oklab, var(--accent) 70%, transparent);
+        border-color: var(--primary);
+        color: var(--accent-foreground);
+      }
+
+      .badge-danger,
+      .pill-danger {
+        background: color-mix(in oklab, var(--destructive) 22%, transparent);
+        border-color: var(--destructive);
+        color: var(--destructive);
+      }
+
+      .badge-dim,
+      .pill-dim {
+        background: var(--muted);
+        border-color: var(--border);
+        color: var(--muted-foreground);
+      }
+
+      /* 卡片 */
+      .kpi-card {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+        padding: var(--space-3) var(--space-4);
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-sm);
+      }
+
+      .kpi-label {
+        font-size: 12px;
+        color: var(--muted-foreground);
+      }
+
+      .kpi-value {
+        font-size: 20px;
+        font-weight: 600;
+        font-family: var(--font-mono);
+        color: var(--foreground);
+      }
+
+      /* 空态与加载骨架 */
+      .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2);
+        height: 100%;
+        color: var(--muted-foreground);
+        text-align: center;
+      }
+
+
+      .skeleton {
+        background: var(--muted);
+        border-radius: var(--radius-sm);
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      /* ---------- 原型工具栏（不属于 Glimpse 窗口内容） ---------- */
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3) var(--space-4);
+        width: var(--win-w);
+        max-width: 100%;
+        padding: var(--space-3) var(--space-4);
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+      }
+
+      .toolbar-group {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+      }
+
+      .tb-btn {
+        height: 28px;
+        padding: 0 var(--space-3);
+        font-size: 12px;
+        color: var(--foreground);
+        background: var(--background);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+
+      .tb-btn:hover {
+        background: var(--accent);
+        color: var(--accent-foreground);
+      }
+
+      .tb-btn.is-active {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: var(--primary-foreground);
+        font-weight: 600;
+      }
+
+      /* ═══════════════════════════════════════════════════════════════
+      /* ═══════════════════════════════════════════════════════════════
+      /* ═══════════════════════════════════════════════════════════════
+         状态页：4 张 KPI 卡 + 占用条 + sparkline + 可滚动 JSON 区
+         内宽 572 = 4 × 137 + 3 × 8 间隔
+         ═══════════════════════════════════════════════════════════════ */
+      .kpi-grid {
+        flex: none;
+        display: grid;
+        grid-template-columns: repeat(4, 137px);
+        gap: var(--space-2);
+        height: 88px;
+      }
+
+      .meter-row {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        height: 20px;
+      }
+
+      .meter-label {
+        flex: none;
+        width: 64px;
+        font-size: 12px;
+        color: var(--muted-foreground);
+      }
+
+      /* 占用条：真像素宽度，不是字符画 */
+      .meter-track {
+        flex: none;
+        display: flex;
+        gap: 2px;
+        width: 240px;
+      }
+
+      .meter-seg {
+        flex: 1;
+        height: 10px;
+        background: var(--muted);
+        border-radius: 2px;
+      }
+
+      .meter-seg.is-on {
+        background: var(--primary);
+      }
+
+      .meter-value {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--foreground);
+      }
+
+      /* sparkline：8 级柱，柱高按值归一化 */
+      .spark {
+        flex: none;
+        display: flex;
+        align-items: flex-end;
+        gap: 3px;
+        height: 20px;
+      }
+
+      .spark-bar {
+        width: 10px;
+        background: var(--chart-1);
+        border-radius: 2px 2px 0 0;
+      }
+
+      .status-meta {
+        flex: none;
+        margin: 0;
+        font-size: 12px;
+        color: var(--muted-foreground);
+      }
+
+      .snapshot-head {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        font-size: 12px;
+        color: var(--muted-foreground);
+      }
+
+      .snapshot-head::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--border);
+      }
+      /* ═══════════════════════════════════════════════════════════════
+         footer：info bar + 关闭按钮
+         ═══════════════════════════════════════════════════════════════ */
+      .app-footer {
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-4);
+        height: var(--h-footer);
+        padding: 0 var(--space-6);
+        border-top: 1px solid var(--border);
+      }
+
+      .info-bar {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        font-size: 12px;
+        color: var(--muted-foreground);
+        overflow: hidden;
+        white-space: nowrap;
+      }
+
+      .info-key {
+        color: var(--muted-foreground);
+      }
+
+      .info-val {
+        font-family: var(--font-mono);
+        color: var(--foreground);
+      }
+
+      .info-sep {
+        color: var(--border);
+      }
+
+      /* 错误横幅：saveUserConfig 失败时的表达（principles.md 要求错误态） */
+      .error-banner {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-bottom: var(--space-4);
+        padding: var(--space-3) var(--space-4);
+        font-size: 13px;
+        color: var(--destructive);
+        background: color-mix(in oklab, var(--destructive) 12%, transparent);
+        border: 1px solid var(--destructive);
+        border-radius: var(--radius-md);
+      }
+
+
+      .skeleton-block {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+      }
+
+
+      /* 原始 JSON 区：保留可滚动（对齐现役 buildGlimpseHtml），等宽是功能需求 */
+      .snapshot {
+        flex: 1;
+        margin: 0;
+        padding: var(--space-3) var(--space-4);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--foreground);
+        background: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        min-height: 0;
+        overflow: auto;
+        white-space: pre;
+      }
+      /* ═══════════════════════════════════════════════════════════════
+         设置页：5 组手风琴 + 底部固定详情面板
+         内容区内高 452（500 − 48 padding）= 列表区 + 16 间隔 + 详情 72
+         ═══════════════════════════════════════════════════════════════ */
+      .settings-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+      }
+
+      .settings-groups {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+      }
+
+      .group {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
+
+      .group-head {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        width: 100%;
+        height: 44px;
+        padding: 0 var(--space-4);
+        background: var(--muted);
+        border: 0;
+        text-align: left;
+        cursor: pointer;
+        transition: background-color 120ms ease;
+      }
+
+      .group-head:hover {
+        background: var(--accent);
+        color: var(--accent-foreground);
+      }
+
+      .group-arrow {
+        flex: none;
+        width: 12px;
+        color: var(--primary);
+        font-family: var(--font-mono);
+      }
+
+      .group-name {
+        flex: 1;
+        font-weight: 600;
+        color: var(--foreground);
+      }
+
+      .group-count {
+        flex: none;
+        font-size: 12px;
+        color: var(--muted-foreground);
+      }
+
+      .group-body {
+        display: flex;
+        flex-direction: column;
+      }
+
+
+      /* 字段行三列：标签 / 当前值 / 备注 */
+      .field-row {
+        display: grid;
+        grid-template-columns: 180px 180px 1fr;
+        align-items: center;
+        gap: var(--space-3);
+        height: 36px;
+        padding: 0 var(--space-4);
+        border-top: 1px solid var(--border);
+        cursor: pointer;
+      }
+
+      .field-row:hover {
+        background: var(--accent);
+      }
+
+      .field-row.is-focused {
+        background: var(--accent);
+        color: var(--accent-foreground);
+      }
+
+      .f-label {
+        color: var(--muted-foreground);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .f-value {
+        font-family: var(--font-mono);
+        font-weight: 600;
+        color: var(--foreground);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .f-note {
+        font-size: 12px;
+        color: var(--muted-foreground);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .field-row.is-locked .f-label,
+      .field-row.is-locked .f-value {
+        color: var(--muted-foreground);
+      }
+
+      .field-row.is-action .f-value {
+        color: var(--primary);
+      }
+
+      /* 底部详情面板：固定高度，组头行不留空（继承 TUI 版的修正） */
+      .settings-detail {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: var(--space-1);
+        height: 72px;
+        padding: var(--space-3) var(--space-4);
+        background: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
+
+      .detail-line {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--muted-foreground);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      /* ═══════════════════════════════════════════════════════════════
+         最近页：六列 grid 表格
+         内宽 572 = 符号 40 + 动作 100 + 类型 80 + 库 1fr(152) + 状态 120 + 时间 80
+         ═══════════════════════════════════════════════════════════════ */
+      .table-wrap {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow-y: auto;
+      }
+
+      .tr {
+        display: grid;
+        grid-template-columns: 40px 100px 80px minmax(80px, 1fr) 120px 80px;
+        align-items: center;
+        gap: var(--space-2);
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-md);
+      }
+
+      /* 数据行悬停整行淡色背景；表头行不参与 */
+      .tr:not(.tr-head):hover {
+        background: var(--muted);
+      }
+
+      .tr-head {
+        padding-bottom: var(--space-2);
+        font-size: 12px;
+        color: var(--muted-foreground);
+      }
+
+      /* 表头下的分隔线：跨满六列，占一整行 */
+      .tr-divider {
+        grid-template-columns: 1fr;
+        padding: 0 var(--space-3);
+      }
+
+      .tr-divider span {
+        display: block;
+        height: 1px;
+        background: var(--border);
+      }
+
+      .td {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .td-symbol {
+        font-family: var(--font-mono);
+        text-align: center;
+      }
+
+      .td-mono {
+        font-family: var(--font-mono);
+        font-size: 13px;
+      }
+
+      .td-muted {
+        color: var(--muted-foreground);
+      }
+      /* ═══════════════════════════════════════════════════════════════
+         待审页：240px 列表 + 详情分栏
+         内容区内宽 620 − 48（左右 padding 各 24）= 572，
+         列表固定 240，间隔 16，详情吃剩余 316。
+         ═══════════════════════════════════════════════════════════════ */
+      .pane-split {
+        display: flex;
+        gap: var(--space-4);
+        height: 100%;
+        min-height: 0;
+      }
+
+      .pane-left {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+        width: 240px;
+        min-height: 0;
+      }
+
+      .pane-title {
+        flex: none;
+        margin: 0;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted-foreground);
+      }
+
+      .candidate-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        min-height: 0;
+        overflow-y: auto;
+      }
+
+      .candidate-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-2);
+        padding: var(--space-3);
+        background: var(--card);
+        border: 1px solid var(--border);
+        /* 左 3px 竖条用 border，选中时不引起布局位移 */
+        border-left: 3px solid transparent;
+        border-radius: var(--radius-md);
+        text-align: left;
+        cursor: pointer;
+        transition: background-color 120ms ease;
+      }
+
+      .candidate-item:hover {
+        background: var(--accent);
+      }
+
+      .candidate-item.is-selected {
+        background: var(--accent);
+        color: var(--accent-foreground);
+        border-left-color: var(--primary);
+      }
+
+      .cand-main {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        min-width: 0;
+      }
+
+      .cand-kind {
+        font-weight: 600;
+      }
+
+      .cand-age {
+        font-size: 12px;
+        color: var(--muted-foreground);
+      }
+
+      .candidate-item.is-selected .cand-age {
+        color: var(--accent-foreground);
+      }
+
+      .pane-right {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-4);
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .detail-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+        padding: var(--space-4);
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        min-height: 0;
+        overflow-y: auto;
+      }
+
+      .detail-row {
+        display: grid;
+        grid-template-columns: 72px 1fr;
+        gap: var(--space-3);
+        margin: 0;
+      }
+
+      .detail-key {
+        font-size: 12px;
+        color: var(--muted-foreground);
+      }
+
+      .detail-val {
+        color: var(--foreground);
+        overflow-wrap: anywhere;
+      }
+
+      .action-bar {
+        flex: none;
+        display: flex;
+        gap: var(--space-2);
+      }
+      /* ═══════════════════════════════════════════════════════════════
+         header：标题 + 状态徽标 + 主题/语言开关
+         ═══════════════════════════════════════════════════════════════ */
+      .app-header {
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-4);
+        height: var(--h-header);
+        padding: 0 var(--space-6);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .app-title {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        min-width: 0;
+      }
+
+      .app-name {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--foreground);
+        white-space: nowrap;
+      }
+
+      .app-header-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+      }
+
+      .icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        font-size: 13px;
+        color: var(--muted-foreground);
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: background-color 120ms ease;
+      }
+
+      .icon-btn:hover {
+        background: var(--accent);
+        color: var(--accent-foreground);
+      }
+
+      /* ═══════════════════════════════════════════════════════════════
+         sidebar：180×500 垂直导航
+         ═══════════════════════════════════════════════════════════════ */
+      .app-sidebar {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+        width: var(--w-sidebar);
+        height: var(--h-body);
+        padding: var(--space-3);
+        background: var(--sidebar);
+        color: var(--sidebar-foreground);
+        border-right: 1px solid var(--sidebar-border);
+      }
+
+      .nav-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-2);
+        height: 36px;
+        padding: 0 var(--space-3);
+        /* 左 3px 竖条用 border 而不是伪元素，激活时不会引起布局位移 */
+        border: 0;
+        border-left: 3px solid transparent;
+        border-radius: var(--radius-md);
+        background: none;
+        color: var(--sidebar-foreground);
+        text-align: left;
+        cursor: pointer;
+        transition: background-color 120ms ease;
+      }
+
+      .nav-item:hover {
+        background: var(--sidebar-accent);
+        color: var(--sidebar-accent-foreground);
+      }
+
+      .nav-item.is-active {
+        background: var(--sidebar-accent);
+        color: var(--sidebar-accent-foreground);
+        border-left-color: var(--sidebar-primary);
+        font-weight: 600;
+      }
+
+      .nav-count {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--muted-foreground);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+</style>
+</head>
+<body>
+
+<!-- ═══ 原型工具栏：不属于 Glimpse 窗口内容 ═══ -->
+<div class="toolbar" id="toolbar">
+  <div class="toolbar-group" id="views">
+    <button type="button" id="state-toggle" class="tb-btn">空态</button>
+    <button type="button" id="loading-toggle" class="tb-btn">加载</button>
+    <button type="button" id="error-toggle" class="tb-btn">错误</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     Glimpse 窗口：固定 800 × 600
+     纵向 header 56 + body 500 + footer 44
+     横向 sidebar 180 + content 620
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="window" id="P0-1-A1" role="application" aria-label="XpiMemo Glimpse 面板原型">
+
+  <!-- ─── header 800×56 ─── -->
+  <header class="app-header" id="P0-1-A2">
+    <div class="app-title">
+      <span class="app-name" id="app-name"></span>
+      <span class="badge" id="P0-1-B1"></span>
+    </div>
+    <div class="app-header-actions">
+      <button type="button" id="P0-1-W1" class="icon-btn" aria-label="切换主题"></button>
+      <button type="button" id="P0-1-W2" class="icon-btn" aria-label="切换语言"></button>
+    </div>
+  </header>
+
+  <!-- ─── body 800×500 ─── -->
+  <div class="app-body">
+
+    <!-- sidebar 180×500 -->
+    <nav class="app-sidebar" id="P0-1-A3" aria-label="主导航">
+      <button type="button" class="nav-item" id="P0-1-N1" data-tab="pending"></button>
+      <button type="button" class="nav-item" id="P0-1-N2" data-tab="recent"></button>
+      <button type="button" class="nav-item" id="P0-1-N3" data-tab="settings"></button>
+      <button type="button" class="nav-item" id="P0-1-N4" data-tab="status"></button>
+    </nav>
+
+    <!-- content 620×500 -->
+    <main class="app-content">
+
+      <!-- ─── P1 待审 ─── -->
+      <section class="tabpage" id="page-pending" data-page="pending" data-route="#/pending">
+        <div class="pane-split">
+          <div class="pane-left">
+            <h2 class="pane-title" id="pending-list-title"></h2>
+            <div class="candidate-list" id="P1-1-L1" role="listbox" aria-label="候选列表"></div>
+          </div>
+          <div class="pane-right">
+            <div class="detail-body" id="P1-1-A1" role="region" aria-label="候选详情"></div>
+            <div class="action-bar" id="P1-1-A2">
+              <button type="button" class="btn btn-primary" id="P1-1-B1"></button>
+              <button type="button" class="btn btn-destructive" id="P1-1-B2"></button>
+              <button type="button" class="btn btn-secondary" id="P1-1-B3"></button>
+            </div>
+          </div>
+        </div>
+        <div class="empty-state" id="P1-1-T1" hidden></div>
+      </section>
+
+      <!-- ─── P2 最近 ─── -->
+      <section class="tabpage" id="page-recent" data-page="recent" data-route="#/recent">
+        <div class="table-wrap" id="P2-1-X1" role="table" aria-label="最近活动"></div>
+        <div class="empty-state" id="P2-1-T1" hidden></div>
+      </section>
+
+      <!-- ─── P3 设置 ─── -->
+      <section class="tabpage" id="page-settings" data-page="settings" data-route="#/settings">
+        <!-- 错误态与加载态：principles.md 要求的四态中的两个 -->
+        <div class="error-banner" id="settings-error" hidden></div>
+        <div class="skeleton-block" id="settings-loading" hidden>
+          <div class="skeleton" style="height: 44px"></div>
+          <div class="skeleton" style="height: 36px"></div>
+          <div class="skeleton" style="height: 36px"></div>
+          <div class="skeleton" style="height: 36px"></div>
+        </div>
+        <div class="settings-scroll">
+          <!-- 25 个元素全部静态存在（id = 字典短码），文字与折叠由 renderSettings() 控制。
+               静态化是为了让 id 在 HTML 源码里可 grep —— 与 TUI 版同一架构。 -->
+          <div class="settings-groups" id="P3-1-L1" role="listbox" aria-label="设置字段">
+            <div class="group">
+              <button type="button" class="group-head" id="P3-1-B1" data-group="retrieval"></button>
+              <div class="group-body">
+                <div class="field-row" id="P3-1-S1" data-field="recallPolicy" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S2" data-field="retrievalMode" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S3" data-field="searchBackend" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S4" data-field="limit" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S5" data-field="globalLimit" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S6" data-field="projectLimit" tabindex="0"></div>
+              </div>
+            </div>
+            <div class="group">
+              <button type="button" class="group-head" id="P3-1-B2" data-group="storage"></button>
+              <div class="group-body" hidden>
+                <div class="field-row" id="P3-1-S7" data-field="confirmStore" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S8" data-field="autoExport" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S9" data-field="offlineExtractionEnabled" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S10" data-field="excludeToolResults" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S11" data-field="dataDir" tabindex="0"></div>
+              </div>
+            </div>
+            <div class="group">
+              <button type="button" class="group-head" id="P3-1-B3" data-group="pipeline"></button>
+              <div class="group-body" hidden>
+                <div class="field-row" id="P3-1-S12" data-field="paused" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S13" data-field="l0Enabled" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S14" data-field="profileInjection" tabindex="0"></div>
+              </div>
+            </div>
+            <div class="group">
+              <button type="button" class="group-head" id="P3-1-B4" data-group="display"></button>
+              <div class="group-body" hidden>
+                <div class="field-row" id="P3-1-S15" data-field="language" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S16" data-field="eventPresentation" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S17" data-field="passiveFeedback" tabindex="0"></div>
+              </div>
+            </div>
+            <div class="group">
+              <button type="button" class="group-head" id="P3-1-B5" data-group="privacy"></button>
+              <div class="group-body" hidden>
+                <div class="field-row" id="P3-1-S18" data-field="privacy" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S19" data-field="sleepMode" tabindex="0"></div>
+                <div class="field-row" id="P3-1-S20" data-field="sleep" tabindex="0"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="settings-detail" id="P3-1-A1" role="region" aria-label="字段详解">
+          <p class="detail-line" id="settings-detail-1"></p>
+          <p class="detail-line" id="settings-detail-2"></p>
+        </div>
+      </section>
+
+      <!-- ─── P4 状态 ─── -->
+      <section class="tabpage" id="page-status" data-page="status" data-route="#/status">
+        <div class="kpi-grid" id="P4-1-A1">
+          <div class="kpi-card" id="P4-1-C1"></div>
+          <div class="kpi-card" id="P4-1-C2"></div>
+          <div class="kpi-card" id="P4-1-C3"></div>
+          <div class="kpi-card" id="P4-1-C4"></div>
+        </div>
+        <div class="meter-row">
+          <span class="meter-label" id="status-usage-label"></span>
+          <div class="meter-track" id="P4-1-U1" role="img" aria-label="今日事件占比"></div>
+          <span class="meter-value" id="status-usage-value"></span>
+        </div>
+        <div class="meter-row">
+          <span class="meter-label" id="status-trend-label"></span>
+          <div class="spark" id="P4-1-U2" role="img" aria-label="近七日事件量"></div>
+        </div>
+        <p class="status-meta" id="status-recall"></p>
+        <div class="snapshot-head" id="status-snapshot-title"></div>
+        <pre class="snapshot" id="P4-1-A2" tabindex="0" role="region" aria-label="原始快照"></pre>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ─── footer 800×44 ─── -->
+  <footer class="app-footer" id="P0-1-A4">
+    <div class="info-bar" id="P0-1-C1"></div>
+    <button type="button" class="btn btn-secondary" id="P0-1-B2"></button>
+  </footer>
+
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   文案表：键名与 src/console.ts 的 PANEL_TEXT 逐条对应。
+   界面文案放 i18n 表；设置页的 20 个字段文案放数据里（见 1.7）。
+   ═══════════════════════════════════════════════════════════════════ */
+window.__i18n = {
+  "zh-CN": {
+    "app.name": "XpiMemo T1 Console",
+    "app.running": "运行中",
+    "app.paused": "已暂停",
+    "nav.pending": "待审",
+    "nav.recent": "最近",
+    "nav.settings": "设置",
+    "nav.status": "状态",
+    "toggle.theme": "切换主题",
+    "toggle.lang": "切换语言",
+    "close": "关闭窗口",
+    "pending.title": "候选",
+    "pending.type": "类型",
+    "pending.bank": "库",
+    "pending.age": "时间",
+    "pending.evidence": "证据",
+    "pending.rationale": "理由",
+    "pending.content": "内容",
+    "pending.conflict": "冲突",
+    "pending.store": "存入",
+    "pending.reject": "拒绝",
+    "pending.later": "稍后",
+    "pending.empty": "当前没有待审记忆",
+    "recent.action": "动作",
+    "recent.kind": "类型",
+    "recent.bank": "库",
+    "recent.status": "状态",
+    "recent.time": "时间",
+    "recent.empty": "暂无活动",
+    "recent.emptyHint": "记忆事件会按时间出现在这里",
+    "status.bank": "库",
+    "status.records": "记录",
+    "status.disk": "磁盘",
+    "status.today": "今日",
+    "status.usage": "今日事件",
+    "status.trend": "近 7 日",
+    "status.recall": "召回 hybrid · 后端 ripgrep · 嵌入 不可用",
+    "status.snapshot": "原始快照",
+    "info.bank": "库",
+    "info.total": "记录",
+    "info.today": "今日",
+    "info.pending": "待审",
+    "info.disk": "磁盘",
+    "info.pause": "暂停",
+    "info.on": "on",
+    "info.off": "off",
+    "state.empty": "空态",
+    "state.loading": "加载",
+    "state.error": "错误",
+    "error.save": "保存失败：配置目录不可写，改动未落盘",
+  },
+  "en": {
+    "app.name": "XpiMemo T1 Console",
+    "app.running": "RUNNING",
+    "app.paused": "PAUSED",
+    "nav.pending": "Pending",
+    "nav.recent": "Recent",
+    "nav.settings": "Settings",
+    "nav.status": "Status",
+    "toggle.theme": "Toggle theme",
+    "toggle.lang": "Toggle language",
+    "close": "Close window",
+    "pending.title": "Candidates",
+    "pending.type": "type",
+    "pending.bank": "bank",
+    "pending.age": "age",
+    "pending.evidence": "evidence",
+    "pending.rationale": "rationale",
+    "pending.content": "content",
+    "pending.conflict": "conflict",
+    "pending.store": "Store",
+    "pending.reject": "Reject",
+    "pending.later": "Later",
+    "pending.empty": "No pending memories",
+    "recent.action": "action",
+    "recent.kind": "kind",
+    "recent.bank": "bank",
+    "recent.status": "status",
+    "recent.time": "time",
+    "recent.empty": "No recent activity",
+    "recent.emptyHint": "Memory events appear here over time",
+    "status.bank": "bank",
+    "status.records": "records",
+    "status.disk": "disk",
+    "status.today": "today",
+    "status.usage": "today events",
+    "status.trend": "last 7d",
+    "status.recall": "recall hybrid · backend ripgrep · embedding unavailable",
+    "status.snapshot": "raw snapshot",
+    "info.bank": "bank",
+    "info.total": "records",
+    "info.today": "today",
+    "info.pending": "pending",
+    "info.disk": "disk",
+    "info.pause": "pause",
+    "info.on": "on",
+    "info.off": "off",
+    "state.empty": "Empty",
+    "state.loading": "Loading",
+    "state.error": "Error",
+    "error.save": "Save failed: config directory is not writable, nothing was persisted",
+  }
+};
+
+var lang = "zh-CN";
+
+/** 键查找：当前语言 → zh-CN → 键名本身，缺键渲染成可读文本而不是空串。 */
+function t(key) {
+  var dict = window.__i18n[lang] || window.__i18n["zh-CN"];
+  return dict[key] || window.__i18n["zh-CN"][key] || key;
+}
+
+/* ═══ 演示数据（对应 MemoryStatus 的可见字段） ═══ */
+var DEMO = {
+  bank: "xpi-memo",
+  total: 166,
+  today: 14,
+  pending: 3,
+  disk: "420.5 KB",
+  paused: false
+};
+
+/** 转义后再拼进 innerHTML —— 数据是常量，但拼接路径不留裸注入。 */
+function esc(value) {
+  return String(value).replace(/[&<>"']/g, function (ch) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '\"': "&quot;", "'": "&#39;" }[ch];
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   header 与 sidebar 渲染
+   ═══════════════════════════════════════════════════════════════════ */
+var NAV_SHORT = {
+  pending: "P0-1-N1",
+  recent: "P0-1-N2",
+  settings: "P0-1-N3",
+  status: "P0-1-N4"
+};
+
+function renderChrome() {
+  document.getElementById("app-name").textContent = t("app.name");
+
+  // 状态徽标：运行中 / 已暂停，颜色随状态切换
+  var badge = document.getElementById("P0-1-B1");
+  badge.textContent = (DEMO.paused ? "○ " : "● ") + t(DEMO.paused ? "app.paused" : "app.running");
+  badge.className = "badge " + (DEMO.paused ? "badge-dim" : "badge-ok");
+
+  // 导航项：标签 + 待审计数
+  ["pending", "recent", "settings", "status"].forEach(function (key) {
+    var el = document.getElementById(NAV_SHORT[key]);
+    el.innerHTML =
+      "<span>" + esc(t("nav." + key)) + "</span>" +
+      (key === "pending"
+        ? '<span class="nav-count">' + DEMO.pending + "</span>"
+        : "");
+  });
+
+  // 开关：按钮文字随当前状态变化
+  var themeBtn = document.getElementById("P0-1-W1");
+  var dark = document.documentElement.classList.contains("dark");
+  themeBtn.textContent = dark ? "◐" : "◑";
+  themeBtn.setAttribute("aria-label", t("toggle.theme"));
+
+  var langBtn = document.getElementById("P0-1-W2");
+  langBtn.textContent = lang === "zh-CN" ? "文" : "EN";
+  langBtn.setAttribute("aria-label", t("toggle.lang"));
+
+  document.getElementById("P0-1-B2").textContent = t("close");
+}
+
+/**
+ * 语言或主题变化后重画全部区域。
+ * 各页面的 render 函数在后续任务里补进来，这里只按存在性调用，
+ * 避免在页面尚未实现时报错。
+ */
+function renderAll() {
+  renderChrome();
+  renderFooter();
+  renderToolbar();
+  renderPending();
+  renderRecent();
+  renderSettings();
+  renderStatus();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   偏好持久化：主题与语言写 localStorage，首帧前由 head 脚本应用。
+   ═══════════════════════════════════════════════════════════════════ */
+var PREFS_KEY = "xpi-memo-glimpse-proto";
+
+function loadPrefs() {
+  try {
+    return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+  } catch (e) {
+    return {};
+  }
+}
+
+function savePrefs() {
+  try {
+    localStorage.setItem(
+      PREFS_KEY,
+      JSON.stringify({
+        theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
+        lang: lang
+      })
+    );
+  } catch (e) {
+    /* 存不进去不影响当前会话 */
+  }
+}
+
+document.getElementById("P0-1-W1").addEventListener("click", function () {
+  document.documentElement.classList.toggle("dark");
+  renderChrome();
+  savePrefs();
+});
+
+document.getElementById("P0-1-W2").addEventListener("click", function () {
+  lang = lang === "zh-CN" ? "en" : "zh-CN";
+  document.documentElement.lang = lang;
+  renderAll();
+  savePrefs();
+});
+
+/* 关闭按钮：Glimpse 桥接存在时调它；原型里只做视觉反馈。 */
+document.getElementById("P0-1-B2").addEventListener("click", function () {
+  if (window.glimpse && typeof window.glimpse.close === "function") window.glimpse.close();
+});
+/* ═══════════════════════════════════════════════════════════════════
+   P1 待审：240px 列表 + 详情分栏
+   列表项显示类型、相对时间与冲突徽标；选中项左 3px 竖条。
+   详情随焦点即时跟随，展示六个字段。
+   ═══════════════════════════════════════════════════════════════════ */
+var CANDIDATES = [
+  {
+    kind: "记忆",
+    bank: "xpi-memo",
+    age: "2 小时前",
+    conflict: true,
+    evidence: "用户原话",
+    rationale: "用户明确陈述为长期偏好",
+    content: "优先用第一性原则分析问题, 寻求最佳实践"
+  },
+  {
+    kind: "记忆",
+    bank: "global",
+    age: "1 天前",
+    conflict: false,
+    evidence: "会话重复出现",
+    rationale: "同一偏好被多次陈述",
+    content: "用户偏好中文回复并带术语解释"
+  },
+  {
+    kind: "约束",
+    bank: "xpi-memo",
+    age: "3 天前",
+    conflict: false,
+    evidence: "仓库事实",
+    rationale: "提交前必须全绿",
+    content: "typecheck / lint / test 三条全绿才算完成"
+  }
+];
+
+var selectedCandidate = 0;
+
+function renderPending() {
+  var split = document.querySelector("#page-pending .pane-split");
+  var empty = document.getElementById("P1-1-T1");
+  document.getElementById("pending-list-title").textContent =
+    t("pending.title") + " (" + CANDIDATES.length + ")";
+
+  if (CANDIDATES.length === 0) {
+    if (split) split.hidden = true;
+    empty.hidden = false;
+    empty.textContent = t("pending.empty");
+    return;
+  }
+  if (split) split.hidden = false;
+  empty.hidden = true;
+
+  document.getElementById("P1-1-L1").innerHTML = CANDIDATES.map(function (item, i) {
+    var selected = i === selectedCandidate;
+    return (
+      '<button type="button" class="candidate-item' +
+      (selected ? " is-selected" : "") +
+      '" data-index="' + i + '" aria-selected="' + selected + '">' +
+      '<span class="cand-main">' +
+      '<span class="cand-kind">' + esc(item.kind) + "</span>" +
+      (item.conflict
+        ? '<span class="pill pill-warn">⚠ ' + esc(t("pending.conflict")) + "</span>"
+        : "") +
+      "</span>" +
+      '<span class="cand-age">' + esc(item.age) + "</span>" +
+      "</button>"
+    );
+  }).join("");
+
+  var cur = CANDIDATES[selectedCandidate];
+  var rows = [
+    ["pending.type", cur.kind],
+    ["pending.bank", cur.bank],
+    ["pending.age", cur.age],
+    ["pending.evidence", cur.evidence],
+    ["pending.rationale", cur.rationale],
+    ["pending.content", cur.content]
+  ];
+  document.getElementById("P1-1-A1").innerHTML = rows
+    .map(function (row) {
+      return (
+        '<div class="detail-row">' +
+        '<span class="detail-key">' + esc(t(row[0])) + "</span>" +
+        '<span class="detail-val">' + esc(row[1]) + "</span>" +
+        "</div>"
+      );
+    })
+    .join("");
+
+  document.getElementById("P1-1-B1").textContent = t("pending.store");
+  document.getElementById("P1-1-B2").textContent = t("pending.reject");
+  document.getElementById("P1-1-B3").textContent = t("pending.later");
+}
+
+/** 切换焦点候选；越界回绕，列表点击与键盘共用。 */
+function selectCandidate(index) {
+  if (CANDIDATES.length === 0) return;
+  selectedCandidate = (index + CANDIDATES.length) % CANDIDATES.length;
+  renderPending();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   P2 最近：六列 grid 表格 + 状态胶囊
+   现役是单行拼接的字符串；这里改成对齐表格，状态用带语义色的胶囊。
+   ═══════════════════════════════════════════════════════════════════ */
+var ACTIVITY = [
+  { action: "存入", kind: "记忆", bank: "xpi-memo", status: "stored", time: "14:22" },
+  { action: "召回", kind: "记忆", bank: "xpi-memo", status: "hit", time: "14:18" },
+  { action: "待审", kind: "约束", bank: "xpi-memo", status: "pending", time: "14:05" },
+  { action: "拒绝", kind: "记忆", bank: "global", status: "rejected", time: "13:51" },
+  { action: "降级", kind: "记忆", bank: "xpi-memo", status: "degraded", time: "13:40" }
+];
+
+/* 符号与色阶：语义移植自 termcn 的 resolveStatusSymbol 六态 */
+var STATUS_SYMBOL = {
+  stored: "✓",
+  hit: "✓",
+  pending: "○",
+  rejected: "✗",
+  degraded: "⚠"
+};
+
+var STATUS_PILL = {
+  stored: "pill-ok",
+  hit: "pill-ok",
+  pending: "pill-dim",
+  rejected: "pill-danger",
+  degraded: "pill-warn"
+};
+
+/* 符号只上色，不带胶囊背景 —— 胶囊是状态文字专属的形态。 */
+var STATUS_TINT = {
+  stored: "t-ok",
+  hit: "t-ok",
+  pending: "t-dim",
+  rejected: "t-danger",
+  degraded: "t-warn"
+};
+
+function renderRecent() {
+  var wrap = document.getElementById("P2-1-X1");
+  var empty = document.getElementById("P2-1-T1");
+
+  if (ACTIVITY.length === 0) {
+    wrap.hidden = true;
+    empty.hidden = false;
+    empty.innerHTML =
+      "<strong>" + esc(t("recent.empty")) + "</strong>" +
+      "<span>" + esc(t("recent.emptyHint")) + "</span>";
+    return;
+  }
+  wrap.hidden = false;
+  empty.hidden = true;
+
+  var head = ["", "recent.action", "recent.kind", "recent.bank", "recent.status", "recent.time"];
+  var out = [
+    '<div class="tr tr-head">' +
+      head
+        .map(function (key) {
+          return '<span class="td">' + esc(key ? t(key) : "") + "</span>";
+        })
+        .join("") +
+      "</div>",
+    '<div class="tr tr-divider"><span></span></div>'
+  ];
+
+  ACTIVITY.forEach(function (item) {
+    var symbol = STATUS_SYMBOL[item.status] || "·";
+    var pill = STATUS_PILL[item.status] || "pill-dim";
+    var tint = STATUS_TINT[item.status] || "t-dim";
+    out.push(
+      '<div class="tr">' +
+        '<span class="td td-symbol ' + tint + '">' + esc(symbol) + "</span>" +
+        '<span class="td">' + esc(item.action) + "</span>" +
+        '<span class="td td-muted">' + esc(item.kind) + "</span>" +
+        '<span class="td">' + esc(item.bank) + "</span>" +
+        '<span class="td"><span class="pill ' + pill + '">' + esc(item.status) + "</span></span>" +
+        '<span class="td td-mono td-muted">' + esc(item.time) + "</span>" +
+        "</div>"
+    );
+  });
+
+  wrap.innerHTML = out.join("");
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   P3 设置：5 组 20 字段
+   字段逐条对应 src/config.ts 的 XpiMemoConfig，文案逐条对应
+   src/console.ts 的 PANEL_TEXT，env 取自现役 settingsItems()。
+   文案放在数据里而不是 i18n 表：160 个键会把语言表撑爆，
+   而且它们是字段的属性，不是界面词汇。
+   ═══════════════════════════════════════════════════════════════════ */
+var GROUPS = [
+  {
+    id: "retrieval",
+    zh: "召回与检索",
+    en: "Retrieval",
+    zhDetail: "决定 Agent 何时、用什么方式取回记忆",
+    zhChoice: "6 个字段 · 越靠前影响越大 · 都是 Agent 侧行为",
+    enDetail: "When and how the Agent pulls memory back",
+    enChoice: "6 fields · earlier ones matter more · all Agent-side",
+    fields: [
+      { key: "recallPolicy", value: "high-value-auto", values: ["active","assist","high-value-auto"], env: "XPI_MEMO_RECALL_POLICY",
+        zh: { label: "召回策略", note: "按价值自动注入",
+              detail: "Agent 何时自行召回记忆 · 空格切换策略, Enter 保存",
+              choice: "推荐: high-value-auto · active=先问你 · assist=有用才召回 · high-value-auto=自动注入" },
+        en: { label: "Recall policy", note: "Auto-inject by value",
+              detail: "When the Agent recalls memory on its own · Space cycles, Enter saves",
+              choice: "Recommend: high-value-auto · active=ask · assist=useful · high-value-auto=auto-inject" } },
+      { key: "retrievalMode", value: "hybrid", values: ["fts5","hybrid"], env: "XPI_MEMO_RETRIEVAL_MODE",
+        zh: { label: "检索方式", note: "hybrid 兼顾语义",
+              detail: "Agent 检索记忆的方式 · 空格切换 fts5/hybrid, Enter 保存",
+              choice: "推荐: hybrid · fts5=纯关键词 · hybrid=加语义检索" },
+        en: { label: "Retrieval mode", note: "Hybrid adds semantics",
+              detail: "How the Agent searches memory · Space cycles fts5/hybrid, Enter saves",
+              choice: "Recommend: hybrid · fts5=keywords only · hybrid=adds semantic search" } },
+      { key: "searchBackend", value: "auto", values: ["auto","mnemosyne","ripgrep","qmd"], env: "XPI_MEMO_SEARCH_BACKEND",
+        zh: { label: "搜索后端", note: "自动选可用后端",
+              detail: "召回使用哪个搜索引擎 · 空格切换, Enter 保存",
+              choice: "推荐: auto · auto=取首个可用 · ripgrep=零配置 · mnemosyne=语义 · qmd=本地索引" },
+        en: { label: "Search backend", note: "Pick first available",
+              detail: "Engine that runs the Agent's recall · Space cycles, Enter saves",
+              choice: "Recommend: auto · auto=first · ripgrep=no setup · mnemosyne=semantic · qmd=local index" } },
+      { key: "limit", value: "5", values: ["1","5","10","20"], env: "XPI_MEMO_LIMIT",
+        zh: { label: "单次召回条数", note: "每次注入的条数",
+              detail: "Agent 每轮注入的条数 · 空格切换 1/5/10/20, Enter 保存",
+              choice: "推荐: 5 · 1/5/10/20 是 Agent 每轮可注入的条数" },
+        en: { label: "Recall limit", note: "Rows injected per turn",
+              detail: "Rows the Agent may inject per turn · Space cycles 1/5/10/20, Enter saves",
+              choice: "Recommend: 5 · 1/5/10/20 memory rows the Agent may inject per turn" } },
+      { key: "globalLimit", value: "5", values: ["1","5","10","20"], env: "XPI_MEMO_GLOBAL_LIMIT",
+        zh: { label: "全局召回上限", note: "跨项目的上限",
+              detail: "所有项目的总上限 · 限制 Agent 注入 · 空格切换 1/5/10/20, Enter 保存",
+              choice: "推荐: 5 · 1/5/10/20 是所有项目的每轮上限" },
+        en: { label: "Global limit", note: "Cap across projects",
+              detail: "Agent cap across all projects · Space cycles 1/5/10/20, Enter saves",
+              choice: "Recommend: 5 · 1/5/10/20 rows per turn across all projects" } },
+      { key: "projectLimit", value: "5", values: ["1","5","10","20"], env: "XPI_MEMO_PROJECT_LIMIT",
+        zh: { label: "项目召回上限", note: "本项目内的上限",
+              detail: "本项目内的上限 · 限制 Agent 注入 · 空格切换 1/5/10/20, Enter 保存",
+              choice: "推荐: 5 · 1/5/10/20 是本项目内的每轮上限" },
+        en: { label: "Project limit", note: "Cap inside this project",
+              detail: "Agent cap inside this project · Space cycles 1/5/10/20, Enter saves",
+              choice: "Recommend: 5 · 1/5/10/20 rows per turn inside this project" } }
+    ]
+  },
+  {
+    id: "storage",
+    zh: "存储与提取",
+    en: "Storage",
+    zhDetail: "记忆写到哪里、什么时候写、写多少",
+    zhChoice: "5 个字段 · 含 1 个只读项(数据目录) · 多数无需改动",
+    enDetail: "Where memory is written, when, and how much",
+    enChoice: "5 fields · 1 read-only (data dir) · defaults are fine",
+    fields: [
+      { key: "confirmStore", value: "off", values: ["off","on"], env: "XPI_MEMO_CONFIRM_STORE",
+        zh: { label: "存储前确认", note: "写入前先问你",
+              detail: "Agent 写记忆前先问你 · 空格切换 on/off, Enter 保存",
+              choice: "推荐: off · off=直接写入 · on=每次写入前问你" },
+        en: { label: "Confirm store", note: "Ask before writing",
+              detail: "Ask you before the Agent stores a memory · Space toggles on/off, Enter saves",
+              choice: "Recommend: off · off=store silently · on=ask before every write" } },
+      { key: "autoExport", value: "on", values: ["off","on"], env: null,
+        zh: { label: "自动导出", note: "定期导出备份",
+              detail: "定期把记忆库导出成 Markdown 备份 · 只与你有关 · 空格切换 on/off, Enter 保存",
+              choice: "推荐: on · off=不备份 · on=定期导出 Markdown" },
+        en: { label: "Auto export", note: "Periodic export backup",
+              detail: "Periodic Markdown backup of the bank · human-only · Space toggles on/off, Enter saves",
+              choice: "Recommend: on · off=no backup · on=periodic Markdown export" } },
+      { key: "offlineExtractionEnabled", value: "off", values: ["off","on"], env: null,
+        zh: { label: "离线提取", note: "无模型也能提取",
+              detail: "无模型时也能提取记忆 · 影响 Agent 召回 · 空格切换 on/off, Enter 保存",
+              choice: "推荐: off · off=只用规则 · on=无模型也能提取" },
+        en: { label: "Offline extraction", note: "Works without a model",
+              detail: "Extract memories without a model · affects Agent recall · Space toggles, Enter saves",
+              choice: "Recommend: off · off=rules only · on=extract without a model" } },
+      { key: "excludeToolResults", value: "off", values: ["off","on"], env: null,
+        zh: { label: "排除工具输出", note: "不记录工具输出",
+              detail: "不把工具输出写进记忆 · 空格切换 on/off, Enter 保存",
+              choice: "推荐: off · off=记录工具输出 · on=不写入记忆" },
+        en: { label: "Tool results", note: "Do not log tool output",
+              detail: "Keep tool output out of the Agent's memory · Space toggles on/off, Enter saves",
+              choice: "Recommend: off · off=log tool output · on=keep it out of memory" } },
+      { key: "dataDir", value: "~/.pi/agent/xpi-memo", values: [], env: null, readOnly: true,
+        zh: { label: "数据目录", note: "只读, 改它要编辑配置",
+              detail: "记忆在磁盘上的位置 · 只读, 改配置文件或环境变量",
+              choice: "只读 · 改配置文件或 XPI_MEMO_DATA_DIR" },
+        en: { label: "Data dir", note: "Read-only, edit config file",
+              detail: "Where memories live on disk · human-only · read-only, edit the config file",
+              choice: "Read-only · change it in the config file or XPI_MEMO_DATA_DIR" } }
+    ]
+  },
+  {
+    id: "pipeline",
+    zh: "记忆管道",
+    en: "Pipeline",
+    zhDetail: "记忆从会话轨迹流到长期库的开关",
+    zhChoice: "3 个字段 · 直接影响 Agent 的上下文内容",
+    enDetail: "Switches from session trace down to the long-term bank",
+    enChoice: "3 fields · directly changes what the Agent sees",
+    fields: [
+      { key: "paused", value: "off", values: ["off","on"], env: "XPI_MEMO_PAUSED",
+        zh: { label: "暂停记忆", note: "停用后可随时恢复",
+              detail: "全项目停用记忆 · Agent 不再读取 · 空格切换 on/off, Enter 保存",
+              choice: "推荐: off · off=记忆工作 · on=全部停止" },
+        en: { label: "Pause memory", note: "Resume any time",
+              detail: "Stop all memory work for the Agent · Space toggles on/off, Enter saves",
+              choice: "Recommend: off · off=memory runs · on=stop all memory work" } },
+      { key: "l0Enabled", value: "on", values: ["off","on"], env: null,
+        zh: { label: "记录会话轨迹", note: "保留本轮会话轨迹",
+              detail: "保留本轮会话轨迹供以后召回 · 空格切换 on/off, Enter 保存",
+              choice: "推荐: on · off=不留轨迹 · on=保留本轮轨迹供召回" },
+        en: { label: "Session trace", note: "Keep this session's trace",
+              detail: "Keep this session's trace for Agent recall · Space toggles on/off, Enter saves",
+              choice: "Recommend: on · off=drop this session · on=keep its trace for recall" } },
+      { key: "profileInjection", value: "on", values: ["off","on"], env: null,
+        zh: { label: "注入偏好画像", note: "注入偏好画像",
+              detail: "把你的偏好画像注入 Agent 上下文 · 空格切换 on/off, Enter 保存",
+              choice: "推荐: on · off=不注入 · on=注入你的偏好画像" },
+        en: { label: "Preference profile", note: "Inject preference profile",
+              detail: "Inject your preference profile into the Agent's context · Space toggles, Enter saves",
+              choice: "Recommend: on · off=no profile · on=inject your preference profile" } }
+    ]
+  },
+  {
+    id: "display",
+    zh: "界面与反馈",
+    en: "Display",
+    zhDetail: "只影响你看到的界面, 不影响 Agent 行为",
+    zhChoice: "3 个字段 · 纯人类可读性, 可随时改",
+    enDetail: "Only affects what you see, never the Agent",
+    enChoice: "3 fields · cosmetic only, safe to change anytime",
+    fields: [
+      { key: "language", value: "zh-CN", values: ["zh-CN","en"], env: "XPI_MEMO_LANGUAGE",
+        zh: { label: "界面语言", note: "面板与提示语言",
+              detail: "面板与提示的语言 · 只与你有关 · 空格切换 en/zh, Enter 保存",
+              choice: "推荐: 你的母语 · en=English · zh=中文" },
+        en: { label: "Language", note: "Panel and hint language",
+              detail: "Language of this panel · human-only · Space switches en/zh, Enter saves",
+              choice: "Recommend: yours · en=English panel · zh=中文面板" } },
+      { key: "eventPresentation", value: "on", values: ["off","on"], env: null,
+        zh: { label: "事件与页脚提示", note: "页脚展示记忆事件",
+              detail: "在 Pi 页脚显示记忆事件 · 只与你有关 · 空格切换 on/off, Enter 保存",
+              choice: "推荐: on · off=不显示事件 · on=页脚显示记忆事件" },
+        en: { label: "Event presentation", note: "Show events in footer",
+              detail: "Memory events in the Pi footer · human-only · Space toggles on/off, Enter saves",
+              choice: "Recommend: on · off=hide memory events · on=show them in the Pi footer" } },
+      { key: "passiveFeedback", value: "on", values: ["off","on"], env: null,
+        zh: { label: "被动使用反馈", note: "记录使用反馈",
+              detail: "记录哪些召回记忆真被用到 · 空格切换 on/off, Enter 保存",
+              choice: "推荐: on · off=不记录 · on=按实际使用排序召回" },
+        en: { label: "Passive feedback", note: "Record usage feedback",
+              detail: "Ranking signal for the Agent's recall · Space toggles on/off, Enter saves",
+              choice: "Recommend: on · off=no usage signal · on=rank recall by what you used" } }
+    ]
+  },
+  {
+    id: "privacy",
+    zh: "隐私与维护",
+    en: "Privacy",
+    zhDetail: "写入限制与手动整理",
+    zhChoice: "3 项 · 含 1 个一次性动作(立即整理) · 谨慎修改",
+    enDetail: "Write limits and manual consolidation",
+    enChoice: "3 items · 1 one-shot action (sleep now) · change with care",
+    fields: [
+      { key: "privacy", value: "off", values: ["off","on"], env: null,
+        zh: { label: "隐私模式", note: "不写任何持久记忆",
+              detail: "开启后不写任何持久记忆 · 空格切换 on/off, Enter 保存",
+              choice: "推荐: off · off=正常写入 · on=不落任何持久记忆" },
+        en: { label: "Privacy mode", note: "Persist no memory at all",
+              detail: "Persist nothing · the Agent reads no memory · Space toggles on/off, Enter saves",
+              choice: "Recommend: off · off=store memory · on=persist nothing at all" } },
+      { key: "sleepMode", value: "disabled", values: ["disabled","dedicated","session-model","mechanical"], env: null,
+        zh: { label: "记忆整理方式", note: "整理时机与方式",
+              detail: "Agent 何时整理记忆 · 空格切换整理方式, Enter 保存",
+              choice: "推荐: disabled(关闭) · dedicated=独立模型 · session-model=聊天模型 · mechanical=机械" },
+        en: { label: "Sleep mode", note: "When and how to tidy",
+              detail: "When the Agent consolidates memory · Space cycles, Enter saves",
+              choice: "Recommend: disabled (off) · dedicated=own model · session-model=chat · mechanical=rules" } },
+      { key: "sleep", value: "run", values: [], env: null, action: true,
+        zh: { label: "立即整理一次", note: "执行一次记忆整理",
+              detail: "由你触发的一次记忆整理 · 只与你有关 · 空格后确认, 不写配置",
+              choice: "按需 · off=不整理 · run=立即整理一次并确认" },
+        en: { label: "Run sleep now", note: "Run one consolidation",
+              detail: "One consolidation you trigger now · human-only · Space, then confirm",
+              choice: "On demand · off=idle · run=consolidate now, then confirm" } }
+    ]
+  }
+];
+
+/* ---------- 短码映射：HTML id 与字典 short 一致 ---------- */
+var GROUP_SHORT = {
+  retrieval: "P3-1-B1",
+  storage: "P3-1-B2",
+  pipeline: "P3-1-B3",
+  display: "P3-1-B4",
+  privacy: "P3-1-B5"
+};
+
+var FIELD_SHORT = {
+  recallPolicy: "P3-1-S1",
+  retrievalMode: "P3-1-S2",
+  searchBackend: "P3-1-S3",
+  limit: "P3-1-S4",
+  globalLimit: "P3-1-S5",
+  projectLimit: "P3-1-S6",
+  confirmStore: "P3-1-S7",
+  autoExport: "P3-1-S8",
+  offlineExtractionEnabled: "P3-1-S9",
+  excludeToolResults: "P3-1-S10",
+  dataDir: "P3-1-S11",
+  paused: "P3-1-S12",
+  l0Enabled: "P3-1-S13",
+  profileInjection: "P3-1-S14",
+  language: "P3-1-S15",
+  eventPresentation: "P3-1-S16",
+  passiveFeedback: "P3-1-S17",
+  privacy: "P3-1-S18",
+  sleepMode: "P3-1-S19",
+  sleep: "P3-1-S20"
+};
+
+/* 默认只展开首组：其余四组折叠，用户点击展开 */
+var openGroups = { retrieval: true };
+var focusedField = null;
+
+/* 已由环境变量锁定的字段：变量存在则只读，值不可改（对应现役 settingsItems 的 Boolean(env[name])）。 */
+var envLocked = {};
+
+/** 字段文案按语言取；语言键在数据里是 zh / en。 */
+function fieldCopy(field) {
+  return field[lang === "en" ? "en" : "zh"];
+}
+
+/** 组文案（名称与详解）按语言取。 */
+function groupCopy(group) {
+  return lang === "en"
+    ? { name: group.en, detail: group.enDetail, choice: group.enChoice }
+    : { name: group.zh, detail: group.zhDetail, choice: group.zhChoice };
+}
+
+/**
+ * 25 个元素是静态的，这里只填文字与切换折叠 —— 不替换容器 innerHTML。
+ * 静态化让 id 在 HTML 源码里可 grep，也避免重绘冲掉注入的属性。
+ */
+function renderSettings() {
+  GROUPS.forEach(function (group) {
+    var copy = groupCopy(group);
+    var open = Boolean(openGroups[group.id]);
+
+    var head = document.getElementById(GROUP_SHORT[group.id]);
+    head.setAttribute("aria-expanded", String(open));
+    head.innerHTML =
+      '<span class="group-arrow">' + (open ? "▾" : "▸") + "</span>" +
+      '<span class="group-name">' + esc(copy.name) + "</span>" +
+      '<span class="group-count">' + group.fields.length + "</span>";
+
+    // 折叠用 hidden，DOM 不删
+    head.parentNode.querySelector(".group-body").hidden = !open;
+
+    group.fields.forEach(function (field) {
+      var f = fieldCopy(field);
+      var locked = Boolean(field.env && envLocked[field.key]);
+      var el = document.getElementById(FIELD_SHORT[field.key]);
+      el.className =
+        "field-row" +
+        (locked ? " is-locked" : "") +
+        (field.action ? " is-action" : "") +
+        (focusedField === field.key ? " is-focused" : "");
+      el.innerHTML =
+        '<span class="f-label">' + esc(f.label) + "</span>" +
+        '<span class="f-value">' +
+        esc(field.action ? "↵ " + field.value : field.value) +
+        "</span>" +
+        '<span class="f-note">' +
+        esc(locked ? "⊘ " + field.env : f.note) +
+        "</span>";
+    });
+  });
+
+  renderSettingsDetail();
+}
+
+/**
+ * 底部详解区恒两行。组头行给出该组的一句话作用与规模 —— 留空会在
+ * 列表底部露出空洞，看起来像布局断裂而不是留白（继承 TUI 版的修正）。
+ */
+function renderSettingsDetail() {
+  var line1 = document.getElementById("settings-detail-1");
+  var line2 = document.getElementById("settings-detail-2");
+
+  if (focusedField) {
+    for (var i = 0; i < GROUPS.length; i++) {
+      var found = GROUPS[i].fields.filter(function (f) {
+        return f.key === focusedField;
+      })[0];
+      if (found) {
+        var f = fieldCopy(found);
+        line1.textContent = f.detail;
+        line2.textContent = f.choice;
+        return;
+      }
+    }
+  }
+
+  // 没有聚焦字段时显示第一个展开组的说明
+  var first = GROUPS[0];
+  for (var j = 0; j < GROUPS.length; j++) {
+    if (openGroups[GROUPS[j].id]) {
+      first = GROUPS[j];
+      break;
+    }
+  }
+  var copy = groupCopy(first);
+  line1.textContent = copy.detail;
+  line2.textContent = copy.choice;
+}
+
+function toggleGroup(id) {
+  openGroups[id] = !openGroups[id];
+  renderSettings();
+}
+
+function focusField(key) {
+  focusedField = key;
+  renderSettings();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   P4 状态：4 张 KPI 卡 + 占用条 + sparkline + 可滚动 JSON
+   现役 buildGlimpseHtml 已有 4 卡 + JSON 的骨架；这里补齐占用条与
+   趋势，并把 JSON 区做成可滚动。
+   ═══════════════════════════════════════════════════════════════════ */
+var STATUS_CARDS = [
+  { short: "P4-1-C1", key: "status.bank", value: "xpi-memo" },
+  { short: "P4-1-C2", key: "status.records", value: "166" },
+  { short: "P4-1-C3", key: "status.disk", value: "420.5 KB" },
+  { short: "P4-1-C4", key: "status.today", value: "+14" }
+];
+
+/** 近 7 日每日事件量（演示数据；现役 MemoryStatus 无此聚合字段）。 */
+var DAILY = [1, 2, 3, 5, 7, 6, 4];
+
+var STATUS_JSON = [
+  '{',
+  '  "retrieval": { "mode": "fts5", "embeddingAvailable": false },',
+  '  "storage": { "dataDir": "~/.pi/agent/xpi-memo", "audit": true },',
+  '  "counts": { "project": 166, "global": 128, "session": 9 },',
+  '  "pendingCandidates": 3,',
+  '  "todayStored": 14,',
+  '  "paused": false,',
+  '  "consistency": { "memoryProjection": "complete" },',
+  '  "embedding": { "model": null, "mode": "off" },',
+  '  "doctor": null',
+  '}'
+].join("\n");
+
+var METER_SEGMENTS = 20;
+
+function renderStatus() {
+  // 卡片是静态的（id = 字典短码），这里只填文字，不替换容器 innerHTML。
+  STATUS_CARDS.forEach(function (card) {
+    var el = document.getElementById(card.short);
+    el.innerHTML =
+      '<span class="kpi-label">' + esc(t(card.key)) + "</span>" +
+      '<span class="kpi-value">' + esc(card.value) + "</span>";
+  });
+
+  // 占用条：分子为今日事件量，分母为近七日峰值
+  var today = DAILY[DAILY.length - 1];
+  var peak = Math.max.apply(null, DAILY);
+  var on = peak > 0 ? Math.round((today / peak) * METER_SEGMENTS) : 0;
+  var segs = [];
+  for (var i = 0; i < METER_SEGMENTS; i++) {
+    segs.push('<span class="meter-seg' + (i < on ? " is-on" : "") + '"></span>');
+  }
+  document.getElementById("P4-1-U1").innerHTML = segs.join("");
+  document.getElementById("status-usage-label").textContent = t("status.usage");
+  document.getElementById("status-usage-value").textContent =
+    (peak > 0 ? Math.round((today / peak) * 100) : 0) + "%";
+
+  // sparkline：柱高按峰值归一化到 20px
+  document.getElementById("P4-1-U2").innerHTML = DAILY.map(function (v) {
+    var h = peak > 0 ? Math.max(2, Math.round((v / peak) * 20)) : 2;
+    return '<span class="spark-bar" style="height: ' + h + 'px"></span>';
+  }).join("");
+  document.getElementById("status-trend-label").textContent = t("status.trend");
+
+  document.getElementById("status-recall").textContent = t("status.recall");
+  document.getElementById("status-snapshot-title").textContent = t("status.snapshot");
+  document.getElementById("P4-1-A2").textContent = STATUS_JSON;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   footer：info bar 六段
+   ═══════════════════════════════════════════════════════════════════ */
+function renderFooter() {
+  var segments = [
+    ["info.bank", DEMO.bank],
+    ["info.total", String(DEMO.total)],
+    ["info.today", "+" + DEMO.today],
+    ["info.pending", String(DEMO.pending)],
+    ["info.disk", DEMO.disk],
+    ["info.pause", t(DEMO.paused ? "info.on" : "info.off")]
+  ];
+  document.getElementById("P0-1-C1").innerHTML = segments
+    .map(function (pair, i) {
+      return (
+        (i > 0 ? '<span class="info-sep">·</span>' : "") +
+        '<span class="info-key">' + esc(t(pair[0])) + "</span>" +
+        '<span class="info-val">' + esc(pair[1]) + "</span>"
+      );
+    })
+    .join("");
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   原型状态开关：空态 / 加载 / 错误
+   三者互斥，作用在对应的页面上。
+   ═══════════════════════════════════════════════════════════════════ */
+var emptyMode = false;
+var loadingMode = false;
+var errorMode = false;
+
+var PENDING_FULL = CANDIDATES.slice();
+var RECENT_FULL = ACTIVITY.slice();
+
+function applyStateModes() {
+  // 空态：清空两个列表页的数据
+  if (emptyMode) {
+    CANDIDATES.length = 0;
+    ACTIVITY.length = 0;
+  } else {
+    CANDIDATES.length = 0;
+    CANDIDATES.push.apply(CANDIDATES, PENDING_FULL);
+    ACTIVITY.length = 0;
+    ACTIVITY.push.apply(ACTIVITY, RECENT_FULL);
+  }
+  renderPending();
+  renderRecent();
+
+  // 加载态与错误态作用在设置页
+  document.getElementById("settings-loading").hidden = !loadingMode;
+  document.getElementById("settings-error").hidden = !errorMode;
+  document.getElementById("settings-error").textContent = errorMode ? t("error.save") : "";
+  document.querySelector("#page-settings .settings-scroll").hidden = loadingMode;
+
+  document.getElementById("state-toggle").classList.toggle("is-active", emptyMode);
+  document.getElementById("loading-toggle").classList.toggle("is-active", loadingMode);
+  document.getElementById("error-toggle").classList.toggle("is-active", errorMode);
+}
+
+document.getElementById("state-toggle").addEventListener("click", function () {
+  emptyMode = !emptyMode;
+  applyStateModes();
+});
+
+document.getElementById("loading-toggle").addEventListener("click", function () {
+  loadingMode = !loadingMode;
+  applyStateModes();
+});
+
+document.getElementById("error-toggle").addEventListener("click", function () {
+  errorMode = !errorMode;
+  applyStateModes();
+});
+
+/* 原型工具栏按钮文案随语言变化 */
+function renderToolbar() {
+  document.getElementById("state-toggle").textContent = t("state.empty");
+  document.getElementById("loading-toggle").textContent = t("state.loading");
+  document.getElementById("error-toggle").textContent = t("state.error");
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   导航与键盘
+   点击导航改 hash，路由由 hashchange 统一处理。
+   ═══════════════════════════════════════════════════════════════════ */
+Array.prototype.forEach.call(document.querySelectorAll(".nav-item"), function (nav) {
+  nav.addEventListener("click", function () {
+    location.hash = "#/" + nav.dataset.tab;
+  });
+});
+
+/* 待审列表点击切换焦点 */
+document.getElementById("P1-1-L1").addEventListener("click", function (event) {
+  var item = event.target.closest("[data-index]");
+  if (item) selectCandidate(Number(item.dataset.index));
+});
+
+/* 设置页：点击组头折叠，点击字段行聚焦 */
+document.getElementById("P3-1-L1").addEventListener("click", function (event) {
+  var head = event.target.closest(".group-head");
+  if (head) {
+    toggleGroup(head.dataset.group);
+    return;
+  }
+  var row = event.target.closest(".field-row");
+  if (row) focusField(row.dataset.field);
+});
+
+function activePage() {
+  var page = document.querySelector(".tabpage.is-active");
+  return page ? page.dataset.page : "pending";
+}
+
+document.addEventListener("keydown", function (event) {
+  var name = activePage();
+  if (name === "pending") {
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      selectCandidate(selectedCandidate - 1);
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      selectCandidate(selectedCandidate + 1);
+    }
+    return;
+  }
+  if (name === "settings") {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      focusedField = null;
+      renderSettings();
+    }
+  }
+  if (event.key === "Escape" && window.glimpse && typeof window.glimpse.close === "function") {
+    window.glimpse.close();
+  }
+});
+/* 骨架最小路由：hashchange 驱动 .tabpage 切换（1.9 填充完整交互） */
+(function () {
+  var pages = Array.prototype.slice.call(document.querySelectorAll(".tabpage"));
+  var navs = Array.prototype.slice.call(document.querySelectorAll(".nav-item"));
+
+  function routeFromHash() {
+    var hash = location.hash || "#/pending";
+    for (var i = 0; i < pages.length; i++) {
+      if (pages[i].dataset.route === hash) return pages[i];
+    }
+    return pages[0];
+  }
+
+  function applyRoute() {
+    var target = routeFromHash();
+    pages.forEach(function (page) {
+      var active = page === target;
+      page.classList.toggle("is-active", active);
+      if (!active) page.setAttribute("hidden", "");
+      else page.removeAttribute("hidden");
+    });
+    var name = target.dataset.page;
+    navs.forEach(function (nav) {
+      nav.classList.toggle("is-active", nav.dataset.tab === name);
+    });
+  }
+
+  window.addEventListener("hashchange", applyRoute);
+  applyRoute();
+})();
+
+/* ═══ 启动：先读偏好，再画 chrome ═══ */
+(function boot() {
+  var prefs = loadPrefs();
+  if (prefs.lang === "en" || prefs.lang === "zh-CN") lang = prefs.lang;
+  document.documentElement.lang = lang;
+  renderAll();
+})();
+</script>
+
+</body>
+</html>

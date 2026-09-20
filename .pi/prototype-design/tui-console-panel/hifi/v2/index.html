@@ -205,64 +205,34 @@
       .tabs-left {
         display: flex;
         flex: none;
-        align-items: center;
-        gap: 0;
+        gap: 1ch;
       }
 
-      /* body 高度按当前 tab 的内容自适应: --page-rows 由 JS 按路由写入。
-         现役对所有 tab 写死 15 行, 结果是最近页大片留白、设置页拥挤。 */
       .body {
         display: flex;
         flex-direction: column;
-        height: calc(var(--page-rows, 15) * var(--term-row-h));
+        height: calc(var(--term-body-rows) * var(--term-row-h));
         overflow: hidden;
       }
 
       /* ---------- tab 按钮: 去掉原生外观, 保留键盘可达 ---------- */
-      /* ---------- tab 按钮: 激活项带背景, 未激活只留文字 ---------- */
       .tab {
         font: inherit;
         color: inherit;
         background: none;
         border: 0;
-        padding: 0 1ch;
-        border-radius: calc(var(--radius) - 4px);
+        padding: 0;
         cursor: pointer;
       }
 
       .tab.is-active {
-        /* 用 foreground 混色而不是 selectedBg：暗色下变亮、亮色下变暗，
-           两种主题都得到一块明显区别于面板底色的色块。 */
-        background: color-mix(in oklab, var(--foreground) 20%, var(--term-panel));
-        color: var(--foreground);
+        color: var(--term-accent);
         font-weight: 700;
-        /* 下划线是 tab 的标准暗示：有背景也知道“选中的是哪一个” */
-        box-shadow: inset 0 -2px 0 0 var(--term-accent);
-      }
-
-      .tab:hover:not(.is-active) {
-        background: color-mix(in oklab, var(--foreground) 8%, var(--term-panel));
       }
 
       .tab:focus-visible {
         outline: 2px solid var(--term-accent);
         outline-offset: 1px;
-      }
-
-      /* tab 之间的分隔线: 有背景块之后, 分隔线让“每个 tab 的边界”也可见 */
-      .tab-sep {
-        color: var(--term-border);
-      }
-
-      /* ---------- 间距行: 内容为空, 只占一行高 ---------- */
-      .gap {
-        height: var(--term-row-h);
-        white-space: pre;
-        overflow: hidden;
-      }
-
-      .gap[hidden] {
-        display: none;
       }
 
       /* ---------- 语义色: 全部指向 --term-* 映射 ---------- */
@@ -373,7 +343,7 @@
          ═══════════════════════════════════════════════════════════════ */
       .pane-row {
         display: flex;
-        height: calc(var(--page-rows, 15) * var(--term-row-h));
+        height: calc(var(--term-body-rows) * var(--term-row-h));
         overflow: hidden;
       }
 
@@ -477,15 +447,6 @@
         color: var(--term-dim);
       }
 
-      /* 表头下的分隔线：跨满 6 列，占一行高 */
-      .td-divider {
-        grid-column: 1 / -1;
-        height: var(--term-row-h);
-        white-space: pre;
-        overflow: hidden;
-        color: var(--term-border);
-      }
-
       /* THEMES.md 无 success/warning 语义色：成功复用 muted，警告复用 accent */
       .c-ok {
         color: var(--term-muted);
@@ -509,17 +470,15 @@
       }
 
       /* 原始快照：8 行，超出部分裁掉（现役是整段 JSON 可滚动） */
-      /* 原始快照: 7 行, 超出裁掉 */
       .snapshot {
-        height: calc(7 * var(--term-row-h));
+        height: calc(8 * var(--term-row-h));
         overflow: hidden;
       }
       /* 设置列表：13 行可见窗口 + 2 行详解 = 15 行 body */
-      /* 设置列表: 列表 + 1 模块间距 + 2 行详解 = --page-rows */
       .settings-list {
         display: flex;
         flex-direction: column;
-        height: calc((var(--page-rows, 19) - 4) * var(--term-row-h));
+        height: calc((var(--term-body-rows) - 2) * var(--term-row-h));
         overflow: hidden;
       }
 
@@ -629,13 +588,10 @@
       <span class="bar">│</span>
       <div class="content between">
         <div class="tabs-left">
-          <button type="button" id="P0-1-B1" class="tab" data-tab="0">待审 3</button>
-          <span class="tab-sep">│</span>
-          <button type="button" id="P0-1-B2" class="tab" data-tab="1">最近</button>
-          <span class="tab-sep">│</span>
-          <button type="button" id="P0-1-B3" class="tab" data-tab="2">设置</button>
-          <span class="tab-sep">│</span>
-          <button type="button" id="P0-1-B4" class="tab" data-tab="3">状态</button>
+          <button type="button" id="P0-1-B1" class="tab" data-tab="0">[待审 3]</button>
+          <button type="button" id="P0-1-B2" class="tab" data-tab="1">[最近]</button>
+          <button type="button" id="P0-1-B3" class="tab" data-tab="2">[设置]</button>
+          <button type="button" id="P0-1-B4" class="tab" data-tab="3">[状态]</button>
         </div>
         <!-- 现役 console.ts 的 tab 栏右侧无内容，此处不再预留占位 -->
       </div>
@@ -685,37 +641,29 @@
               <div class="cell field-row" id="P3-1-S4" data-field="limit"></div>
               <div class="cell field-row" id="P3-1-S5" data-field="globalLimit"></div>
               <div class="cell field-row" id="P3-1-S6" data-field="projectLimit"></div>
-              <div class="cell gap" id="settings-gap-1"></div>
               <div class="cell group-row" id="P3-1-B2" data-group="storage"></div>
               <div class="cell field-row" id="P3-1-S7" data-field="confirmStore"></div>
               <div class="cell field-row" id="P3-1-S8" data-field="autoExport"></div>
               <div class="cell field-row" id="P3-1-S9" data-field="offlineExtractionEnabled"></div>
               <div class="cell field-row" id="P3-1-S10" data-field="excludeToolResults"></div>
               <div class="cell field-row" id="P3-1-S11" data-field="dataDir"></div>
-              <div class="cell gap" id="settings-gap-2"></div>
               <div class="cell group-row" id="P3-1-B3" data-group="pipeline"></div>
               <div class="cell field-row" id="P3-1-S12" data-field="paused"></div>
               <div class="cell field-row" id="P3-1-S13" data-field="l0Enabled"></div>
               <div class="cell field-row" id="P3-1-S14" data-field="profileInjection"></div>
-              <div class="cell gap" id="settings-gap-3"></div>
               <div class="cell group-row" id="P3-1-B4" data-group="display"></div>
               <div class="cell field-row" id="P3-1-S15" data-field="language"></div>
               <div class="cell field-row" id="P3-1-S16" data-field="eventPresentation"></div>
               <div class="cell field-row" id="P3-1-S17" data-field="passiveFeedback"></div>
-              <div class="cell gap" id="settings-gap-4"></div>
               <div class="cell group-row" id="P3-1-B5" data-group="privacy"></div>
               <div class="cell field-row" id="P3-1-S18" data-field="privacy"></div>
               <div class="cell field-row" id="P3-1-S19" data-field="sleepMode"></div>
               <div class="cell field-row" id="P3-1-S20" data-field="sleep"></div>
             </div>
-            <!-- 模块间距：字段列表 与 详解区 -->
-            <div class="cell gap" id="settings-gap-detail"></div>
             <div class="detail" id="P3-1-A1" role="region" aria-label="字段详解">
               <div class="cell" id="detail-1"></div>
               <div class="cell" id="detail-2"></div>
             </div>
-            <!-- 模块间距：详解区 与 info bar -->
-            <div class="cell gap"></div>
           </div>
           <div class="vbar" aria-hidden="true"></div>
         </div>
@@ -727,10 +675,8 @@
           <div class="vbar" aria-hidden="true"></div>
           <div class="col-full">
             <div class="cards" id="P4-1-A1"></div>
-            <div class="cell gap"></div>
             <div class="cell" id="P4-1-C1"></div>
             <div class="cell" id="P4-1-C2"></div>
-            <div class="cell gap"></div>
             <div class="cell c-dim" id="status-recall"></div>
             <div class="cell c-dim" id="status-snapshot-title"></div>
             <div class="snapshot" id="P4-1-A2" role="region" aria-label="原始快照"></div>
@@ -746,9 +692,6 @@
       <div class="row lined"><span class="bar">│</span><div class="content c-dim" id="info-1"></div><span class="bar">│</span></div>
       <div class="row lined"><span class="bar">│</span><div class="content" id="info-2"></div><span class="bar">│</span></div>
     </div>
-
-    <!-- 模块间距：info bar 与 help 行之间 -->
-    <div class="row lined" id="chrome-gap"><span class="bar">│</span><div class="content"></div><span class="bar">│</span></div>
 
     <!-- 快捷键提示行 -->
     <div class="row lined" id="P0-1-T1"><span class="bar">│</span><div class="content c-dim" id="hint-text"></div><span class="bar">│</span></div>
@@ -814,33 +757,9 @@ function toAscii(value) {
 var proto = {
   asciiMode: "auto",
   ascii: false,
-  cols: 78
+  cols: 78,
+  bodyRows: 15
 };
-
-/* 每个 tab 的 body 行数：按内容自适应，不再全局写死 15 行。
-   现役 console.ts 对所有 tab 用同一个 body，结果是最近页大片留白、
-   设置页拥挤 —— 同一个写死值造出两种相反的症状。
-   数字 = 内容行数 + 末尾模块间距行（间距由 pane-row 的剩余高度提供）。 */
-var PAGE_ROWS = {
-  pending: 7,
-  recent: 8,
-  settings: 19,
-  status: 17
-};
-
-/** 竖边框统一按最大页行数渲染，超出部分由各 pane-row 的 overflow 裁掉。 */
-var MAX_ROWS = 18;
-
-/** 当前页的 body 行数。 */
-function pageRows(name) {
-  return PAGE_ROWS[name] || MAX_ROWS;
-}
-
-/** 当前激活页的 tab 名。 */
-function activePageName() {
-  var page = document.querySelector(".tabpage.is-active");
-  return page ? page.dataset.page : "pending";
-}
 
 /** 40 列窄终端开关；打开时 .term 加 is-narrow，边框宽度随之切换。 */
 var narrow = false;
@@ -947,10 +866,6 @@ document.getElementById("narrow-toggle").addEventListener("click", function () {
     tabs.forEach(function (tab) {
       tab.classList.toggle("is-active", tab.dataset.tab === index);
     });
-    // body 高度按当前页内容自适应
-    document
-      .getElementById("P0-1-A1")
-      .style.setProperty("--page-rows", pageRows(target.dataset.page));
   }
 
   window.addEventListener("hashchange", applyRoute);
@@ -1110,8 +1025,7 @@ function renderTabs() {
   for (var i = 0; i < buttons.length; i++) {
     var label = t("tab." + keys[i]);
     if (i === 0) label += " " + DEMO.pending;
-    // 方括号去掉：激活项的背景块已经在表达“这是当前页”
-    buttons[i].textContent = sym(label);
+    buttons[i].textContent = sym("[" + label + "]");
   }
 }
 
@@ -1180,10 +1094,10 @@ function esc(value) {
   });
 }
 
-/** 竖边框列：按最大页行数填 '│'，各 pane 自行裁到自己的高度。 */
+/** 竖边框列：填成 bodyRows 行 '│'，分栏两侧每行都有框。 */
 function renderVbars() {
   var lines = [];
-  for (var i = 0; i < MAX_ROWS; i++) lines.push("│");
+  for (var i = 0; i < proto.bodyRows; i++) lines.push("│");
   var value = sym(lines.join("\n"));
   var bars = document.querySelectorAll(".vbar");
   for (var j = 0; j < bars.length; j++) bars[j].textContent = value;
@@ -1360,10 +1274,6 @@ function renderRecent() {
     return '<div class="th">' + esc(sym(key ? t(key) : "")) + "</div>";
   });
 
-  // 表头与数据之间的分隔线：只靠 dim 色区分太弱。
-  // 用 grid-column 跨全部 6 列，成为独立的一行。
-  cells.push('<div class="td-divider">' + esc(sym("─".repeat(74))) + "</div>");
-
   RECENT.forEach(function (item) {
     var symbol = STATUS_SYMBOL[item.status] || "·";
     var cls = STATUS_CLASS[item.status] || "c-dim";
@@ -1495,10 +1405,6 @@ var GROUPS = [
     id: "retrieval",
     zh: "召回与检索",
     en: "Retrieval",
-    zhDetail: "决定 Agent 何时、用什么方式取回记忆",
-    zhChoice: "6 个字段 · 越靠前影响越大 · 都是 Agent 侧行为",
-    enDetail: "When and how the Agent pulls memory back",
-    enChoice: "6 fields · earlier ones matter more · all Agent-side",
     fields: [
       {
         key: "recallPolicy",
@@ -1618,10 +1524,6 @@ var GROUPS = [
     id: "storage",
     zh: "存储与提取",
     en: "Storage",
-    zhDetail: "记忆写到哪里、什么时候写、写多少",
-    zhChoice: "5 个字段 · 含 1 个只读项(数据目录) · 多数无需改动",
-    enDetail: "Where memory is written, when, and how much",
-    enChoice: "5 fields · 1 read-only (data dir) · defaults are fine",
     fields: [
       {
         key: "confirmStore",
@@ -1720,10 +1622,6 @@ var GROUPS = [
     id: "pipeline",
     zh: "记忆管道",
     en: "Pipeline",
-    zhDetail: "记忆从会话轨迹流到长期库的开关",
-    zhChoice: "3 个字段 · 直接影响 Agent 的上下文内容",
-    enDetail: "Switches from session trace down to the long-term bank",
-    enChoice: "3 fields · directly changes what the Agent sees",
     fields: [
       {
         key: "paused",
@@ -1785,10 +1683,6 @@ var GROUPS = [
     id: "display",
     zh: "界面与反馈",
     en: "Display",
-    zhDetail: "只影响你看到的界面, 不影响 Agent 行为",
-    zhChoice: "3 个字段 · 纯人类可读性, 可随时改",
-    enDetail: "Only affects what you see, never the Agent",
-    enChoice: "3 fields · cosmetic only, safe to change anytime",
     fields: [
       {
         key: "language",
@@ -1850,10 +1744,6 @@ var GROUPS = [
     id: "privacy",
     zh: "隐私与维护",
     en: "Privacy",
-    zhDetail: "写入限制与手动整理",
-    zhChoice: "3 项 · 含 1 个一次性动作(立即整理) · 谨慎修改",
-    enDetail: "Write limits and manual consolidation",
-    enChoice: "3 items · 1 one-shot action (sleep now) · change with care",
     fields: [
       {
         key: "privacy",
@@ -1953,23 +1843,17 @@ var collapsed = { storage: true, pipeline: true, display: true, privacy: true };
 var envLocked = {};
 var settingsCursor = 0;
 var settingsStart = 0;
-/* 列表窗口 = 页面行数 − 间距 1 − 详解 2 − 末尾模块间距 1 */
-var LIST_ROWS = PAGE_ROWS.settings - 4;
+var LIST_ROWS = proto.bodyRows - 2;
 
 /** 当前语言在字段数据里的键（console.ts 用 zh，这里与 i18n 表统一成 zh-CN）。 */
 function langKey() {
   return lang === "en" ? "en" : "zh";
 }
 
-/**
- * 按当前折叠态展平：组头 + 未折叠组内的字段，组与组之间插一行间距。
- * 间距是真实的一行，因此参与窗口计算 —— 用 CSS margin 的话，
- * JS 的行窗口算不准，最后几行会被裁掉而不是滚出来。
- */
+/** 按当前折叠态展平：组头 + 未折叠组内的字段。 */
 function flatRows() {
   var out = [];
-  GROUPS.forEach(function (group, index) {
-    if (index > 0) out.push({ type: "gap", gap: "settings-gap-" + index });
+  GROUPS.forEach(function (group) {
     out.push({ type: "group", group: group });
     if (!collapsed[group.id]) {
       group.fields.forEach(function (field) {
@@ -2041,49 +1925,34 @@ function renderSettings() {
   settingsStart = windowStart(settingsCursor, rows.length);
 
   // 全部隐藏，只有窗口内的行显示。折叠同样用 hidden，DOM 不删。
-  GROUPS.forEach(function (group, index) {
+  GROUPS.forEach(function (group) {
     document.getElementById(GROUP_SHORT[group.id]).hidden = true;
-    if (index > 0) document.getElementById("settings-gap-" + index).hidden = true;
     group.fields.forEach(function (field) {
       document.getElementById(FIELD_SHORT[field.key]).hidden = true;
     });
   });
 
   rows.slice(settingsStart, settingsStart + LIST_ROWS).forEach(function (row, i) {
-    var id =
-      row.type === "group"
-        ? GROUP_SHORT[row.group.id]
-        : row.type === "gap"
-          ? row.gap
-          : FIELD_SHORT[row.field.key];
-    var el = document.getElementById(id);
+    var el = document.getElementById(
+      row.type === "group" ? GROUP_SHORT[row.group.id] : FIELD_SHORT[row.field.key]
+    );
     el.hidden = false;
     el.classList.toggle("is-selected", settingsStart + i === settingsCursor);
     if (row.type === "group") fillGroupRow(el, row.group);
-    else if (row.type === "field") fillFieldRow(el, row.field);
+    else fillFieldRow(el, row.field);
   });
 
   renderSettingsDetail();
 }
 
-/**
- * 详解区恒两行。组头行给出该组的一句话作用与规模 —— 留空会在
- * 列表底部露出 3 行空洞, 看起来像布局断裂而不是留白。
- * 间距行才是真正留空的地方。
- */
+/** 详解区恒两行：组头行留空，几何不随光标变化。 */
 function renderSettingsDetail() {
   var row = flatRows()[settingsCursor];
   var line1 = document.getElementById("detail-1");
   var line2 = document.getElementById("detail-2");
-  if (!row || row.type === "gap") {
+  if (!row || row.type === "group") {
     line1.textContent = "";
     line2.textContent = "";
-    return;
-  }
-  if (row.type === "group") {
-    var key = langKey();
-    line1.textContent = sym(row.group[key + "Detail"] || "");
-    line2.textContent = sym(row.group[key + "Choice"] || "");
     return;
   }
   var copy = fieldCopy(row.field);
