@@ -2982,7 +2982,12 @@ export default function xpiMemo(
     object,
     ReturnType<typeof createMemorySurface>
   >();
-  const pendingStartupContext = new WeakMap<object, Promise<RecallOutcome>>();
+  /**
+   * Pi builds a fresh ctx object per event, so this cannot be keyed by ctx:
+   * `session_start` and `before_agent_start` never see the same object. One
+   * slot is enough — a process hosts one session at a time.
+   */
+  let pendingStartup: Promise<RecallOutcome> | undefined;
   const lastInputByContext = new WeakMap<object, InputProvenance>();
   const toolCallProvenance = new Map<string, MemoryActivationProvenance>();
   // 4.2 session-start reminder cooldown (per extension process).
@@ -3133,21 +3138,18 @@ export default function xpiMemo(
       candidateReminderLastShownAt = now;
       ctx.ui.notify(renderCandidateDigest(digest), "info");
     }
-    pendingStartupContext.set(
+    pendingStartup = recallForContext(
       ctx,
-      recallForContext(
-        ctx,
-        dependencies,
-        AUTO_INJECT_QUERY_EN,
-        "active",
-        getSurface(ctx),
-        l0ForHooks(),
-      ),
+      dependencies,
+      AUTO_INJECT_QUERY_EN,
+      "active",
+      getSurface(ctx),
+      l0ForHooks(),
     );
   });
   pi.on("before_agent_start", async (event, ctx) => {
-    const startup = pendingStartupContext.get(ctx);
-    pendingStartupContext.delete(ctx);
+    const startup = pendingStartup;
+    pendingStartup = undefined;
     const startupOutcome = startup ? await startup : null;
     const runtime = createRuntime(
       ctx.cwd,
@@ -3220,16 +3222,13 @@ export default function xpiMemo(
     };
   });
   pi.on("session_before_compact", async (_event, ctx) => {
-    pendingStartupContext.set(
+    pendingStartup = recallForContext(
       ctx,
-      recallForContext(
-        ctx,
-        dependencies,
-        AUTO_INJECT_QUERY_EN,
-        "active",
-        getSurface(ctx),
-        l0ForHooks(),
-      ),
+      dependencies,
+      AUTO_INJECT_QUERY_EN,
+      "active",
+      getSurface(ctx),
+      l0ForHooks(),
     );
     const config = loadConfig({
       env: dependencies.env,
@@ -3255,7 +3254,7 @@ export default function xpiMemo(
       env: dependencies.env,
     }).config;
     clearAutoExportTimer(config.dataDir);
-    pendingStartupContext.delete(ctx);
+    pendingStartup = undefined;
     getSurface(ctx).clear();
     clearFooterStatus(ctx);
     // Auto-export on session end (Task 9.3): best-effort, never blocks shutdown.

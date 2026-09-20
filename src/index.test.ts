@@ -2230,6 +2230,132 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(content).toContain("项目约定:流水线命令用 pnpm 执行。");
     expect(content).toContain("✦ 已注入 1 条记忆");
   });
+  // Pi hands out a fresh ctx object per event, so the session-start recall has
+  // to be carried in a slot rather than a WeakMap keyed by ctx identity.
+  it("carries the session-start recall across distinct per-event ctx objects", async () => {
+    const dataDir = createTemporaryDirectory();
+    const recallQueries: string[] = [];
+    const run = async (args: string[]): Promise<string> => {
+      if (args[0] !== "recall") return "";
+      recallQueries.push(args[1] as string);
+      return JSON.stringify({
+        results: [
+          {
+            content: "项目约定:流水线命令用 pnpm 执行。",
+            id: "zh-1",
+            importance: 0.8,
+            scope: "global",
+            score: 0.9,
+            source:
+              "kind=global_workflow;ev=explicit-user-statement;prov=pi;ts=2026-01-01T00%3A00%3A00.000Z;src=user",
+          },
+        ],
+      });
+    };
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_RECALL_POLICY: "active",
+      },
+      resolveProjectIdentity: () => null,
+      run,
+    });
+    const start = events.find(({ name }) => name === "session_start");
+    const beforeAgentStart = events.find(({ name }) => name === "before_agent_start");
+    if (!start || !beforeAgentStart) throw new Error("hooks not registered");
+    const startContext = createToolContext();
+    const promptContext = createToolContext();
+    expect(startContext).not.toBe(promptContext);
+
+    await start.handler({}, startContext);
+    const result = await beforeAgentStart.handler(
+      {
+        prompt: "继续",
+        type: "before_agent_start",
+      },
+      promptContext,
+    );
+
+    expect(recallQueries.slice(0, 2)).toEqual([
+      "restore project context decisions constraints preferences unfinished work",
+      "项目 决策 约束 偏好 未完成工作",
+    ]);
+    const content = (
+      result as
+        | {
+            message?: {
+              content?: string;
+            };
+          }
+        | undefined
+    )?.message?.content;
+    expect(content).toContain("项目约定:流水线命令用 pnpm 执行。");
+  });
+  // The crash: the session-start recall holds that event's ctx. A session
+  // replaced while its backend call is in flight leaves that ctx stale, and
+  // nothing but the next event ever awaits the promise — so a rejection here
+  // escapes pi's per-handler isolation and takes the whole process down.
+  it("survives a ctx that goes stale while the session-start recall is in flight", async () => {
+    const dataDir = createTemporaryDirectory();
+    let releaseSearch = (): void => undefined;
+    const searchGate = new Promise<void>((resolve) => {
+      releaseSearch = resolve;
+    });
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+        XPI_MEMO_RECALL_POLICY: "active",
+      },
+      resolveProjectIdentity: () => null,
+      run: async (args) => {
+        if (args[0] !== "recall") return "";
+        await searchGate;
+        return JSON.stringify({
+          results: [],
+        });
+      },
+    });
+    const start = events.find(({ name }) => name === "session_start");
+    const beforeAgentStart = events.find(({ name }) => name === "before_agent_start");
+    if (!start || !beforeAgentStart) throw new Error("hooks not registered");
+    let stale = false;
+    const startContext = new Proxy(createToolContext(), {
+      get(target, key, receiver) {
+        if (stale)
+          throw new Error(
+            "This extension ctx is stale after session replacement or reload.",
+          );
+        return Reflect.get(target, key, receiver);
+      },
+    });
+
+    await start.handler({}, startContext);
+    stale = true;
+    releaseSearch();
+
+    // Waiting on the pending startup recall re-throws anything it rejected with.
+    const result = await beforeAgentStart.handler(
+      {
+        prompt: "继续",
+        type: "before_agent_start",
+      },
+      createToolContext(),
+    );
+    const content = (
+      result as
+        | {
+            message?: {
+              content?: string;
+            };
+          }
+        | undefined
+    )?.message?.content;
+    // What matters is that the handler resolved at all: the stale ctx cost
+    // the startup recall its widget, not the process.
+    expect(content).toContain("✦ 无相关记忆");
+  });
   it("rejects project memory in an uninitialized non-Git directory with guidance and no global write", async () => {
     const dataDir = createTemporaryDirectory();
     const root = createTemporaryDirectory();

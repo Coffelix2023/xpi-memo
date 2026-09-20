@@ -42,6 +42,41 @@ describe("memory surface", () => {
     vi.useRealTimers();
   });
 
+  it("swallows writes to a stale ctx instead of crashing the process", () => {
+    vi.useFakeTimers();
+    let stale = false;
+    const setWidget = vi.fn();
+    const ctx = {
+      get mode(): string {
+        if (stale)
+          throw new Error(
+            "This extension ctx is stale after session replacement or reload.",
+          );
+        return "tui";
+      },
+      ui: {
+        setWidget,
+      },
+    } as unknown as Parameters<typeof createMemorySurface>[0];
+    const surface = createMemorySurface(ctx);
+
+    surface.begin("recall");
+    surface.complete("recall", 2);
+    expect(setWidget).toHaveBeenCalled();
+
+    // A session replacement mid-recall makes every later write — including the
+    // deferred success clear — land on a ctx that throws on property read.
+    stale = true;
+    expect(() => {
+      surface.begin("recall");
+      surface.complete("recall", 2);
+      surface.fail();
+      surface.clear();
+      vi.advanceTimersByTime(2_000);
+    }).not.toThrow();
+    vi.useRealTimers();
+  });
+
   it("names each extraction stage with its share done", () => {
     // Four stages, in order, each carrying its own percentage: the user sees
     // where a slow compact is, not just that something is happening.

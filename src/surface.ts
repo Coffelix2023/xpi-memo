@@ -125,21 +125,36 @@ export function createMemorySurface(ctx: ExtensionContext) {
   /** Set by `progress`, read by the live widget on the next frame. */
   let progressText: string | undefined;
 
+  /**
+   * Every ctx property read calls assertActive(), so a widget write that lands
+   * after newSession/fork/switchSession/reload throws. There is no surface left
+   * to draw on then, and a presentation write must never take the process down
+   * — `footer.ts` carries the same guard for the status line.
+   */
+  function onHost(run: () => void): void {
+    try {
+      if (ctx.mode !== "tui") return;
+      run();
+    } catch {
+      // Stale ctx — nothing to draw on.
+    }
+  }
+
   function clear(): void {
     if (clearTimer) clearTimeout(clearTimer);
     clearTimer = undefined;
-    if (ctx.mode !== "tui") return;
-    ctx.ui.setWidget(WIDGET_KEY, undefined);
+    onHost(() => ctx.ui.setWidget(WIDGET_KEY, undefined));
   }
 
   function begin(action: SurfaceAction): void {
     if (clearTimer) clearTimeout(clearTimer);
     clearTimer = undefined;
     progressText = undefined;
-    if (ctx.mode !== "tui") return;
-    ctx.ui.setWidget(WIDGET_KEY, (tui, theme) =>
-      createWidget(tui, theme, action, () => progressText),
-    );
+    onHost(() => {
+      ctx.ui.setWidget(WIDGET_KEY, (tui, theme) =>
+        createWidget(tui, theme, action, () => progressText),
+      );
+    });
   }
 
   /**
@@ -151,19 +166,21 @@ export function createMemorySurface(ctx: ExtensionContext) {
   }
 
   function complete(action: SurfaceAction, count?: number): void {
-    if (ctx.mode !== "tui") return;
-    ctx.ui.setWidget(WIDGET_KEY, [
-      successText(action, count),
-    ]);
-    clearTimer = setTimeout(clear, SUCCESS_MS);
+    onHost(() => {
+      ctx.ui.setWidget(WIDGET_KEY, [
+        successText(action, count),
+      ]);
+      clearTimer = setTimeout(clear, SUCCESS_MS);
+    });
   }
 
   function fail(message = "记忆操作失败，继续当前任务"): void {
-    if (ctx.mode !== "tui") return;
-    ctx.ui.setWidget(WIDGET_KEY, [
-      `! ${message}`,
-    ]);
-    clearTimer = setTimeout(clear, SUCCESS_MS);
+    onHost(() => {
+      ctx.ui.setWidget(WIDGET_KEY, [
+        `! ${message}`,
+      ]);
+      clearTimer = setTimeout(clear, SUCCESS_MS);
+    });
   }
 
   return {
