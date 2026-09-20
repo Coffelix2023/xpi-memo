@@ -120,7 +120,7 @@ Settings 视图 MUST 允许用户折叠与展开每个分组，且默认打开�
 
 ### Requirement: Panel text MUST follow the configured language
 
-面板自身的 chrome、字段标签与字段备注 MUST 跟随生效配置中的语言，而不是固定为某一种语言。
+终端面板自身的 chrome、字段标签与字段备注 MUST 跟随生效配置中的语言，而不是固定为某一种语言。像素窗口的页内语言切换是它自己的契约，MUST NOT 改变终端面板对生效配置语言的服从。
 
 #### Scenario: A user switches the configured language
 
@@ -136,7 +136,7 @@ Settings 视图 MUST 允许用户折叠与展开每个分组，且默认打开�
 
 ### Requirement: The panel MUST honor the documented geometry budget
 
-面板 MUST 遵守 `TUI-DESIGN.md` 定义的高度与留白预算，而不是随终端高度无限增长。宽度基准与 chrome 行数保持不变。
+面板 MUST 遵守 `TUI-DESIGN.md` 定义的高度与留白预算，而不是随终端高度无限增长。宽度基准与 chrome 行数保持不变。该预算是终端表面的自有契约，独立于像素窗口的固定 800×600 尺寸——两者 MUST NOT 互相推导。
 
 #### Scenario: Standard terminal
 
@@ -179,3 +179,19 @@ Settings 视图 MUST 允许用户折叠与展开每个分组，且默认打开�
 - **THEN** 该行 MUST 显示对应环境变量名
 - **AND THEN** 用户 MUST NOT 能在面板内修改它
 - **AND THEN** 该行显示的 MUST 是实际生效值，而不是配置文件里的值
+
+### Requirement: The terminal panel MUST remain complete when the pixel window is unavailable
+
+终端面板在 Glimpse 像素窗口不可用时 MUST 作为完整表面工作，而不是一个功能子集。四个视图（待审、最近、设置、状态）MUST 在终端面板中全部可达，且 MUST 不依赖像素窗口曾经打开过。
+
+#### Scenario: No Glimpse on the machine
+
+- **WHEN** the terminal panel is the surface the user gets because Glimpse cannot be resolved
+- **THEN** every view MUST be reachable from the terminal panel alone
+- **AND THEN** no field or action MUST be reachable only through the pixel window
+
+#### Scenario: Switching surfaces between sessions
+
+- **WHEN** a user reviewed candidates in the pixel window in one session and gets the terminal panel in the next
+- **THEN** the terminal panel MUST render the current state without depending on anything the pixel window wrote
+- **AND THEN** it MUST NOT read a pixel-window-specific preference store to decide its content
