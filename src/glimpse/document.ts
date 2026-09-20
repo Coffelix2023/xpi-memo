@@ -1,0 +1,134 @@
+import type { PanelLanguage } from "../panel-text.js";
+import { CLIENT_SCRIPT } from "./client.js";
+import { BASE_STYLES } from "./styles/base.js";
+import { CHROME_STYLES } from "./styles/chrome.js";
+import { COMPONENT_STYLES } from "./styles/components.js";
+import { PENDING_VIEW_STYLES } from "./styles/views/pending.js";
+import { RECENT_VIEW_STYLES } from "./styles/views/recent.js";
+import { SETTINGS_VIEW_STYLES } from "./styles/views/settings.js";
+import { STATUS_VIEW_STYLES } from "./styles/views/status.js";
+import { DARK_TOKENS, LIGHT_TOKENS, themeTokensCss } from "./tokens.js";
+
+/** The four views, in sidebar order. */
+export type ViewId = "pending" | "recent" | "settings" | "status";
+
+export const VIEW_IDS: readonly ViewId[] = [
+  "pending",
+  "recent",
+  "settings",
+  "status",
+];
+
+/** Hash route per view; the in-page client matches on these. */
+export const VIEW_ROUTES: Record<ViewId, string> = {
+  pending: "#/pending",
+  recent: "#/recent",
+  settings: "#/settings",
+  status: "#/status",
+};
+
+export type PanelTheme = "dark" | "light";
+
+/** Pre-rendered fragments; this module only decides where they go. */
+export interface GlimpseDocumentParts {
+  /** The `.app-footer` element. */
+  footer: string;
+  /** The `.app-header` element. */
+  header: string;
+  /** The `.app-sidebar` element. */
+  sidebar: string;
+  /** Inner HTML per view; wrapped in a `.tabpage` container here. */
+  views: Record<ViewId, string>;
+}
+
+export interface GlimpseDocumentInput extends GlimpseDocumentParts {
+  initialView: ViewId;
+  language: PanelLanguage;
+  theme: PanelTheme;
+}
+
+/**
+ * Style order matters: tokens define the variables, base resets and lays out
+ * the window, chrome and components dress the persistent parts, and the view
+ * modules come last so a view can override a shared rule.
+ */
+const STYLE_MODULES = [
+  themeTokensCss(),
+  BASE_STYLES,
+  CHROME_STYLES,
+  COMPONENT_STYLES,
+  STATUS_VIEW_STYLES,
+  SETTINGS_VIEW_STYLES,
+  RECENT_VIEW_STYLES,
+  PENDING_VIEW_STYLES,
+];
+
+function viewSection(view: ViewId, initialView: ViewId, body: string): string {
+  const active = view === initialView;
+  return [
+    `<section class="tabpage${active ? " is-active" : ""}"`,
+    ` data-route="${VIEW_ROUTES[view]}" data-page="${view}"`,
+    ` aria-label="${view}"${active ? "" : " hidden"}>`,
+    body,
+    "</section>",
+  ].join("");
+}
+
+/**
+ * The whole window document.
+ *
+ * There is no first-frame theme script: the theme is resolved in Node before
+ * this document exists and is baked into the `class` attribute below, so the
+ * first painted frame already has the right one. The prototype needed a script
+ * only because it kept preferences in page storage.
+ */
+export function renderDocument(input: GlimpseDocumentInput): string {
+  const dark = input.theme === "dark";
+  const views = VIEW_IDS.map((view) =>
+    viewSection(view, input.initialView, input.views[view]),
+  ).join("\n");
+
+  return [
+    "<!DOCTYPE html>",
+    `<html class="${dark ? "dark" : ""}" lang="${input.language}">`,
+    "<head>",
+    '<meta charset="utf-8">',
+    "<title>XpiMemo T1 Console</title>",
+    "<style>",
+    ...STYLE_MODULES,
+    "</style>",
+    "</head>",
+    "<body>",
+    '<div class="window" id="P0-1-A1" role="application" aria-label="XpiMemo T1 Console">',
+    input.header,
+    '<div class="app-body">',
+    input.sidebar,
+    '<main class="app-content">',
+    views,
+    "</main>",
+    "</div>",
+    input.footer,
+    "</div>",
+    "<script>",
+    CLIENT_SCRIPT,
+    "</script>",
+    "</body>",
+    "</html>",
+    "",
+  ].join("\n");
+}
+
+/** Plain ASCII ordering, so the exported list is stable across locales. */
+function compareTokenNames(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+/** Token names the window's own styles may reference. Used by the tests. */
+export const THEME_TOKEN_NAMES: readonly string[] = [
+  ...new Set([
+    ...Object.keys(LIGHT_TOKENS),
+    ...Object.keys(DARK_TOKENS),
+  ]),
+].sort(compareTokenNames);

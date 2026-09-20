@@ -1,0 +1,134 @@
+/**
+ * Pending view: a 240px candidate list beside a 316px detail pane.
+ *
+ * 572px of inner width = 240 list + 16 gap + 316 detail.
+ */
+export const PENDING_VIEW_STYLES = `
+/* ═══════════════════════════════════════════════════════════════
+   待审页：240px 列表 + 详情分栏
+   内容区内宽 620 − 48（左右 padding 各 24）= 572，
+   列表固定 240，间隔 16，详情吃剩余 316。
+   ═══════════════════════════════════════════════════════════════ */
+.pane-split {
+  display: flex;
+  gap: var(--space-4);
+  height: 100%;
+  min-height: 0;
+}
+
+.pane-left {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 240px;
+  min-height: 0;
+}
+
+.pane-title {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+
+.candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.candidate-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--card);
+  border: 1px solid var(--border);
+  /* 左 3px 竖条用 border，选中时不引起布局位移 */
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-md);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.candidate-item:hover {
+  background: var(--accent);
+}
+
+.candidate-item.is-selected {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border-left-color: var(--primary);
+}
+
+.cand-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.cand-kind {
+  font-weight: 600;
+}
+
+.cand-age {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.candidate-item.is-selected .cand-age {
+  color: var(--accent-foreground);
+}
+
+.pane-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  min-height: 0;
+}
+
+.detail-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.detail-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.detail-key {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.detail-val {
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.action-bar {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+}
+`;

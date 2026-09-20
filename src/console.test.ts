@@ -1788,7 +1788,12 @@ describe("console overlay wiring", () => {
       [
         candidate("a"),
       ],
-      actions(),
+      // Force the terminal path: this machine has Glimpse installed, so the
+      // default resolver would open a real window and the test would hang.
+      {
+        actions: actions(),
+        resolveModule: async () => null,
+      },
     );
     expect(custom).toHaveBeenCalledOnce();
     const [, opts] = custom.mock.calls[0] as [
@@ -1834,7 +1839,10 @@ describe("console overlay wiring", () => {
       DEFAULT_XPI_MEMO_CONFIG as XpiMemoConfig,
       {},
       [],
-      actions(),
+      {
+        actions: actions(),
+        resolveModule: async () => null,
+      },
     );
     const panel = factory?.(
       {

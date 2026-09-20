@@ -10,8 +10,17 @@ import {
 } from "@earendil-works/pi-tui";
 import { l0Status } from "./cli/l0.js";
 import type { XpiMemoConfig } from "./config.js";
+import { type GlimpseModule, resolveGlimpseModule } from "./glimpse/module.js";
+import { uiPrefsPath } from "./glimpse/prefs.js";
+import { openGlimpsePanel } from "./glimpse/window.js";
 import { describeMemoryKindOrNull } from "./kinds.js";
+import { type PanelLanguage, panelText } from "./panel-text.js";
 import type { PendingCandidate } from "./pending-candidate.js";
+import {
+  SETTINGS_GROUPS,
+  type SettingsFieldId,
+  type SettingsGroup,
+} from "./settings-groups.js";
 import { formatStatusJson, type MemoryStatus } from "./status.js";
 
 export type ConsoleSettings = Partial<
@@ -32,10 +41,23 @@ export type ConsoleSettings = Partial<
     | "searchBackend"
   >
 >;
-
+/** What a reviewer decided about a pending candidate. */
+export type CandidateDecision = "store" | "reject" | "later";
 export interface ConsoleActions {
   confirm(title: string, message: string): Promise<boolean>;
   reviewCandidate(candidate: PendingCandidate): Promise<void>;
+  /**
+   * Apply a decision the Glimpse window already collected.
+   *
+   * The terminal panel has one Review action that opens a chooser; the window
+   * shows store / reject / later as three buttons. Falling back to
+   * `reviewCandidate` keeps the window working against an older action set, at
+   * the cost of asking twice.
+   */
+  reviewDecision?(
+    candidate: PendingCandidate,
+    decision: CandidateDecision,
+  ): Promise<void>;
   save(values: ConsoleSettings): void;
   sleep(): Promise<void>;
 }
@@ -162,458 +184,11 @@ export function humanBytes(bytes: number): string {
 }
 
 /**
- * Panel copy: chrome, tab titles, group names, field labels and field notes.
- * Only the panel reads it — injection and hint copy lives in `index.ts`, which
- * renders prose rather than a 78-column grid, so the two are deliberately
- * separate dictionaries (design D7).
+ * Panel copy lives in `panel-text.ts` so both surfaces read one dictionary.
+ * Re-exported here because the console is where panel copy has always been
+ * imported from.
  */
-type PanelLanguage = XpiMemoConfig["language"];
-
-const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
-  en: {
-    "choice.admissionAllowGlobalPreference":
-      "Recommend: on · off=keep preferences pending · on=auto-store them",
-    "choice.admissionAllowGlobalWorkflow":
-      "Recommend: on · off=keep workflows pending · on=auto-store them",
-    "choice.admissionAllowProjectConstraint":
-      "Recommend: on · off=keep constraints pending · on=auto-store them",
-    "choice.admissionAllowProjectDecision":
-      "Recommend: on · off=keep decisions pending · on=auto-store them",
-    "choice.admissionAllowProjectGene":
-      "Recommend: on · off=keep repo facts pending · on=auto-store them",
-    "choice.admissionAllowProjectGotcha":
-      "Recommend: on · off=keep gotchas pending · on=auto-store them",
-    "choice.admissionAllowSessionContext":
-      "Recommend: on · off=keep session context pending · on=auto-store it",
-    "choice.admissionEvidenceFloor":
-      "Recommend: session-conclusion · session-conclusion=ok · repository-fact=needs file",
-    "choice.admissionMaxAgeDays":
-      "Recommend: 30 · 7/30/90/365 days back a candidate may auto-enter",
-    "choice.admissionMinConfidence":
-      "Recommend: 0.7 · 0.5/0.7/0.9 minimum extraction confidence",
-    "choice.admissionSourceScope":
-      "Recommend: all · all=every project bank · current-project=this project only",
-    "choice.archiveRetentionDays":
-      "Recommend: 30 · 7/30/90/180 days an archived candidate stays recoverable",
-    "choice.autoAdmit":
-      "Recommend: on · off=keep verified genes pending · on=auto-store them",
-    "choice.autoExport": "Recommend: on · off=no backup · on=periodic Markdown export",
-    "choice.confirmStore":
-      "Recommend: off · off=store silently · on=ask before every write",
-    "choice.dataDir": "Read-only · change it in the config file or XPI_MEMO_DATA_DIR",
-    "choice.embeddingApiUrl":
-      "Used by api mode only · empty keeps mnemosyne's own endpoint",
-    "choice.embeddingMode":
-      "Recommend: off · off=no embedding work · local=this machine · api=remote endpoint",
-    "choice.embeddingModel":
-      "Empty keeps mnemosyne's default (BAAI/bge-small-en-v1.5) · dim must match",
-    "choice.eventPresentation":
-      "Recommend: on · off=hide memory events · on=show them in the Pi footer",
-    "choice.excludeToolResults":
-      "Recommend: off · off=log tool output · on=keep it out of memory",
-    "choice.globalLimit": "Recommend: 5 · 1/5/10/20 rows per turn across all projects",
-    "choice.l0Enabled":
-      "Recommend: on · off=drop this session · on=keep its trace for recall",
-    "choice.language": "Recommend: yours · en=English panel · zh=中文面板",
-    "choice.limit":
-      "Recommend: 5 · 1/5/10/20 memory rows the Agent may inject per turn",
-    "choice.offlineExtractionEnabled":
-      "Recommend: off · off=rules only · on=extract without a model",
-    "choice.offlineExtractionModel":
-      "session-model reuses the chat model, or name one explicitly",
-    "choice.passiveFeedback":
-      "Recommend: on · off=no usage signal · on=rank recall by what you used",
-    "choice.paused": "Recommend: off · off=memory runs · on=stop all memory work",
-    "choice.privacy": "Recommend: off · off=store memory · on=persist nothing at all",
-    "choice.profileInjection":
-      "Recommend: on · off=no profile · on=inject your preference profile",
-    "choice.projectLimit": "Recommend: 5 · 1/5/10/20 rows per turn inside this project",
-    "choice.recallPolicy":
-      "Recommend: high-value-auto · active=ask · assist=useful · high-value-auto=auto-inject",
-    "choice.retrievalMode":
-      "Recommend: hybrid · fts5=keywords only · hybrid=adds semantic search",
-    "choice.searchBackend":
-      "Recommend: auto · auto=first · ripgrep=no setup · mnemosyne=semantic · qmd=local index",
-    "choice.sleep": "On demand · off=idle · run=consolidate now, then confirm",
-    "choice.sleepMode":
-      "Recommend: disabled (off) · dedicated=own model · session-model=chat · mechanical=rules",
-    "chrome.edit": "type to edit · Enter save · Esc cancel",
-    "chrome.hint":
-      "←/→ tab · ↑/↓ move · Space change · Enter save · Tab field · Esc close",
-    "chrome.saved": "Saved · configuration written",
-    "detail.admissionAllowGlobalPreference":
-      "Auto-store preferences without asking · Space toggles on/off, Enter saves",
-    "detail.admissionAllowGlobalWorkflow":
-      "Auto-store workflows without asking · Space toggles on/off, Enter saves",
-    "detail.admissionAllowProjectConstraint":
-      "Auto-store constraints without asking · Space toggles on/off, Enter saves",
-    "detail.admissionAllowProjectDecision":
-      "Auto-store decisions without asking · Space toggles on/off, Enter saves",
-    "detail.admissionAllowProjectGene":
-      "Auto-store repo facts without asking · Space toggles on/off, Enter saves",
-    "detail.admissionAllowProjectGotcha":
-      "Auto-store gotchas without asking · Space toggles on/off, Enter saves",
-    "detail.admissionAllowSessionContext":
-      "Auto-store session context without asking · Space toggles on/off, Enter saves",
-    "detail.admissionEvidenceFloor":
-      "How strong the evidence must be · Space cycles the value, Enter saves",
-    "detail.admissionMaxAgeDays":
-      "How far back a candidate may auto-enter · Space cycles, Enter saves",
-    "detail.admissionMinConfidence":
-      "Lowest extraction confidence allowed · Space cycles, Enter saves",
-    "detail.admissionSourceScope":
-      "Which banks may auto-admit · Space cycles the scope, Enter saves",
-    "detail.archiveRetentionDays":
-      "Recoverable window before an archived candidate expires · Space cycles, Enter saves",
-    "detail.autoAdmit":
-      "Store a verified project_gene without asking · Space toggles on/off, Enter saves",
-    "detail.autoExport":
-      "Periodic Markdown backup of the bank · human-only · Space toggles on/off, Enter saves",
-    "detail.confirmStore":
-      "Ask you before the Agent stores a memory · Space toggles on/off, Enter saves",
-    "detail.dataDir":
-      "Where memories live on disk · human-only · read-only, edit the config file",
-    "detail.embeddingApiUrl":
-      "Endpoint for api mode · Space edits it inline, Esc cancels",
-    "detail.embeddingMode":
-      "Vector search for recall · Space cycles off/local/api, Enter saves",
-    "detail.embeddingModel": "Embedding model id · Space edits it inline, Esc cancels",
-    "detail.eventPresentation":
-      "Memory events in the Pi footer · human-only · Space toggles on/off, Enter saves",
-    "detail.excludeToolResults":
-      "Keep tool output out of the Agent's memory · Space toggles on/off, Enter saves",
-    "detail.globalLimit":
-      "Agent cap across all projects · Space cycles 1/5/10/20, Enter saves",
-    "detail.l0Enabled":
-      "Keep this session's trace for Agent recall · Space toggles on/off, Enter saves",
-    "detail.language":
-      "Language of this panel · human-only · Space switches en/zh, Enter saves",
-    "detail.limit":
-      "Rows the Agent may inject per turn · Space cycles 1/5/10/20, Enter saves",
-    "detail.offlineExtractionEnabled":
-      "Extract memories without a model · affects Agent recall · Space toggles, Enter saves",
-    "detail.offlineExtractionModel":
-      "Model for offline extraction · human-only · Space edits it inline, Esc cancels",
-    "detail.passiveFeedback":
-      "Ranking signal for the Agent's recall · Space toggles on/off, Enter saves",
-    "detail.paused":
-      "Stop all memory work for the Agent · Space toggles on/off, Enter saves",
-    "detail.privacy":
-      "Persist nothing · the Agent reads no memory · Space toggles on/off, Enter saves",
-    "detail.profileInjection":
-      "Inject your preference profile into the Agent's context · Space toggles, Enter saves",
-    "detail.projectLimit":
-      "Agent cap inside this project · Space cycles 1/5/10/20, Enter saves",
-    "detail.recallPolicy":
-      "When the Agent recalls memory on its own · Space cycles, Enter saves",
-    "detail.retrievalMode":
-      "How the Agent searches memory · Space cycles fts5/hybrid, Enter saves",
-    "detail.searchBackend":
-      "Engine that runs the Agent's recall · Space cycles, Enter saves",
-    "detail.sleep":
-      "One consolidation you trigger now · human-only · Space, then confirm",
-    "detail.sleepMode":
-      "When the Agent consolidates memory · Space cycles, Enter saves",
-    "field.admissionAllowGlobalPreference": "Auto admit: preferences",
-    "field.admissionAllowGlobalWorkflow": "Auto admit: workflows",
-    "field.admissionAllowProjectConstraint": "Auto admit: constraints",
-    "field.admissionAllowProjectDecision": "Auto admit: decisions",
-    "field.admissionAllowProjectGene": "Auto admit: repo facts",
-    "field.admissionAllowProjectGotcha": "Auto admit: gotchas",
-    "field.admissionAllowSessionContext": "Auto admit: session context",
-    "field.admissionEvidenceFloor": "Evidence floor",
-    "field.admissionMaxAgeDays": "Max candidate age",
-    "field.admissionMinConfidence": "Min confidence",
-    "field.admissionSourceScope": "Source scope",
-    "field.archiveRetentionDays": "Archive retention",
-    "field.autoAdmit": "Auto admit",
-    "field.autoExport": "Auto export",
-    "field.confirmStore": "Confirm store",
-    "field.dataDir": "Data dir",
-    "field.embeddingApiUrl": "Embedding API URL",
-    "field.embeddingMode": "Embedding mode",
-    "field.embeddingModel": "Embedding model",
-    "field.eventPresentation": "Event presentation",
-    "field.excludeToolResults": "Tool results",
-    "field.globalLimit": "Global limit",
-    "field.l0Enabled": "Session trace",
-    "field.language": "Language",
-    "field.limit": "Recall limit",
-    "field.offlineExtractionEnabled": "Offline extraction",
-    "field.offlineExtractionModel": "Offline model",
-    "field.passiveFeedback": "Passive feedback",
-    "field.paused": "Pause memory",
-    "field.privacy": "Privacy mode",
-    "field.profileInjection": "Preference profile",
-    "field.projectLimit": "Project limit",
-    "field.recallPolicy": "Recall policy",
-    "field.retrievalMode": "Retrieval mode",
-    "field.searchBackend": "Search backend",
-    "field.sleep": "Run sleep now",
-    "field.sleepMode": "Sleep mode",
-    "group.admission": "Admission",
-    "group.display": "Display",
-    "group.pipeline": "Pipeline",
-    "group.privacy": "Privacy",
-    "group.retrieval": "Retrieval",
-    "group.storage": "Storage",
-    "info.bank": "bank",
-    "info.disk": "disk",
-    "info.pause": "pause",
-    "info.pending": "pending",
-    "info.tier": "L0 session trace → T1 xpi-memo → T2 deferred → T3 deferred",
-    "info.today": "today",
-    "info.total": "total",
-    "note.admissionAllowGlobalPreference": "Skip the review queue",
-    "note.admissionAllowGlobalWorkflow": "Skip the review queue",
-    "note.admissionAllowProjectConstraint": "Skip the review queue",
-    "note.admissionAllowProjectDecision": "Skip the review queue",
-    "note.admissionAllowProjectGene": "Skip the review queue",
-    "note.admissionAllowProjectGotcha": "Skip the review queue",
-    "note.admissionAllowSessionContext": "Skip the review queue",
-    "note.admissionEvidenceFloor": "Session facts or repo facts",
-    "note.admissionMaxAgeDays": "Older candidates stall",
-    "note.admissionMinConfidence": "Extraction confidence floor",
-    "note.admissionSourceScope": "Every bank or one project",
-    "note.archiveRetentionDays": "Recoverable before deletion",
-    "note.autoAdmit": "Auto-store verified genes",
-    "note.autoExport": "Periodic export backup",
-    "note.confirmStore": "Ask before writing",
-    "note.dataDir": "Read-only, edit config file",
-    "note.embeddingApiUrl": "api mode only",
-    "note.embeddingMode": "Off saves 73% CPU",
-    "note.embeddingModel": "Empty = mnemosyne default",
-    "note.eventPresentation": "Show events in footer",
-    "note.excludeToolResults": "Do not log tool output",
-    "note.globalLimit": "Cap across projects",
-    "note.l0Enabled": "Keep this session's trace",
-    "note.language": "Panel and hint language",
-    "note.limit": "Rows injected per turn",
-    "note.offlineExtractionEnabled": "Works without a model",
-    "note.offlineExtractionModel": "session-model or provider/model",
-    "note.passiveFeedback": "Record usage feedback",
-    "note.paused": "Resume any time",
-    "note.privacy": "Persist no memory at all",
-    "note.profileInjection": "Inject preference profile",
-    "note.projectLimit": "Cap inside this project",
-    "note.recallPolicy": "Auto-inject by value",
-    "note.retrievalMode": "Hybrid adds semantics",
-    "note.searchBackend": "Pick first available",
-    "note.sleep": "Run one consolidation",
-    "note.sleepMode": "When and how to tidy",
-    "tab.pending": "Pending",
-    "tab.recent": "Recent",
-    "tab.settings": "Settings",
-    "tab.status": "Status",
-  },
-  zh: {
-    "choice.admissionAllowGlobalPreference":
-      "推荐: on · off=偏好进待审 · on=偏好自动入库",
-    "choice.admissionAllowGlobalWorkflow":
-      "推荐: on · off=流程进待审 · on=流程自动入库",
-    "choice.admissionAllowProjectConstraint":
-      "推荐: on · off=约束进待审 · on=约束自动入库",
-    "choice.admissionAllowProjectDecision":
-      "推荐: on · off=决策进待审 · on=决策自动入库",
-    "choice.admissionAllowProjectGene": "推荐: on · off=仓库事实进待审 · on=直接入库",
-    "choice.admissionAllowProjectGotcha": "推荐: on · off=项目坑进待审 · on=坑自动入库",
-    "choice.admissionAllowSessionContext":
-      "推荐: on · off=会话上下文进待审 · on=直接入库",
-    "choice.admissionEvidenceFloor":
-      "推荐: session-conclusion · session-conclusion=会话结论即可 · repository-fact=要有文件出处",
-    "choice.admissionMaxAgeDays": "推荐: 30 · 7/30/90/365 天内的候选才会自动入库",
-    "choice.admissionMinConfidence": "推荐: 0.7 · 0.5/0.7/0.9 最低提取置信度",
-    "choice.admissionSourceScope":
-      "推荐: all · all=所有项目库 · current-project=仅当前项目",
-    "choice.archiveRetentionDays": "推荐: 30 · 7/30/90/180 天归档期, 期内可恢复",
-    "choice.autoAdmit": "推荐: on · off=一律进待审 · on=验证通过的基因自动入库",
-    "choice.autoExport": "推荐: on · off=不备份 · on=定期导出 Markdown",
-    "choice.confirmStore": "推荐: off · off=直接写入 · on=每次写入前问你",
-    "choice.dataDir": "只读 · 改配置文件或 XPI_MEMO_DATA_DIR",
-    "choice.embeddingApiUrl": "仅 api 用于外部接口 · 留空沿用 mnemosyne 自己的",
-    "choice.embeddingMode":
-      "推荐: off · off=不做向量化 · local=本机模型 · api=外部接口",
-    "choice.embeddingModel":
-      "留空即用 mnemosyne 默认(BAAI/bge-small-en-v1.5) · 维度须匹配",
-    "choice.eventPresentation": "推荐: on · off=不显示事件 · on=页脚显示记忆事件",
-    "choice.excludeToolResults": "推荐: off · off=记录工具输出 · on=不写入记忆",
-    "choice.globalLimit": "推荐: 5 · 1/5/10/20 是所有项目的每轮上限",
-    "choice.l0Enabled": "推荐: on · off=不留轨迹 · on=保留本轮轨迹供召回",
-    "choice.language": "推荐: 你的母语 · en=English · zh=中文",
-    "choice.limit": "推荐: 5 · 1/5/10/20 是 Agent 每轮可注入的条数",
-    "choice.offlineExtractionEnabled": "推荐: off · off=只用规则 · on=无模型也能提取",
-    "choice.offlineExtractionModel":
-      "session-model 复用当前聊天模型, 也可写具体模型 id",
-    "choice.passiveFeedback": "推荐: on · off=不记录 · on=按实际使用排序召回",
-    "choice.paused": "推荐: off · off=记忆工作 · on=全部停止",
-    "choice.privacy": "推荐: off · off=正常写入 · on=不落任何持久记忆",
-    "choice.profileInjection": "推荐: on · off=不注入 · on=注入你的偏好画像",
-    "choice.projectLimit": "推荐: 5 · 1/5/10/20 是本项目内的每轮上限",
-    "choice.recallPolicy":
-      "推荐: high-value-auto · active=先问你 · assist=有用才召回 · high-value-auto=自动注入",
-    "choice.retrievalMode": "推荐: hybrid · fts5=纯关键词 · hybrid=加语义检索",
-    "choice.searchBackend":
-      "推荐: auto · auto=取首个可用 · ripgrep=零配置 · mnemosyne=语义 · qmd=本地索引",
-    "choice.sleep": "按需 · off=不整理 · run=立即整理一次并确认",
-    "choice.sleepMode":
-      "推荐: disabled(关闭) · dedicated=独立模型 · session-model=聊天模型 · mechanical=机械",
-    "chrome.edit": "直接输入 · Enter 保存 · Esc 取消",
-    "chrome.hint":
-      "←/→ 切页 · ↑/↓ 移动 · Space 切换 · Enter 保存/选择 · Tab 跳字段 · Esc 关闭",
-    "chrome.saved": "已保存 · 配置已写入",
-    "detail.admissionAllowGlobalPreference":
-      "偏好候选无需确认直接入库 · 空格切换 on/off, Enter 保存",
-    "detail.admissionAllowGlobalWorkflow":
-      "流程候选无需确认直接入库 · 空格切换 on/off, Enter 保存",
-    "detail.admissionAllowProjectConstraint":
-      "约束候选无需确认直接入库 · 空格切换 on/off, Enter 保存",
-    "detail.admissionAllowProjectDecision":
-      "决策候选无需确认直接入库 · 空格切换 on/off, Enter 保存",
-    "detail.admissionAllowProjectGene":
-      "仓库事实候选无需确认直接入库 · 空格切换 on/off, Enter 保存",
-    "detail.admissionAllowProjectGotcha":
-      "项目坑候选无需确认直接入库 · 空格切换 on/off, Enter 保存",
-    "detail.admissionAllowSessionContext":
-      "会话上下文无需确认直接入库 · 空格切换 on/off, Enter 保存",
-    "detail.admissionEvidenceFloor": "多强的证据才能自动入库 · 空格切换, Enter 保存",
-    "detail.admissionMaxAgeDays": "多久以前的候选还能自动入库 · 空格切换, Enter 保存",
-    "detail.admissionMinConfidence": "允许的最低提取置信度 · 空格切换, Enter 保存",
-    "detail.admissionSourceScope": "哪些库可以自动准入 · 空格切换, Enter 保存",
-    "detail.archiveRetentionDays": "归档候选到期前可恢复的天数 · 空格切换, Enter 保存",
-    "detail.autoAdmit":
-      "验证通过的 project_gene 无需确认直接入库 · 空格开关, Enter 保存",
-    "detail.autoExport":
-      "定期把记忆库导出成 Markdown 备份 · 只与你有关 · 空格切换 on/off, Enter 保存",
-    "detail.confirmStore": "Agent 写记忆前先问你 · 空格切换 on/off, Enter 保存",
-    "detail.dataDir": "记忆在磁盘上的位置 · 只读, 改配置文件或环境变量",
-    "detail.embeddingApiUrl": "api 模式的外部接口 · 空格进入行内编辑, Esc 取消",
-    "detail.embeddingMode": "召回是否走向量检索 · 空格循环 off/local/api, Enter 保存",
-    "detail.embeddingModel": "嵌入模型 id · 空格进入行内编辑, Esc 取消",
-    "detail.eventPresentation":
-      "在 Pi 页脚显示记忆事件 · 只与你有关 · 空格切换 on/off, Enter 保存",
-    "detail.excludeToolResults": "不把工具输出写进记忆 · 空格切换 on/off, Enter 保存",
-    "detail.globalLimit":
-      "所有项目的总上限 · 限制 Agent 注入 · 空格切换 1/5/10/20, Enter 保存",
-    "detail.l0Enabled": "保留本轮会话轨迹供以后召回 · 空格切换 on/off, Enter 保存",
-    "detail.language": "面板与提示的语言 · 只与你有关 · 空格切换 en/zh, Enter 保存",
-    "detail.limit": "Agent 每轮注入的条数 · 空格切换 1/5/10/20, Enter 保存",
-    "detail.offlineExtractionEnabled":
-      "无模型时也能提取记忆 · 影响 Agent 召回 · 空格切换 on/off, Enter 保存",
-    "detail.offlineExtractionModel": "离线提取用的模型 · 空格进入行内编辑, Esc 取消",
-    "detail.passiveFeedback": "记录哪些召回记忆真被用到 · 空格切换 on/off, Enter 保存",
-    "detail.paused": "全项目停用记忆 · Agent 不再读取 · 空格切换 on/off, Enter 保存",
-    "detail.privacy": "开启后不写任何持久记忆 · 空格切换 on/off, Enter 保存",
-    "detail.profileInjection":
-      "把你的偏好画像注入 Agent 上下文 · 空格切换 on/off, Enter 保存",
-    "detail.projectLimit":
-      "本项目内的上限 · 限制 Agent 注入 · 空格切换 1/5/10/20, Enter 保存",
-    "detail.recallPolicy": "Agent 何时自行召回记忆 · 空格切换策略, Enter 保存",
-    "detail.retrievalMode": "Agent 检索记忆的方式 · 空格切换 fts5/hybrid, Enter 保存",
-    "detail.searchBackend": "召回使用哪个搜索引擎 · 空格切换, Enter 保存",
-    "detail.sleep": "由你触发的一次记忆整理 · 只与你有关 · 空格后确认, 不写配置",
-    "detail.sleepMode": "Agent 何时整理记忆 · 空格切换整理方式, Enter 保存",
-    "field.admissionAllowGlobalPreference": "自动准入: 偏好",
-    "field.admissionAllowGlobalWorkflow": "自动准入: 流程",
-    "field.admissionAllowProjectConstraint": "自动准入: 约束",
-    "field.admissionAllowProjectDecision": "自动准入: 决策",
-    "field.admissionAllowProjectGene": "自动准入: 仓库事实",
-    "field.admissionAllowProjectGotcha": "自动准入: 项目坑",
-    "field.admissionAllowSessionContext": "自动准入: 会话上下文",
-    "field.admissionEvidenceFloor": "证据下限",
-    "field.admissionMaxAgeDays": "候选时效",
-    "field.admissionMinConfidence": "最低置信度",
-    "field.admissionSourceScope": "来源范围",
-    "field.archiveRetentionDays": "归档保留期",
-    "field.autoAdmit": "基因自动准入",
-    "field.autoExport": "自动导出",
-    "field.confirmStore": "存储前确认",
-    "field.dataDir": "数据目录",
-    "field.embeddingApiUrl": "嵌入接口地址",
-    "field.embeddingMode": "嵌入模式",
-    "field.embeddingModel": "嵌入模型",
-    "field.eventPresentation": "事件与页脚提示",
-    "field.excludeToolResults": "排除工具输出",
-    "field.globalLimit": "全局召回上限",
-    "field.l0Enabled": "记录会话轨迹",
-    "field.language": "界面语言",
-    "field.limit": "单次召回条数",
-    "field.offlineExtractionEnabled": "离线提取",
-    "field.offlineExtractionModel": "离线提取模型",
-    "field.passiveFeedback": "被动使用反馈",
-    "field.paused": "暂停记忆",
-    "field.privacy": "隐私模式",
-    "field.profileInjection": "注入偏好画像",
-    "field.projectLimit": "项目召回上限",
-    "field.recallPolicy": "召回策略",
-    "field.retrievalMode": "检索方式",
-    "field.searchBackend": "搜索后端",
-    "field.sleep": "立即整理一次",
-    "field.sleepMode": "记忆整理方式",
-    "group.admission": "自动准入",
-    "group.display": "界面与反馈",
-    "group.pipeline": "记忆管道",
-    "group.privacy": "隐私与维护",
-    "group.retrieval": "召回与检索",
-    "group.storage": "存储与提取",
-    "info.bank": "库",
-    "info.disk": "占用",
-    "info.pause": "暂停",
-    "info.pending": "待审",
-    "info.tier": "L0 会话轨迹 → T1 xpi-memo → T2 延后 → T3 延后",
-    "info.today": "今日",
-    "info.total": "总数",
-    "note.admissionAllowGlobalPreference": "跳过待审队列",
-    "note.admissionAllowGlobalWorkflow": "跳过待审队列",
-    "note.admissionAllowProjectConstraint": "跳过待审队列",
-    "note.admissionAllowProjectDecision": "跳过待审队列",
-    "note.admissionAllowProjectGene": "跳过待审队列",
-    "note.admissionAllowProjectGotcha": "跳过待审队列",
-    "note.admissionAllowSessionContext": "跳过待审队列",
-    "note.admissionEvidenceFloor": "会话结论或仓库事实",
-    "note.admissionMaxAgeDays": "过老的候选不入库",
-    "note.admissionMinConfidence": "提取置信度下限",
-    "note.admissionSourceScope": "所有库或仅本项目",
-    "note.archiveRetentionDays": "删除前可恢复",
-    "note.autoAdmit": "验证通过直接入库",
-    "note.autoExport": "定期导出备份",
-    "note.confirmStore": "写入前先问你",
-    "note.dataDir": "只读, 改它要编辑配置",
-    "note.embeddingApiUrl": "仅 api 用",
-    "note.embeddingMode": "off 省 73% CPU",
-    "note.embeddingModel": "留空即 mnemosyne 默认",
-    "note.eventPresentation": "页脚展示记忆事件",
-    "note.excludeToolResults": "不记录工具输出",
-    "note.globalLimit": "跨项目的上限",
-    "note.l0Enabled": "保留本轮会话轨迹",
-    "note.language": "面板与提示语言",
-    "note.limit": "每次注入的条数",
-    "note.offlineExtractionEnabled": "无模型也能提取",
-    "note.offlineExtractionModel": "session-model 或 供应方/模型",
-    "note.passiveFeedback": "记录使用反馈",
-    "note.paused": "停用后可随时恢复",
-    "note.privacy": "不写任何持久记忆",
-    "note.profileInjection": "注入偏好画像",
-    "note.projectLimit": "本项目内的上限",
-    "note.recallPolicy": "按价值自动注入",
-    "note.retrievalMode": "hybrid 兼顾语义",
-    "note.searchBackend": "自动选可用后端",
-    "note.sleep": "执行一次记忆整理",
-    "note.sleepMode": "整理时机与方式",
-    "tab.pending": "待审",
-    "tab.recent": "最近",
-    "tab.settings": "设置",
-    "tab.status": "状态",
-  },
-};
-
-/**
- * One panel string. Falls back selected language → `en` → the key itself, so a
- * missing entry renders readable text instead of an empty row.
- */
-export function panelText(key: string, language: PanelLanguage): string {
-  const selected: Record<string, string> | undefined = PANEL_TEXT[language];
-  return selected?.[key] ?? PANEL_TEXT.en[key] ?? key;
-}
+export { panelText };
 
 /**
  * Persistent two-row Overview info bar: fixed tier ownership, then bank,
@@ -695,90 +270,13 @@ export function recentLines(status: MemoryStatus): string[] {
 export function statusLines(json: string): string[] {
   return json.split("\n");
 }
-/** A config key the Settings tab can show, or the one-shot `sleep` action. */
-export type SettingsFieldId = keyof XpiMemoConfig | "sleep";
-
-export interface SettingsGroup {
-  /** Field ids in this group, in display order. */
-  fields: readonly SettingsFieldId[];
-  /** Group id, and the `group.<id>` dictionary key for its name. */
-  id: string;
-}
-
 /**
- * The Settings tab's groups, in display order. Every id in
- * `SETTINGS_FIELD_SPECS` appears in exactly one group; `console.test.ts`
- * pairs the two structures so a new field cannot be added without a group.
+ * The Settings view's group structure lives in `settings-groups.ts` so the
+ * Glimpse window can lay out the same groups without importing the console.
+ * Re-exported here because the console is where the panel layout has always
+ * been imported from.
  */
-export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
-  {
-    id: "retrieval",
-    fields: [
-      "recallPolicy",
-      "retrievalMode",
-      "searchBackend",
-      "limit",
-      "globalLimit",
-      "projectLimit",
-    ],
-  },
-  {
-    id: "storage",
-    fields: [
-      "confirmStore",
-      "autoExport",
-      "offlineExtractionEnabled",
-      "offlineExtractionModel",
-      "embeddingMode",
-      "embeddingModel",
-      "embeddingApiUrl",
-      "excludeToolResults",
-      "dataDir",
-    ],
-  },
-  {
-    id: "pipeline",
-    fields: [
-      "autoAdmit",
-      "paused",
-      "l0Enabled",
-      "profileInjection",
-    ],
-  },
-  {
-    id: "admission",
-    fields: [
-      "admissionAllowGlobalPreference",
-      "admissionAllowGlobalWorkflow",
-      "admissionAllowProjectConstraint",
-      "admissionAllowProjectDecision",
-      "admissionAllowProjectGene",
-      "admissionAllowProjectGotcha",
-      "admissionAllowSessionContext",
-      "admissionEvidenceFloor",
-      "admissionMaxAgeDays",
-      "admissionMinConfidence",
-      "admissionSourceScope",
-      "archiveRetentionDays",
-    ],
-  },
-  {
-    id: "display",
-    fields: [
-      "language",
-      "eventPresentation",
-      "passiveFeedback",
-    ],
-  },
-  {
-    id: "privacy",
-    fields: [
-      "privacy",
-      "sleepMode",
-      "sleep",
-    ],
-  },
-];
+export { SETTINGS_GROUPS, type SettingsFieldId, type SettingsGroup };
 
 interface SettingsFieldSpec {
   /**
@@ -1727,15 +1225,53 @@ function padRow(text: string, width: number): string {
   const line = truncateToWidth(text, width, "");
   return line + " ".repeat(Math.max(width - visibleWidth(line), 0));
 }
-
+/**
+ * What opening the panel needs beyond the data it renders.
+ *
+ * `resolveModule` is injectable so a test can force the terminal fallback
+ * deterministically — on a machine where Glimpse is installed, an
+ * uninjectable resolver would open a real window mid-test.
+ */
+export interface ConsoleOpenOptions {
+  actions: ConsoleActions;
+  resolveModule?: () => Promise<GlimpseModule | null>;
+}
 export async function openConsole(
   ctx: ExtensionContext,
   status: MemoryStatus,
   config: XpiMemoConfig,
   env: NodeJS.ProcessEnv,
   pending: PendingCandidate[],
-  actions: ConsoleActions,
+  options: ConsoleOpenOptions,
 ): Promise<void> {
+  const { actions, resolveModule = resolveGlimpseModule } = options;
+  // One payload for both surfaces: `summarize` and the KPI cards read it, so a
+  // second derivation would be free to disagree with this one.
+  const statusJson = formatStatusJson(
+    status,
+    l0Status({
+      env,
+    }),
+  );
+
+  // Glimpse first. The terminal panel is the fallback, not a second choice,
+  // and `openGlimpsePanel` reports `false` for absent *and* broken Glimpse.
+  const handled = await openGlimpsePanel({
+    actions,
+    initialView: "pending",
+    language: config.language,
+    prefsPath: uiPrefsPath(config.dataDir),
+    resolveModule,
+    model: {
+      now: Date.now(),
+      pending,
+      rows: settingsItems(config, env),
+      status,
+      statusJson,
+    },
+  });
+  if (handled) return;
+
   await ctx.ui.custom(
     (tui, theme, keybindings, done) =>
       createConsoleComponent({
@@ -1746,12 +1282,7 @@ export async function openConsole(
         keybindings,
         pending,
         status,
-        statusJson: formatStatusJson(
-          status,
-          l0Status({
-            env,
-          }),
-        ),
+        statusJson,
         terminalRows: tui.terminal.rows,
         theme,
         tui,

@@ -222,13 +222,16 @@
     },
     {
       // 测试文件、评测脚本与面板字典的中文话术被误判为高熵字符串,非真实密钥
-      // (src/console.ts 的 PANEL_TEXT 全是面向用户的中英文案)
+      // (面板字典全是面向用户的中英文案:console.ts 的表已移到 panel-text.ts,
+      //  Glimpse 窗口自有文案在 glimpse/text.ts)
       "includes": [
         "**/*.test.ts",
         "**/*.test.tsx",
         "scripts/t2-eval.ts",
         "scripts/t2-contract-check.ts",
-        "src/console.ts"
+        "src/console.ts",
+        "src/panel-text.ts",
+        "src/glimpse/text.ts"
       ],
       "linter": {
         "rules": {

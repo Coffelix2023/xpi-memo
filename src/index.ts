@@ -22,7 +22,7 @@ import { buildCandidateDigest, renderCandidateDigest } from "./candidate-digest.
 import { type CandidateStore, createCandidateStore } from "./candidate-lifecycle.ts";
 import { l0Status } from "./cli/l0.js";
 import { loadConfig, mnemosyneEnvironment, saveUserConfig } from "./config.ts";
-import { openConsole } from "./console.ts";
+import { type CandidateDecision, type ConsoleActions, openConsole } from "./console.ts";
 import { classifyProhibitedContent } from "./content-policy.ts";
 import { runT1Delete } from "./deletion-lifecycle.js";
 import {
@@ -138,7 +138,6 @@ import {
   todayStored,
   visibleBankDiskBytes,
 } from "./status.ts";
-import { openStatusPanel } from "./status-panel.ts";
 import {
   createMemorySurface,
   type ExtractionStage,
@@ -828,8 +827,6 @@ function pendingReasonFor(kind: MemoryKind): PendingCandidateReason {
   if (kind === "project_gotcha") return "broad-gotcha";
   return "high-impact-durable";
 }
-
-type CandidateDecision = "store" | "later" | "reject";
 
 const CANDIDATE_COPY = {
   en: {
@@ -2508,6 +2505,89 @@ async function recallForContext(
 
 const WS_SPLIT = /\s+/;
 
+/**
+ * The action surface both console entry points hand to the panel and the
+ * window.
+ *
+ * Extracted so `/xpi-memo` and `/xpi-memo-status` cannot drift: a decision
+ * taken from the window's buttons must reach the same candidate path as one
+ * taken from the terminal chooser, in either command.
+ */
+function consoleActionsFor(
+  ctx: ExtensionContext,
+  runtime: ReturnType<typeof createRuntime>,
+  dependencies: XpiMemoDependencies,
+): ConsoleActions {
+  const applyCandidateDecision = async (
+    candidate: PendingCandidate,
+    decision: CandidateDecision,
+  ): Promise<void> => {
+    if (decision === "later") return;
+    if (decision === "reject") {
+      const rejected = await runtime.candidates.reject(candidate.id);
+      runtime.l0.recordSafe("candidate_rejected", {
+        bank: candidate.targetBank,
+        candidateId: candidate.id,
+        kind: candidate.kind,
+        reason: rejected.reason,
+        scope: candidate.targetScope,
+      });
+      runtime.audit.record("rejection", {
+        bank: candidate.targetBank,
+        kind: candidate.kind,
+        reason: rejected.reason,
+        scope: candidate.targetScope,
+        status: rejected.status,
+      });
+      return;
+    }
+    const stored = await runtime.candidates.confirm(candidate.id);
+    // Success confirmation event only; unresolved/rejected outcomes are
+    // expressed by lifecycle and failure events instead.
+    if (stored.status === "stored")
+      runtime.l0.recordSafe("candidate_confirmed", {
+        bank: candidate.targetBank,
+        candidateId: candidate.id,
+        kind: candidate.kind,
+        scope: candidate.targetScope,
+      });
+    runtime.audit.record("confirmation", {
+      bank: candidate.targetBank,
+      kind: candidate.kind,
+      reason: stored.reason,
+      scope: candidate.targetScope,
+      status: stored.status,
+    });
+    if (stored.status === "stored") setFooterStatus(ctx, runtime.config.paused, true);
+  };
+
+  return {
+    confirm: ctx.ui.confirm.bind(ctx.ui),
+    reviewDecision: applyCandidateDecision,
+    async reviewCandidate(candidate) {
+      await applyCandidateDecision(
+        candidate,
+        await chooseCandidateAction(ctx, candidate, runtime.config, true),
+      );
+    },
+    save(values) {
+      saveUserConfig({
+        env: dependencies.env,
+        values,
+      });
+      if (values.paused !== undefined) setFooterStatus(ctx, values.paused);
+    },
+    async sleep() {
+      await executeSleepTool(
+        {
+          authorized: true,
+        },
+        ctx,
+        dependencies,
+      );
+    },
+  };
+}
 export default function xpiMemo(
   pi: ExtensionAPI,
   dependencies: XpiMemoDependencies = {},
@@ -2609,95 +2689,36 @@ export default function xpiMemo(
         dependencies.env ?? process.env,
         runtime.candidates.list(),
         {
-          confirm: ctx.ui.confirm.bind(ctx.ui),
-          async reviewCandidate(candidate) {
-            const decision = await chooseCandidateAction(
-              ctx,
-              candidate,
-              runtime.config,
-              true,
-            );
-            if (decision === "later") return;
-            if (decision === "reject") {
-              const rejected = await runtime.candidates.reject(candidate.id);
-              runtime.l0.recordSafe("candidate_rejected", {
-                bank: candidate.targetBank,
-                candidateId: candidate.id,
-                kind: candidate.kind,
-                reason: rejected.reason,
-                scope: candidate.targetScope,
-              });
-              runtime.audit.record("rejection", {
-                bank: candidate.targetBank,
-                kind: candidate.kind,
-                reason: rejected.reason,
-                scope: candidate.targetScope,
-                status: rejected.status,
-              });
-              return;
-            }
-            const stored = await runtime.candidates.confirm(candidate.id);
-            // Success confirmation event only; unresolved/rejected outcomes
-            // are expressed by lifecycle and failure events instead.
-            if (stored.status === "stored")
-              runtime.l0.recordSafe("candidate_confirmed", {
-                bank: candidate.targetBank,
-                candidateId: candidate.id,
-                kind: candidate.kind,
-                scope: candidate.targetScope,
-              });
-            runtime.audit.record("confirmation", {
-              bank: candidate.targetBank,
-              kind: candidate.kind,
-              reason: stored.reason,
-              scope: candidate.targetScope,
-              status: stored.status,
-            });
-            if (stored.status === "stored")
-              setFooterStatus(ctx, runtime.config.paused, true);
-          },
-          save(values) {
-            saveUserConfig({
-              env: dependencies.env,
-              values,
-            });
-            if (values.paused !== undefined) setFooterStatus(ctx, values.paused);
-          },
-          async sleep() {
-            await executeSleepTool(
-              {
-                authorized: true,
-              },
-              ctx,
-              dependencies,
-            );
-          },
+          actions: consoleActionsFor(ctx, runtime, dependencies),
         },
       );
     },
   });
 
   pi.registerCommand("xpi-memo-status", {
-    description: "Show the XpiMemo T1 status (panel in TUI, JSON elsewhere)",
+    description: "Print the XpiMemo T1 status as JSON (scripts and non-TUI sessions)",
     handler: async (_args, ctx) => {
       const status = await statusForContext(
         ctx.cwd,
         dependencies,
         trustFor(ctx, dependencies),
       );
-      if (ctx.mode === "tui") {
-        await openStatusPanel(
-          ctx,
-          formatStatusJson(
-            status,
-            l0Status({
-              env: dependencies.env ?? process.env,
-            }),
-          ),
-        );
-        return;
-      }
-      ctx.ui.notify(JSON.stringify(status), "info");
+      // One surface only: a machine-readable status line, identical in both
+      // modes. The scrollable panel this command used to open was a subset of
+      // `/xpi-memo`'s status view, so two status surfaces meant one of them
+      // would drift; `/xpi-memo` is now the single place to look at status.
+      //
+      // This stays the only programmatic status read: there is no
+      // `xpi_memo_status` tool, and `/xpi-memo` delegates here outside the TUI.
+      ctx.ui.notify(
+        formatStatusJson(
+          status,
+          l0Status({
+            env: dependencies.env ?? process.env,
+          }),
+        ),
+        "info",
+      );
     },
   });
 

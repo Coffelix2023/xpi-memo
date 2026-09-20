@@ -16,7 +16,18 @@ import {
   initTheme,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// These tests drive the terminal command paths. This machine has Glimpse
+// installed, so the real resolver would open an actual window and hang the
+// run; forcing `null` keeps every case on the fallback branch it asserts.
+vi.mock("./glimpse/module.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./glimpse/module.js")>();
+  return {
+    ...actual,
+    resolveGlimpseModule: async () => null,
+  };
+});
 
 import type { CliOptions } from "./cli.ts";
 import xpiMemo from "./index.ts";
