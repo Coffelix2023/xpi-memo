@@ -25,4 +25,5 @@ coverage/
 docs/evaluation-reports/
 docs/archive/
 docs/task-report/
+docs/mynotes/
 .vitest/
