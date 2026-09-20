@@ -33,7 +33,7 @@ attribution and internal comments, never as runtime API names:
 | [mnemopi](https://github.com/can1357/oh-my-pi/tree/main/packages/mnemopi) (Oh My Pi) | MIT | Inspiration: automatic recall/retain lifecycle, query-intent weighting, ranking. No code copied. |
 | [pi-memory](https://github.com/jayzeng/pi-memory) | MIT | Inspiration: low-friction capture, Markdown views, handoff/snapshot patterns. No code copied. |
 | [pi-interview-tool](https://github.com/earendil-works/pi-interview-tool) | MIT | Design vocabulary for the UI layer only; not a runtime dependency. |
-| [glimpseui](https://github.com/earendil-works/glimpseui) | MIT | Optional rich display layer resolved at runtime when installed; the TUI remains the primary surface. |
+| [glimpseui](https://github.com/earendil-works/glimpseui) | MIT | Optional display layer resolved at runtime when installed; it renders the 800×600 console window, and the TUI panel stays the fallback. |
 
 ## Runtime / peer dependencies
 

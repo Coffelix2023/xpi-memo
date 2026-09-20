@@ -14,12 +14,14 @@ A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension
 - **L0 Session Trace** — lossless append-only JSONL log per session (10 MB rotation); the event truth for how state changed (daily logs and memory provenance derive from it, while the bank holds the current state)
 - **Markdown Export** — human-readable `MEMORY.md` (projected from the bank's current state, L0-annotated) + daily logs folded from L0; incremental, privacy redaction, Git-friendly
 - **Pluggable Search** — recall through a fallback chain: mnemosyne (vector+FTS5) → ripgrep (full-text) → qmd (semantic); any subset installed works
+- **Dual-Track Console** — `/xpi-memo` opens a native 800×600 Glimpse window when Glimpse is available, and falls back to the TUI panel otherwise; both render the same four views (Pending / Recent / Settings / Status) from the same view model, so neither surface can omit a field the other shows
+
 Details: [GUIDE.md](./GUIDE.md) (usage) · [ARCHITECTURE.md](./ARCHITECTURE.md) (L0/T1 layers) · [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md) (versions) · [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md) (export format)
 
 ## Installation
 
 ```bash
-pi install git:github.com/Coffelix2023/xpi-memo@v1.0.0
+pi install git:github.com/Coffelix2023/xpi-memo
 ```
 
 Updating an existing install:
@@ -38,12 +40,18 @@ brew install ripgrep               # full-text search (macOS); dnf install ripgr
 # qmd (optional semantic search): https://github.com/tobi/qmd#installation
 ```
 
+**Optional display layer:** `/xpi-memo` opens the Glimpse window only when the `glimpseui` module resolves; without it you get the TUI panel.
+
+```bash
+pi install npm:glimpseui
+```
+
 ## Usage
 
 ### Commands
 
-- `/xpi-memo` — Open TUI console (Pending / Recent / Settings / Status tabs; Status shows indented JSON incl. L0 summary)
-- `/xpi-memo-status` — Scrollable status panel in the TUI; single-line JSON elsewhere
+- `/xpi-memo` — Open the console: a native 800×600 Glimpse window when available, otherwise the TUI panel (Pending / Recent / Settings / Status in both)
+- `/xpi-memo-status` — Print the full status as JSON, in every mode: the only programmatic status read (banks, backend availability, config, observability, `doctor`). For the status *view*, use `/xpi-memo`.
 - `/xpi-memo-init` — Initialize a non-Git project identity (writes `.pi/xpi-memo/project.json`; no SQLite in the repo)
 - `/xpi-memo-export [--session <id>] [--force] [--validate]` — Export L0 events to Markdown
 - `/xpi-memo-export --repo [--reimport]` — Export governed project memory to `.pi/memory/<kind>.md` / re-import discovered entries as governed candidates
@@ -60,6 +68,8 @@ brew install ripgrep               # full-text search (macOS); dnf install ripgr
 | `Esc` / `Ctrl-C` | Close the panel |
 
 Field rows are laid out as `label / note / value`. Putting the cursor on a field fills the two rows above the info bar: what the field does and who it is for, then the recommended value and the meaning of every option. The title sits in the top border and the key hints sit on the last row above the bottom border.
+
+**In the Glimpse window** the layout is a sidebar instead of a tab bar, so the keys differ: click a sidebar entry to switch views, `↑` / `↓` to move through the pending list, `Tab` / `Shift+Tab` to step through settings fields, and `Esc` to close. Settings picker rows and buttons are clickable.
 
 ### Tools
 
@@ -135,7 +145,7 @@ xpi-memo is an original implementation. The following projects inspired its arch
 | [mnemopi](https://github.com/can1357/oh-my-pi/tree/main/packages/mnemopi) (part of Oh My Pi, MIT) | Inspiration | Automatic recall/retain lifecycle, query-intent weighting, recency/diversity ranking |
 | [pi-memory](https://github.com/jayzeng/pi-memory) (MIT) | Inspiration | Low-friction capture, Markdown-readable views, compaction handoff, stable snapshots |
 | [pi-interview-tool](https://github.com/earendil-works/pi-interview-tool) | Design vocabulary only | Card/recommendation/clarification patterns for the rich UI layer; never a runtime dependency |
-| [glimpseui](https://github.com/earendil-works/glimpseui) | Optional rich display layer | Floating status panel rendering when available; the TUI remains the primary surface |
+| [glimpseui](https://github.com/earendil-works/glimpseui) | Optional display layer | Native 800×600 console window when the module resolves; the TUI panel stays the fallback |
 
 All user-facing commands (`/xpi-memo`, `/xpi-memo-status`, …), tools (`xpi_memo_*`), data labels (Preference, Workflow, Repository fact, Constraint, Decision, Gotcha, Session context), and status surfaces are branded `xpi-memo`. Upstream names are used only in this attribution and in internal code comments — they are not runtime API names.
 

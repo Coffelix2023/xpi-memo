@@ -14,13 +14,14 @@
 - **L0 会话轨迹** — 每会话一份无损追加式 JSONL 日志（10 MB 轮转）；状态如何变化的事件真相（日志与记忆溯源都由它派生，bank 保存的是当前状态）
 - **Markdown 导出** — 人类可读的 `MEMORY.md`（由 bank 当前状态投影，带 L0 注释）+ 由 L0 折叠出的日志；增量、隐私脱敏、对 Git 友好
 - **可插拔检索** — 召回走回退链：mnemosyne（向量 + FTS5）→ ripgrep（全文）→ qmd（语义）；装了任意子集都能工作
+- **双轨控制台** — `/xpi-memo` 在 Glimpse 可用时打开原生 800×600 窗口，不可用时落回 TUI 面板；两者从同一份视图模型渲染同样的四个视图（待审 / 最近 / 设置 / 状态），因此任一方都不会漏掉另一方展示的字段
 
 细节：[GUIDE.md](./GUIDE.md)（用法）· [ARCHITECTURE.md](./ARCHITECTURE.md)（L0/T1 分层）· [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)（版本）· [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md)（导出格式）
 
 ## 安装
 
 ```bash
-pi install git:github.com/Coffelix2023/xpi-memo@v1.0.0
+pi install git:github.com/Coffelix2023/xpi-memo
 ```
 
 更新已安装的版本：
@@ -39,12 +40,18 @@ brew install ripgrep               # 全文检索（macOS）；Fedora 上用 dnf
 # qmd（可选语义检索）: https://github.com/tobi/qmd#installation
 ```
 
+**可选的展示层：** 只有 `glimpseui` 模块能被解析到时，`/xpi-memo` 才打开 Glimpse 窗口；否则得到 TUI 面板。
+
+```bash
+pi install npm:glimpseui
+```
+
 ## 用法
 
 ### 命令
 
-- `/xpi-memo` — 打开 TUI 控制台（待审 / 最近 / 设置 / 状态 四个标签；状态标签显示缩进 JSON，含 L0 摘要）
-- `/xpi-memo-status` — TUI 中是可滚动的状态面板；非 TUI 环境输出单行 JSON
+- `/xpi-memo` — 打开控制台：Glimpse 可用时是原生 800×600 窗口，否则是 TUI 面板（两者都是待审 / 最近 / 设置 / 状态）
+- `/xpi-memo-status` — 在任意模式下把完整状态打成 JSON：这是唯一的程序化状态读取途径（库、后端可用性、配置、可观测性、`doctor`）。要看状态的**界面**，用 `/xpi-memo`
 - `/xpi-memo-init` — 初始化非 Git 项目身份（写入 `.pi/xpi-memo/project.json`；不会在仓库里放 SQLite）
 - `/xpi-memo-export [--session <id>] [--force] [--validate]` — 把 L0 事件导出为 Markdown
 - `/xpi-memo-export --repo [--reimport]` — 把受治理的项目记忆导出到 `.pi/memory/<kind>.md` / 把发现的条目重新导入为受治理候选
@@ -61,6 +68,8 @@ brew install ripgrep               # 全文检索（macOS）；Fedora 上用 dnf
 | `Esc` / `Ctrl-C` | 关闭面板 |
 
 字段行按 `名称 / 说明 / 取值` 三列排布。把光标移到某个字段上，info bar 上方两行会给出该字段的作用、谁在用，以及推荐取值和每个选项的含义。标题嵌在顶边框，按键提示在底边框上方最后一行。
+
+**Glimpse 窗口里**用的是左侧边栏而不是顶部标签栏，所以按键不同：点边栏切视图，`↑` / `↓` 在待审列表内移动，`Tab` / `Shift+Tab` 逐个跳设置字段，`Esc` 关窗。设置项与按钮都可直接点击。
 
 ### 工具
 
@@ -126,7 +135,7 @@ xpi-memo 是一份原创实现。以下项目启发了它的架构与交互模�
 | [mnemopi](https://github.com/can1357/oh-my-pi/tree/main/packages/mnemopi)（Oh My Pi 的一部分，MIT） | 灵感 | 自动召回/留存生命周期、查询意图加权、时效与多样性排序 |
 | [pi-memory](https://github.com/jayzeng/pi-memory)（MIT） | 灵感 | 低摩擦捕获、Markdown 可读视图、压缩交接、稳定快照 |
 | [pi-interview-tool](https://github.com/earendil-works/pi-interview-tool) | 仅设计语汇 | 富 UI 层的卡片/推荐/澄清模式；从不是运行时依赖 |
-| [glimpseui](https://github.com/earendil-works/glimpseui) | 可选富展示层 | 可用时渲染浮动状态面板；TUI 仍是主界面 |
+| [glimpseui](https://github.com/earendil-works/glimpseui) | 可选展示层 | 模块可解析时打开原生 800×600 控制台窗口；TUI 面板仍是回退面 |
 
 所有用户可见的命令（`/xpi-memo`、`/xpi-memo-status` …）、工具（`xpi_memo_*`）、数据标签（偏好、工作流、仓库事实、约束、决策、坑点、会话上下文）与状态表面都使用 `xpi-memo` 品牌。上游名称只出现在本致谢与内部代码注释里——不是运行时 API 名称。
 

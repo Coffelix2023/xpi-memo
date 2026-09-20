@@ -27,13 +27,18 @@
 window:
   width: 800
   height: 600
-  title: "XpiMemo Status Inspector"
+  title: "XpiMemo T1 Console"
   frameless: true
-  background: "#0d1117"
-  textPrimary: "#c9d1d9"
-  accent: "#58a6ff"
-  successBadgeBg: "#1f3526"
-  successBadgeText: "#3fb950"
+# 颜色不在此处定义。窗口的每一处颜色都取自 <项目根>/THEMES.md 的语义令牌
+# (:root / .dark 两套 oklch)，运行期副本在 src/glimpse/tokens.ts，并由
+# src/glimpse/tokens.test.ts 断言与 THEMES.md 完全一致。
+#
+# 本节曾经内联 background / textPrimary / accent / successBadge* 五个色值，
+# 与 THEMES.md 构成两处真相；已删除，避免下一个人照旧值写新代码。
+#
+# 一个例外值得记住：THEMES.md 没有 success / warning 语义色。窗口的成功态复用
+# muted、警告态复用 accent（与 TUI 轨同一处理）。若要真绿/真黄，先扩展
+# THEMES.md，不要在这里加色值。
 ```
 
 ### B. Pi TUI 字符终端 Tokens
