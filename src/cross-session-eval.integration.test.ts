@@ -123,6 +123,10 @@ interface RegisteredTool {
     y?: unknown,
     ctx?: ExtensionContext,
   ) => Promise<{
+    /** The tool's text output; `index.test.ts` reads the same field. */
+    content?: Array<{
+      text?: string;
+    }>;
     details: Record<string, unknown>;
   }>;
   name: string;
@@ -459,6 +463,72 @@ describe("cross-session behavior evaluation fixtures (task 5.1)", () => {
       supersedes: oldId,
       targetMemoryId: oldId,
     });
+  });
+
+  it("an auto-admitted correction records the supersession too", async () => {
+    // The sibling test above pins `XPI_MEMO_AUTO_ADMIT=false` so the correction
+    // travels the confirmation path. This one leaves the admission defaults
+    // alone, so the same call is admitted automatically — and that path used to
+    // return before writing the correction, leaving the old memory live and
+    // unmarked: `applyFeedbackToRecall` needs `supersedes` and
+    // `replacementMemoryId` on one feedback entry, and `summarizeFeedback`
+    // counts the same pair.
+    const dataDir = createTemporaryDirectory();
+    const { run, storedByBank } = backend(dataDir);
+    const env = {
+      XDG_CONFIG_HOME: dataDir,
+      XPI_MEMO_DATA_DIR: dataDir,
+      XPI_MEMO_RECALL_POLICY: "active",
+    };
+    const { events, tools } = loadExtension({
+      env,
+      resolveProjectIdentity: () => null,
+      run,
+    });
+    const ctx = createToolContext();
+    await sessionTurn("Please remember: prefer concise answers.", ctx, events);
+    const oldId = storedByBank.get("default")?.[0]?.id;
+
+    const remember = toolByName(tools, "xpi_memo_remember");
+    const result = await remember.execute(
+      "correction-1",
+      {
+        content: "Always reply in English.",
+        kind: "global_preference",
+        supersedes: oldId,
+      },
+      undefined,
+      undefined,
+      createToolContext(),
+    );
+    // No user in the loop: the admission decision is what stored it.
+    expect(result.details.status).toBe("stored");
+    const newId = result.details.id as string;
+    const correction = auditEntries(dataDir).find(
+      (entry) =>
+        entry.action === "feedback" && entry.metadata?.feedback === "correction",
+    );
+    expect(correction?.metadata).toMatchObject({
+      replacementMemoryId: newId,
+      supersedes: oldId,
+      targetMemoryId: oldId,
+    });
+
+    // And the pair is what recall reads: the old memory comes back marked
+    // rather than unmarked, which is the whole point of recording it.
+    const recall = toolByName(tools, "xpi_memo_recall");
+    const recalled = await recall.execute(
+      "recall-1",
+      {
+        query: "concise answers",
+      },
+      undefined,
+      undefined,
+      createToolContext(),
+    );
+    const results = JSON.parse(recalled.content?.[0]?.text ?? "{}").results ?? [];
+    const superseded = results.find((item: { id?: string }) => item.id === oldId);
+    expect(superseded?.supersededBy).toBe(newId);
   });
 
   it("no-hit recall stays a bounded, user-visible no-op", async () => {

@@ -828,6 +828,31 @@ function pendingReasonFor(kind: MemoryKind): PendingCandidateReason {
   return "high-impact-durable";
 }
 
+/**
+ * Record that a write replaces an earlier memory.
+ *
+ * One `feedback` entry has to carry both ids: `applyFeedbackToRecall` reads the
+ * pair to mark the replaced memory `supersededBy` and lower its score, and
+ * `summarizeFeedback` counts the same pair as a supersession. A memory admitted
+ * automatically is as much a replacement as one a user confirmed, so both write
+ * paths in `executeRemember` call this — the admitted path used to return before
+ * recording it, which left the old memory live and unmarked (2026-09-21).
+ */
+function recordSupersession(
+  audit: AuditLog,
+  oldMemoryId: string | undefined,
+  newMemoryId: string | undefined,
+): void {
+  if (!oldMemoryId || !newMemoryId) return;
+  audit.record("feedback", {
+    feedback: "correction",
+    feedbackMode: "explicit",
+    replacementMemoryId: newMemoryId,
+    supersedes: oldMemoryId,
+    targetMemoryId: oldMemoryId,
+  });
+}
+
 const CANDIDATE_COPY = {
   en: {
     later: "Later",
@@ -1137,10 +1162,18 @@ async function executeRemember(
       // every entry path must obtain exactly one decision from the store.
       const admitted = await runtime.candidates.admit(candidate.id);
       if (admitted.status === "stored") {
+        recordSupersession(runtime.audit, params.supersedes, admitted.memoryId);
         return toolResult(
           {
             bank: candidate.targetBank,
             candidateId: candidate.id,
+            // The id the other two write paths already return: without it a
+            // caller cannot name the memory it just stored, superseded or not.
+            ...(admitted.memoryId
+              ? {
+                  id: admitted.memoryId,
+                }
+              : {}),
             kind: candidate.kind,
             scope: candidate.targetScope,
             status: "stored",
@@ -1264,14 +1297,7 @@ async function executeRemember(
         scope: candidate.targetScope,
         status: stored.status,
       });
-      if (params.supersedes && stored.memoryId)
-        runtime.audit.record("feedback", {
-          feedback: "correction",
-          feedbackMode: "explicit",
-          replacementMemoryId: stored.memoryId,
-          supersedes: params.supersedes,
-          targetMemoryId: params.supersedes,
-        });
+      recordSupersession(runtime.audit, params.supersedes, stored.memoryId);
       return toolResult(
         {
           bank: candidate.targetBank,
