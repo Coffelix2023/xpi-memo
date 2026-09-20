@@ -8,7 +8,8 @@
 ## 1. 呈现哲学与双轨策略 (Dual-Track Architecture)
 
 1. **主模式（Glimpse 原生独立浮动窗口）**:
-   - 当系统环境支持 Glimpse 时，优先调起尺寸严格为 **800×600** 像素的居中原生微窗口。
+   - 当系统环境支持 Glimpse 时，优先调起 **启动尺寸** 为 800×600 像素的居中原生微窗口（`src/glimpse/window.ts` 的 `WINDOW_WIDTH` / `WINDOW_HEIGHT` 是这组数字的唯一真相）。
+   - 该原生窗口**可被用户缩放**，所以页内布局必须铺满窗口：只有 header(56) / footer(44) / 侧栏(180 宽) 保持定尺，`.app-body` 与 `.app-content` 取剩余空间（`flex:1 1 auto` + `min-height:0`）。禁止再在 CSS 里写死 800/600 —— 写死的结果是窗口拉大后内容原地不动、多出来的区域全空。
    - 界面采用高保真 Dark 风格：顶部状态胶囊 + 4 宫格核心指标卡片 + 可滚动 JSON 诊断区 + 底部操作栏。
    - 所有动态字符串必须经过 HTML 转义防护。
 
@@ -28,7 +29,7 @@ window:
   width: 800
   height: 600
   title: "XpiMemo T1 Console"
-  frameless: true
+  frameless: false       # 代码不传 frameless（glimpse/window.ts 的 open()），所以是真·带标题栏、可缩放的原生窗口
 # 颜色不在此处定义。窗口的每一处颜色都取自 <项目根>/THEMES.md 的语义令牌
 # (:root / .dark 两套 oklch)，运行期副本在 src/glimpse/tokens.ts，并由
 # src/glimpse/tokens.test.ts 断言与 THEMES.md 完全一致。
