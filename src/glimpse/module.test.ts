@@ -3,7 +3,7 @@
  * live in `module.ts`.
  *
  * Kept in its own file: these tests replace `node:module` and `node:fs`, and a
- * module-level mock would leak into every other status-panel test.
+ * module-level mock would leak into every sibling test in this directory.
  *
  * No assertion here names a concrete install path — the candidate list is an
  * implementation detail, and pinning it would make this file fail on machines

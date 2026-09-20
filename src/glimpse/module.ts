@@ -7,8 +7,8 @@ import { join } from "node:path";
  * The `glimpseui` surface this extension consumes, and the code that finds it.
  *
  * Depends on nothing else in this project — only node builtins — which is what
- * keeps it cycle-proof: `status-panel.ts` and the window both import it, and
- * `status-panel.ts` imports the window to open it. A module that imports none
+ * keeps it cycle-proof: `console.ts` and the window both import it, and
+ * `console.ts` imports the window to open it. A module that imports none
  * of its own callers can never close a loop.
  *
  * Shaped from the real `glimpse.mjs`: `GlimpseWindow extends EventEmitter`, so
