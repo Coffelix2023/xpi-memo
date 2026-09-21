@@ -16,6 +16,7 @@ A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension
 - **Markdown Export** — human-readable `MEMORY.md` (projected from the bank's current state, L0-annotated) + daily logs folded from L0; incremental, privacy redaction, Git-friendly
 - **Pluggable Search** — recall through a fallback chain: mnemosyne (vector+FTS5) → ripgrep (full-text) → qmd (semantic); any subset installed works
 - **Dual-Track Console** — `/xpi-memo` opens a native Glimpse window (launched at 800×600) when Glimpse is available, and falls back to the TUI panel otherwise; both render the same four views (Pending / Recent / Settings / Status) from the same view model, so neither surface can omit a field the other shows. Settings are editable in the window too — click a field or focus it and press `Space` — and the window's layout fills whatever size you resize it to
+- **Two Theme Principles** — the window wears either the `default` palette or **Atlas** (vintage print: cream paper, Prussian blue, square corners, CJK serifs), each with its own light and dark variant; the header carries the dark/light toggle and a principle picker, and every colour lives in one place ([THEMES.md](./THEMES.md))
 
 Details: [GUIDE.md](./GUIDE.md) (usage) · [ARCHITECTURE.md](./ARCHITECTURE.md) (L0/T1/projection layers) · [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md) (versions) · [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md) (export format)
 
@@ -70,9 +71,12 @@ pi install npm:glimpseui
 
 Field rows are laid out as `label / note / value`. Putting the cursor on a field fills the two rows above the info bar: what the field does and who it is for, then the recommended value and the meaning of every option. The title sits in the top border and the key hints sit on the last row above the bottom border.
 
-**In the Glimpse window** the layout is a sidebar instead of a tab bar, so the keys differ: click a sidebar entry to switch views, `↑` / `↓` to move through the pending list, `Tab` / `Shift+Tab` to step through settings fields, and `Esc` to close.
+**In the Glimpse window** the layout is a sidebar instead of a tab bar, so the keys differ: click a sidebar entry to switch views, `↑` / `↓` to move through the pending list, `Tab` / `Shift+Tab` to step through the settings fields of the open group, and `Esc` to close.
 
-Settings fields carry their own control: an enumerated field is a dropdown (click it, or focus it and press `Space`, to get the system menu), a free-text field is an input you type into, and a field pinned by an `XPI_MEMO_*` variable is disabled. A change is written as soon as the control reports it, so there is no separate save step; the language field re-renders the window in place. `Run sleep now` asks for confirmation and writes no configuration. The Pending and Recent details follow the panel's language, and the Recent page reads its own event fields per action rather than showing a row of dashes.
+The **Settings** page groups its fields the way the TUI does, but as a top tab strip: one tab per group (Retrieval, Storage, Pipeline, Mental models, Admission, Display, Privacy). Click a tab — or put focus on the strip and use `←` / `→` — to bring its fields forward; only the selected panel scrolls, so the strip never scrolls out of reach. Whichever row is highlighted is explained in the detail pane at the bottom.
+
+The **header** carries the status badge and three controls: the theme principle picker (`Default` / `Atlas`), the dark/light toggle, and the language toggle. Both appearance choices are window preferences and live in `<data dir>/ui-prefs.json`, not in the config file. Switching either one re-skins the window in place — every palette is already loaded — and the choice survives the next launch.
+Settings fields carry their own control: an enumerated field is a dropdown (click it, or focus it and press `Space`, to get the system menu), a free-text field is an input you type into, and a field pinned by an `XPI_MEMO_*` variable is disabled. A change is written as soon as the control reports it, so there is no separate save step; the language field re-renders the window in place. `Run sleep now` asks for confirmation and writes no configuration. The Pending and Recent details follow the panel's language — including the memory-kind names, so a Chinese window never says `Constraint` — and the Recent page reads its own event fields per action rather than showing a row of dashes.
 
 ### Tools
 

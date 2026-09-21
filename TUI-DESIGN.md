@@ -30,9 +30,11 @@ window:
   height: 600
   title: "XpiMemo T1 Console"
   frameless: false       # 代码不传 frameless（glimpse/window.ts 的 open()），所以是真·带标题栏、可缩放的原生窗口
-# 颜色不在此处定义。窗口的每一处颜色都取自 <项目根>/THEMES.md 的语义令牌
-# (:root / .dark 两套 oklch)，运行期副本在 src/glimpse/tokens.ts，并由
-# src/glimpse/tokens.test.ts 断言与 THEMES.md 完全一致。
+# 颜色不在此处定义。窗口的每一处颜色都取自 <项目根>/THEMES.md 的语义令牌：
+# 两套主题原则 × 明暗 = 四块（default 的 :root / .dark，atlas 的 .atlas /
+# .atlas.dark），选择器与作用域见 THEMES.md 的「主题原则与作用域」表。
+# 运行期副本在 src/glimpse/tokens.ts，并由 src/glimpse/tokens.test.ts 断言
+# 与 THEMES.md 完全一致；标题栏的明暗开关与主题原则下拉各切一半。
 #
 # 本节曾经内联 background / textPrimary / accent / successBadge* 五个色值，
 # 与 THEMES.md 构成两处真相；已删除，避免下一个人照旧值写新代码。
