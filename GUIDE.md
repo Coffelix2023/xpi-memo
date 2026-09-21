@@ -58,6 +58,8 @@ Updating: `pi update --extension git:github.com/Coffelix2023/xpi-memo`
 | `/xpi-memo-init` | Initialize a non-Git project identity (writes `.pi/xpi-memo/project.json`; no SQLite in the repo) |
 | `/xpi-memo-export` | Export L0 → Markdown; `--session <id>` limits scope, `--force` re-exports all, `--validate` reports coverage |
 | `/xpi-memo-export --repo` | Export governed project memory → `.pi/memory/<kind>.md` in the project root; `--repo --reimport` re-imports discovered entries as governed candidates |
+| `/xpi-memo-trace --session <id> --position <n>` / `--candidate <id>` | Bounded path back to the L0 event (or creating event) behind a memory or candidate |
+| `/xpi-memo-trace --projection <definitionId>` | Show one mental-model projection's state, source boundary, and derived source references (`--projection user-working-style` or `--projection active-project-operating-model`); bodies are never printed |
 
 ## Activation loop
 
@@ -91,6 +93,24 @@ Admission is **on by default for every kind**. A candidate is written to T1 unle
 | `active` | Automatic recall on ordinary prompts (1 recall per prompt) |
 | `assist` | Explicit-only; no automatic injection |
 | `high-value-auto` (default) | Automatic recall only on continuity/history triggers (e.g. "继续上次", "resume where we left off") |
+
+## Mental models (derived standing answers)
+
+Confirmed memories answer single facts well; a **mental-model projection** answers a *standing question* built from several of them: "how does this user prefer to work" and "how does this project operate today". Two definitions ship in code and neither can be invented at runtime — `user-working-style` (global preferences and workflows) and `active-project-operating-model` (this project's constraints, decisions, repository facts, and gotchas).
+
+A projection is **derived state**, not another memory: it is stored outside the banks, never becomes a candidate, never enters routing or admission, and deleting it costs nothing. When assembly injects it, the block is wrapped as `<untrusted-memory-data>` and labeled `[derived mental model: <definitionId>]`, and the source rows it covers are suppressed from automatic recall for that prompt (explicit `xpi_memo_recall` is untouched).
+
+**Defaults.** Definition enablement and freshness checks are local and deterministic, so they are on by default; the model call is opt-in. `mentalModelSynthesisEnabled` (default `false`) gates synthesis — with it off, nothing is ever generated, no bank is read on the prompt path, and no lifecycle record is written. `mentalModelDefinitions` (default: both ids) selects which definitions are evaluated and refreshed; an empty value disables the layer entirely. Both are editable in the `/xpi-memo` console under **Mental models**.
+
+**When it runs.** Synthesis only happens at `session_before_compact` and `session_shutdown`, best-effort and non-blocking: a bank read or a model call never delays compaction or switching sessions. Each definition is refreshed at most once per source digest per session (8 attempts / 12 000 generated characters per session). A model reply must be exactly `{content, sourceIds}` with ids drawn from the submitted sources, inside the content cap; anything else is rejected before anything is stored. A failed refresh keeps the previous projection content and its source boundary, reports `stale`/`failed`, and retries at the next trigger.
+
+**Reading the state.** `/xpi-memo-status` reports `mentalModels`: `counts` for `absent` / `fresh` / `stale` / `pending` / `failed` / `disabled` (plus `skipped` for definitions with no resolvable owner), `enabled`, `definitions`, `injectedDecisions` / `injectedChars` / `omitted`, `outcomes` (per refresh outcome code) and a bounded `recent` tail; `doctor.evidence.mentalModels` carries the same counts. Every field is a code, a count, or an identifier — the status output never contains a memory or projection body.
+
+**Tracing one projection.** `/xpi-memo-trace --projection user-working-style` prints the definition, owner, scope, state, source boundary, digest prefix, and — for up to 16 sources — the memory id, kind, scope, and a resolution verdict (`resolved` / `missing` / `unavailable`) through the same exact-ID read path forget uses. Bodies are never printed. When the installed mnemosyne exposes no exact-ID read, rows report `unavailable` rather than an unverifiable `missing`.
+
+**Privacy boundary.** Projections are local derived files under `<dataDir>/mental-models/` (mode 0600 in a 0700 tree) and are never written into a project repository or into source control. Only the bounded, safety-filtered source material for one definition is sent to the model; credentials are redacted first and an unclosed private key refuses the whole call. Generated content is re-checked against the injection policy before it is stored or delivered.
+
+**Rollback.** Set `mentalModelSynthesisEnabled: false` (stops generation immediately) and delete `<dataDir>/mental-models/`. Set `mentalModelDefinitions` to an empty value to turn the layer off entirely, including freshness evaluation and delivery. Confirmed memories, candidates, L0 history, the preference profile, and Markdown export are unaffected either way.
 
 ## Project identity and non-Git directories
 
@@ -192,6 +212,8 @@ User config lives at `~/.config/xpi-memo/config.json` (or set keys via the conso
 | — | `XPI_MEMO_AUTO_VERIFY` | `true` | Env-only kill switch. `false`/`0` disables repository-fact verification: every candidate queues for manual Store/Later/Reject, and auto-admission has nothing to act on |
 | `retrievalMode` | `XPI_MEMO_RETRIEVAL_MODE` | `hybrid` | `fts5` / `hybrid` |
 | `sleepMode` | `XPI_MEMO_SLEEP_MODE` | `disabled` | Sleep execution mode: `dedicated` / `session-model` / `mechanical` / `disabled`. Fail-closed: no explicit mode means `SLEEP_DISABLED`; a fallback is never labeled `dedicated` |
+| `mentalModelDefinitions` | `XPI_MEMO_MENTAL_MODEL_DEFINITIONS` | `user-working-style,active-project-operating-model` | Which built-in mental-model ids are evaluated and refreshed, comma-separated. An unknown id makes the whole value invalid (fail-closed to the default); an empty value disables the layer entirely |
+| `mentalModelSynthesisEnabled` | `XPI_MEMO_MENTAL_MODEL_SYNTHESIS_ENABLED` | `false` | Opt in to generating mental-model projections at compaction/session end. Freshness detection and delivery stay local either way |
 | `profileInjection` | `XPI_MEMO_PROFILE_INJECTION` | `true` | Bounded derived preference-profile block in the recall context; `false` omits the block only — recall is unchanged |
 | `eventPresentation` | `XPI_MEMO_EVENT_PRESENTATION` | `true` | Footer lifecycle-event line and `/xpi-memo-status` event summaries; `false` keeps L0/audit writes and `trace` reads |
 | `passiveFeedback` | `XPI_MEMO_PASSIVE_FEEDBACK` | `true` | Rate-limited `used` feedback on recall/injection; `false` keeps explicit feedback and corrections |

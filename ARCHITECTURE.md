@@ -16,16 +16,18 @@ xpi-memo is a Pi Coding Agent extension (TypeScript, loaded directly from `src/i
 ├─────────────────────────────────────────────┤
 │  Search backends (pluggable, fallback)      │  src/search/*
 ├─────────────────────────────────────────────┤
-│  Derived views: Markdown export             │  src/markdown-export/*
+│  Derived views: Markdown export,            │  src/markdown-export/*
+│  mental-model projections                   │  src/mental-model/*
 ├─────────────────────────────────────────────┤
 │  L0 session trace (append-only JSONL)       │  src/l0/*
 ├─────────────────────────────────────────────┤
 │  Storage: mnemosyne banks (SQLite) + files  │  banks/, audit.json, candidates.json,
-│                                             │  idempotency.json, extraction-budget.json
+│                                             │  idempotency.json, extraction-budget.json,
+│                                             │  mental-models/
 └─────────────────────────────────────────────┘
 ```
 
-Ownership is fixed: L0 owns the raw event history; T1 owns governed long-term memory; Markdown is a derived view that can be regenerated at any time. L0 never promotes content into T1 by itself — a concise conclusion must pass T1's evidence, provenance, and confirmation rules (see `docs/archive/2026-09/contracts/l0-contract.md`).
+Ownership is fixed: L0 owns the raw event history; T1 owns governed long-term memory; Markdown **and mental-model projections** are derived views that can be regenerated at any time. L0 never promotes content into T1 by itself — a concise conclusion must pass T1's evidence, provenance, and confirmation rules (see `docs/archive/2026-09/contracts/l0-contract.md`).
 
 ## L0 layer (`src/l0/`)
 
@@ -69,6 +71,22 @@ Provider-neutral: the runner is injected by the host (`dependencies.offlineExtra
 
 The extraction model is configurable: `offlineExtractionModel` (or `XPI_MEMO_OFFLINE_EXTRACTION_MODEL`) takes `"session-model"` — the default, meaning the session's chat model — or a `provider/model-id` (a bare model id also works) resolved against the model registry. An id that resolves to nothing falls back to the session model, so a typo never silently disables extraction.
 
+### Mental-model projections (`src/mental-model/`, `src/mental-model-runner.ts`)
+
+A **projection** is a bounded, replaceable standing answer derived from confirmed T1 rows: "how does this user prefer to work" (global) and "how does this project operate today" (current project). It is derived state, never a second truth store — L0 stays authoritative for event history and provenance, confirmed T1 rows stay authoritative for current governed memory, and a projection can be deleted and rebuilt at any time. `mental_model` is deliberately **not** a T1 memory kind, so generated prose can never enter routing, admission, recall, or export as if it were a governed fact.
+
+**Definitions** (`definitions.ts`) are code-owned and versioned: `user-working-style` (scope `global`, kinds `global_preference` + `global_workflow`) and `active-project-operating-model` (scope `project`, kinds `project_constraint` + `project_decision` + `project_gene` + `project_gotcha`). There is no registration API — lookup only succeeds for an id already in the registry, which is what makes "no automatic definition discovery" a structural property. Changing a definition's question, kinds, or `version` invalidates its persisted projection, because the digest mixes the version in.
+
+**Freshness** (`freshness.ts`, `evaluate.ts`) is a pure, model-free comparison of definition version, owner key, and a canonical source digest (SHA-256 over each selected row's id + kind + scope + content, ordered by memory id). The digest — not a timestamp — is the authority, so a deletion or supersession that leaves a *newer* surviving row is still detected. States are `absent` / `fresh` / `stale` / `pending` / `failed` / `disabled`; `pending` is transient in-process only. An unreadable bank read or projection file fails closed to `failed` — the system never calls a stale record fresh. When the persisted record already decides the state (missing file, empty digest, version bump), no bank export is performed at all, so a default installation pays nothing on the prompt path.
+
+**Sources** (`sources.ts`, `owner.ts`) come from the existing bounded bank-export reader (never SQLite): owner bank and semantic scope, the definition's exact kind allowlist, source-metadata validity, superseded/deleted exclusion, deterministic sort by memory id, then fixed budgets (32 rows / 12 000 characters). Owner keys are derived only from existing routing identity — the literal `global`, or the canonical `project-<id>` bank — and a project definition with no recognized identity is skipped rather than rehomed into the global bank. The reader is memoized per session and owner (`memo.ts`) and invalidated on any observed T1 write.
+
+**Storage** (`store.ts`) keeps exactly one record per `(definitionId, ownerKey)`, written through temp-file + rename with strict shape validation. The record holds the last successful payload plus the last attempt outcome: a failed refresh rewrites failure metadata and keeps `content`, `sourceIds`, `sourceDigest`, and `sourceBoundary` intact, so a failure can never make old content look current. A record that does not match the closed shape reads as a failure, not as "absent".
+
+**Gated synthesis** (`refresh.ts`, `synthesis.ts`, `refresh-ledger.ts`, `mental-model-runner.ts`) runs only at `session_before_compact` and `session_shutdown`, best-effort and non-blocking, and only when `mentalModelSynthesisEnabled` is `true`. It walks definitions in order, refreshes only `stale`/`absent`/`failed` ones with non-empty safe sources, and accounts every attempt in a count-only per-session ledger keyed by `(definitionId, digest)` (one attempt per definition per digest, 8 attempts / 12 000 generated characters per session, reset across sessions). The runner is provider-neutral and reuses the offline-extraction runner precedence, session-model resolution, credential redaction, timeout/abort handling, and safety boundary; it does not run proposal normalization or T1 governance, because a projection is not a memory proposal. The model's output must be exactly `{content, sourceIds}` with returned ids a subset of the submitted ids, inside the content cap and the injection policy — anything else is rejected before persistence. The successful digest advances only after the atomic write succeeds.
+
+**Delivery** (`delivery.ts`) happens during automatic context assembly, before ordinary recall: only `fresh`, enabled projections whose scope matches the request and whose kind intents the query mentions are eligible; project projections require an exact owner match. Content is wrapped in the existing `<untrusted-memory-data>` boundary as explicitly derived data, with an independent budget (2 items / 900 characters) and a whole-item discard — never a truncated authority block. The delivered projection's source ids are then excluded from automatic recall ranking (counted as `suppressedCovered`), while explicit `xpi_memo_recall` stays untouched. If nothing safe and fresh survives, ordinary recall and profile assembly proceed unchanged.
+
 ### Recall ranking (`recall-ranking.ts`)
 
 Pure backend-agnostic post-processing for automatic injection: standing vs contextual roles from the canonical taxonomy, query-intent weighting (`detectQueryIntent`), recency decay (30-day half-life), scope priority, superseded filtering, content deduplication, and per-role item + character budgets. Returns `null` when nothing survives so the caller omits the memory block. Explicit `xpi_memo_recall` output is untouched.
@@ -76,6 +94,8 @@ Pure backend-agnostic post-processing for automatic injection: standing vs conte
 ### Observability (`observability.ts`, `candidate-digest.ts`, `status.ts`, `doctor.ts`)
 
 `src/kinds.ts` owns the single canonical taxonomy (7 kinds: label, role, scope, trust state, section title); status, console, and export consume it and never redefine labels. `src/observability.ts` derives the body-free `ObservabilitySnapshot` (capture/candidate/storage/recall/injection/rejection counts, per-kind taxonomy counts, bounded recent metadata — never memory bodies or rejection reasons) from the audit trail; routing rejections and post-routing failures (`routing_rejected`/`memory_failed` L0 events) are counted separately. `src/candidate-digest.ts` builds the body-free backlog digest (pending count, per-kind counts, oldest age, review surface) for TUI and startup notifications; session-start reminder is non-blocking and throttled to once per 6 hours when the backlog reaches 3+. `src/doctor.ts` classifies an empty T1 into `NEVER_CALLED` / `PENDING` / `WRITE_FAILED` / `RECALL_EMPTY`. Status surfaces the effective recall scope (`current-project-plus-global` / `global-only`), backend execution state (`backend-not-run` vs `backend-queried-no-hits` vs `backend-queried-with-hits`), sleep capability/state (`SLEEP_DISABLED` when no mode is usable), and read-only orphan project banks. `src/source-trace.ts` gives a bounded path back to the originating L0 session/event without dumping a transcript.
+
+Mental-model surfaces are body-free and bounded (`src/mental-model/observability.ts`, `status.ts`): each refresh attempt and each delivery decision writes one L0 event (`mental_model_refresh`, `mental_model_injected`) plus one `mental-model` audit record carrying definition id, owner key, source count, digest prefix, source boundary, duration, output size, closed outcome/status codes, and closed omission reasons — never a projection body, source body, prompt, or raw model output. `MemoryStatus.mentalModels` reports all six states plus a `skipped` count, the synthesis switch, injected/omitted counters, per-outcome refresh counts, and a bounded recent tail; `doctor.evidence.mentalModels` carries the same counts. `/xpi-memo-trace --projection <definitionId>` resolves a projection's source ids through the existing exact-ID read path and labels the projection `derived`, reporting id/kind/scope/resolution only (max 16 rows, `truncated` beyond that) — a missing exact-ID capability degrades to `unavailable`, never to "missing" and never to a bank dump. With synthesis off (the default) the projection layer writes no records and reads no bank, so an upgraded installation behaves exactly as before.
 
 ## Data layout
 
@@ -87,6 +107,10 @@ Pure backend-agnostic post-processing for automatic injection: standing vs conte
 ├── candidates.json
 ├── idempotency.json            # activation idempotency ledger (fingerprints)
 ├── extraction-budget.json      # per-session offline-extraction budget ledger
+├── mental-models/              # derived mental-model projections (deletable)
+│   ├── global/<definitionId>.json
+│   ├── projects/<project-bank>/<definitionId>.json
+│   └── refresh-ledger.json     # count-only per-session attempt ledger
 ├── sessions/<sessionId>/events.jsonl (+ events.NNN.jsonl)
 └── markdown/
     ├── MEMORY.md
@@ -104,6 +128,8 @@ The global data root above is the only machine-state write/recall engine. In add
 
 The project layer never contains SQLite, WAL, SHM, or search indexes — those stay in the global root. Worktrees share one bank via the Git common directory; the export target resolves to each worktree's own project root.
 
+`mental-models/` holds derived projections only, one file per `(definitionId, ownerKey)`, mode 0600 inside a 0700 tree. Deleting the whole directory loses nothing that confirmed T1 rows and L0 cannot regenerate: the next eligible refresh rebuilds it from scratch. It is the supported rollback for this feature (see `GUIDE.md`).
+
 ## Testing
 
-350+ Vitest tests across unit and integration layers (`*.test.ts` colocated, `real-cli.integration.test.ts` exercises a real mnemosyne CLI, `isolated-pi.integration.test.ts` runs against an isolated Pi install). `scripts/bench.ts` micro-benchmarks the hot paths (append, incremental export, identity cache).
+1,150+ Vitest tests across unit and integration layers (`*.test.ts` colocated, `real-cli.integration.test.ts` exercises a real mnemosyne CLI, `isolated-pi.integration.test.ts` runs against an isolated Pi install, `mental-model-*.integration.test.ts` drives the real registered hooks for compatibility, isolation, and failure boundaries). `scripts/bench.ts` micro-benchmarks the hot paths (append, incremental export, identity cache).

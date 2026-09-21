@@ -112,6 +112,8 @@ pi install npm:glimpseui
 - `XPI_MEMO_EMBEDDING_MODEL` / `XPI_MEMO_EMBEDDING_API_URL`（留空即沿用 mnemosyne 自己的默认；API key 只放环境变量 `MNEMOSYNE_EMBEDDING_API_KEY` / `OPENAI_API_KEY`，不写进 xpi-memo 配置）
 - `XPI_MEMO_RETRIEVAL_MODE`
 - `XPI_MEMO_SLEEP_MODE` = `dedicated|session-model|mechanical|disabled`（默认 `disabled`；fail-closed）
+- `XPI_MEMO_MENTAL_MODEL_DEFINITIONS` = 逗号分隔的内置心智模型 id（默认两个都开；留空则整层关闭）
+- `XPI_MEMO_MENTAL_MODEL_SYNTHESIS_ENABLED` = `true|false`（默认 `false`；显式开启才会生成投影，详见 [GUIDE.md § Mental models](./GUIDE.md#mental-models-derived-standing-answers)）
 - `XPI_MEMO_PROFILE_INJECTION` = `true|false`（默认 `true`；`false` 时不注入派生的偏好画像块）
 - `XPI_MEMO_EVENT_PRESENTATION` = `true|false`（默认 `true`；`false` 时静默页脚/状态生命周期事件）
 - `XPI_MEMO_PASSIVE_FEEDBACK` = `true|false`（默认 `true`；`false` 时停止被动使用反馈写入）
