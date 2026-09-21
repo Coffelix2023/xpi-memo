@@ -2,7 +2,7 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md)
 
-Super memory tool combining [mnemosyne](https://github.com/topics/vector-database) vector search with pi-memory architecture: L0 session-trace, T1 governed memory, Markdown export, pluggable search.
+Super memory tool combining [mnemosyne](https://github.com/topics/vector-database) vector search with pi-memory architecture: L0 session-trace, T1 governed memory, derived mental-model projections, Markdown export, pluggable search.
 
 A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension.
 
@@ -12,11 +12,12 @@ A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension
 - **Memory Activation Loop** — explicit user intent (preferences, workflow, project decisions, gotchas, session context) is captured deterministically from the prompt, idempotent per L0 event + content fingerprint, with a gated offline extraction path (disabled by default) at session shutdown that shows a progress line above the editor in the TUI
 - **Human-Readable Observability** — canonical 7-kind taxonomy (Preference, Workflow, Repository fact, Constraint, Decision, Gotcha, Session context) with roles, scopes, and trust states shared by console, status, and export
 - **L0 Session Trace** — lossless append-only JSONL log per session (10 MB rotation); the event truth for how state changed (daily logs and memory provenance derive from it, while the bank holds the current state)
+- **Derived Mental-Model Projections** — two code-owned, versioned questions (a global working style, the current project's operating model) answered only from already-confirmed T1 rows, refreshed at session boundaries with synthesis **off by default**; the injected text is labelled as untrusted derived data, never becomes a memory kind, and is dropped once its sources move on
 - **Markdown Export** — human-readable `MEMORY.md` (projected from the bank's current state, L0-annotated) + daily logs folded from L0; incremental, privacy redaction, Git-friendly
 - **Pluggable Search** — recall through a fallback chain: mnemosyne (vector+FTS5) → ripgrep (full-text) → qmd (semantic); any subset installed works
 - **Dual-Track Console** — `/xpi-memo` opens a native Glimpse window (launched at 800×600) when Glimpse is available, and falls back to the TUI panel otherwise; both render the same four views (Pending / Recent / Settings / Status) from the same view model, so neither surface can omit a field the other shows. Settings are editable in the window too — click a field or focus it and press `Space` — and the window's layout fills whatever size you resize it to
 
-Details: [GUIDE.md](./GUIDE.md) (usage) · [ARCHITECTURE.md](./ARCHITECTURE.md) (L0/T1 layers) · [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md) (versions) · [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md) (export format)
+Details: [GUIDE.md](./GUIDE.md) (usage) · [ARCHITECTURE.md](./ARCHITECTURE.md) (L0/T1/projection layers) · [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md) (versions) · [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md) (export format)
 
 ## Installation
 

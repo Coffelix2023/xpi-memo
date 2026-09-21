@@ -2,7 +2,7 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md)
 
-结合 [mnemosyne](https://github.com/topics/vector-database) 向量检索与 pi-memory 架构的超级记忆工具：L0 会话轨迹、T1 受治理记忆、Markdown 导出、可插拔检索。
+结合 [mnemosyne](https://github.com/topics/vector-database) 向量检索与 pi-memory 架构的超级记忆工具：L0 会话轨迹、T1 受治理记忆、派生的心智模型投影、Markdown 导出、可插拔检索。
 
 一个 [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) 扩展。
 
@@ -12,11 +12,12 @@
 - **记忆激活回路** — 显式用户意图（偏好、工作流、项目决策、坑点、会话上下文）从提示中确定性捕获，按 L0 事件位置 + 内容指纹幂等；会话结束时还有一条门控的离线提取路径（默认关闭），TUI 下运行时在输入框上方显示进度提示
 - **人类可读的可观测性** — 固定的 7 类分类法（偏好、工作流、仓库事实、约束、决策、坑点、会话上下文），其角色、作用域与信任状态在控制台、状态与导出中一致
 - **L0 会话轨迹** — 每会话一份无损追加式 JSONL 日志（10 MB 轮转）；状态如何变化的事件真相（日志与记忆溯源都由它派生，bank 保存的是当前状态）
+- **派生的心智模型投影** — 两个由代码拥有、带版本的固定问题（全局工作风格、当前项目运行模型），只从**已确认**的 T1 条目派生答案，仅在会话边界刷新、合成**默认关闭**；注入文本被标记为不可信的派生数据，不会变成新的记忆 kind，源状态一变就不再参与召回
 - **Markdown 导出** — 人类可读的 `MEMORY.md`（由 bank 当前状态投影，带 L0 注释）+ 由 L0 折叠出的日志；增量、隐私脱敏、对 Git 友好
 - **可插拔检索** — 召回走回退链：mnemosyne（向量 + FTS5）→ ripgrep（全文）→ qmd（语义）；装了任意子集都能工作
 - **双轨控制台** — `/xpi-memo` 在 Glimpse 可用时打开原生窗口（启动尺寸 800×600），不可用时落回 TUI 面板；两者从同一份视图模型渲染同样的四个视图（待审 / 最近 / 设置 / 状态），因此任一方都不会漏掉另一方展示的字段。窗口里的设置也能改：点字段，或聚焦后按 `Space`；窗口本身可缩放，布局会跟着铺满
 
-细节：[GUIDE.md](./GUIDE.md)（用法）· [ARCHITECTURE.md](./ARCHITECTURE.md)（L0/T1 分层）· [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)（版本）· [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md)（导出格式）
+细节：[GUIDE.md](./GUIDE.md)（用法）· [ARCHITECTURE.md](./ARCHITECTURE.md)（L0/T1/投影 分层）· [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)（版本）· [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md)（导出格式）
 
 ## 安装
 
