@@ -1,6 +1,5 @@
 import type { AuditMetadata } from "../../audit.js";
-import { describeMemoryKindOrNull } from "../../kinds.js";
-import type { PanelLanguage } from "../../panel-text.js";
+import { kindLabel, type PanelLanguage } from "../../panel-text.js";
 import type { MemoryStatus } from "../../status.js";
 import { clockTime } from "../format.js";
 import { el, textEl } from "../html.js";
@@ -271,7 +270,7 @@ function fieldText(
 /** Kind, bank, then whatever this action's own metadata has to say. */
 function summaryParts(entry: RecentEntry, language: PanelLanguage): string[] {
   const parts: string[] = [];
-  const kind = describeMemoryKindOrNull(entry.kind)?.label ?? entry.kind;
+  const kind = entry.kind ? kindLabel(entry.kind, language) : undefined;
   if (kind) parts.push(kind);
   if (entry.bank) parts.push(entry.bank);
 

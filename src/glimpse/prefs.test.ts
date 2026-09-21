@@ -38,12 +38,42 @@ describe("glimpse panel preferences", () => {
 
   it("round-trips a saved preference", () => {
     savePanelPreferences(path, {
+      principle: "atlas",
       theme: "light",
     });
 
     expect(loadPanelPreferences(path)).toEqual({
+      principle: "atlas",
       theme: "light",
     });
+  });
+
+  it("keeps a legacy file's theme and defaults the missing principle", () => {
+    // A preferences file written before the principle existed must not lose
+    // the theme it does carry.
+    writeFileSync(
+      path,
+      JSON.stringify({
+        theme: "light",
+      }),
+    );
+
+    expect(loadPanelPreferences(path)).toEqual({
+      principle: "default",
+      theme: "light",
+    });
+  });
+
+  it("falls back to the default when the principle is not a known one", () => {
+    writeFileSync(
+      path,
+      JSON.stringify({
+        principle: "blueprint",
+        theme: "dark",
+      }),
+    );
+
+    expect(loadPanelPreferences(path)).toEqual(DEFAULT_PANEL_PREFERENCES);
   });
 
   it("falls back to the default when the file is not valid JSON", () => {
@@ -71,11 +101,13 @@ describe("glimpse panel preferences", () => {
 
   it("writes complete JSON and leaves no temp file behind", () => {
     savePanelPreferences(path, {
+      principle: "atlas",
       theme: "light",
     });
 
     // Complete, parseable content — the rename landed the whole document.
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      principle: "atlas",
       theme: "light",
     });
     // Atomic write means the temp file was renamed away, not left orphaned.
@@ -86,13 +118,16 @@ describe("glimpse panel preferences", () => {
 
   it("overwrites an existing preference without leaving temp files", () => {
     savePanelPreferences(path, {
+      principle: "default",
       theme: "light",
     });
     savePanelPreferences(path, {
+      principle: "atlas",
       theme: "dark",
     });
 
     expect(loadPanelPreferences(path)).toEqual({
+      principle: "atlas",
       theme: "dark",
     });
     expect(readdirSync(dir)).toEqual([
@@ -103,10 +138,12 @@ describe("glimpse panel preferences", () => {
   it("creates missing parent directories", () => {
     const nested = join(dir, "a", "b", UI_PREFS_FILE);
     savePanelPreferences(nested, {
+      principle: "atlas",
       theme: "light",
     });
 
     expect(loadPanelPreferences(nested)).toEqual({
+      principle: "atlas",
       theme: "light",
     });
   });

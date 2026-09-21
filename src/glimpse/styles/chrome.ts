@@ -118,6 +118,31 @@ export const CHROME_STYLES = `
   color: var(--accent-foreground);
 }
 
+/*
+ * 主题原则下拉：与 .icon-btn 同高同框，宽度随标签走。原生 select 才有系统弹层，
+ * 所以这里只负责尺寸、字色与聚焦环，不自己画菜单。
+ */
+.theme-select {
+  height: 32px;
+  padding: 0 var(--space-2);
+  font-size: 12px;
+  color: var(--muted-foreground);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.theme-select:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.theme-select:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    sidebar：180 宽垂直导航；高度由 .app-body 决定（不再写死 500）
    ═══════════════════════════════════════════════════════════════ */

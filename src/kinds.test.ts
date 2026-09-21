@@ -8,6 +8,7 @@ import {
   MEMORY_KINDS,
   type MemoryKind,
 } from "./kinds.js";
+import { kindLabel } from "./panel-text.js";
 
 const EXPECTED_MEMORY_KINDS: readonly MemoryKind[] = [
   "global_preference",
@@ -92,5 +93,18 @@ describe("T1 memory-kind table", () => {
       expect(description.sectionTitle).not.toBe("Other");
       expect(MEMORY_KIND_TABLE[kind]).toEqual(description.route);
     }
+  });
+
+  it("names every kind in both panel languages", () => {
+    // The taxonomy above is the English truth (it also lands in exported
+    // Markdown); the panel reads the same seven kinds through its dictionary,
+    // so a Chinese panel must not fall back to "Constraint".
+    for (const kind of MEMORY_KINDS) {
+      expect(kindLabel(kind, "en")).toBe(describeMemoryKind(kind).label);
+      expect(kindLabel(kind, "zh")).not.toBe(kind);
+      expect(kindLabel(kind, "zh")).not.toBe(describeMemoryKind(kind).label);
+    }
+    // A kind the dictionary does not know renders as its own id, not as a key.
+    expect(kindLabel("mnemosyne", "zh")).toBe("mnemosyne");
   });
 });

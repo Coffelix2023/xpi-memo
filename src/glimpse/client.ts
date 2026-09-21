@@ -9,7 +9,8 @@
  * The client talks to Node through `window.glimpse.send`, one message per
  * intent:
  *
- *   { type: "theme",    value: "dark" | "light" }
+ *   { type: "theme",     value: "dark" | "light" }
+ *   { type: "principle", value: "default" | "atlas" }
  *   { type: "language", value: "en" | "zh", view: <current view> }
  *   { type: "review",   index: number, decision: "store" | "reject" | "later" }
  *   { type: "setting",  id: string, value: string }
@@ -27,12 +28,15 @@
  *                                               `data-selected`
  *   #P1-1-A1 .detail-block[data-index]          one detail block per candidate
  *   #P1-1-A2 button[data-decision]              store / reject / later
- *   .group-head[data-group][aria-expanded]      settings accordion heads, each
- *                                               followed by `.group-body`
+ *   #P3-1-L1 .tabs-trigger[data-group]         settings tab strip, one trigger
+ *                                               per group; `aria-selected` marks
+ *                                               the open one
+ *   #P3-1-L1 .tabs-content[data-group]          the panel each trigger opens,
+ *                                               `hidden` while unselected
  *   #P3-1-L1 .field-row[data-field]             settings rows
  *   #P3-1-L1 .field-row .f-control[data-field]  the row's own editor, when it has one
  *   #P3-1-A1 .detail-block[data-field]          one detail block per group
- *   #P0-1-W1 / #P0-1-W2 / #P0-1-B2              theme, language, close
+ *   #P0-1-W1 / #P0-1-W2 / #P0-1-W3 / #P0-1-B2  theme, language, principle, close
  */
 export const CLIENT_SCRIPT = `
 (function () {
@@ -126,36 +130,70 @@ export const CLIENT_SCRIPT = `
     return isFinite(value) ? value : 0;
   }
 
-  /* ---------- settings: accordion and field focus are local ---------- */
+  /* ---------- settings: tabs and field focus are local ---------- */
 
-  function toggleGroup(id) {
-    var head = document.querySelector('.group-head[data-group="' + id + '"]');
-    if (!head) return;
-    var open = head.getAttribute("aria-expanded") === "true";
-    head.setAttribute("aria-expanded", open ? "false" : "true");
-    var body = head.parentNode ? head.parentNode.querySelector(".group-body") : null;
-    if (!body) return;
-    if (open) body.setAttribute("hidden", "");
-    else body.removeAttribute("hidden");
+  /** Field rows of the visible panel only: Tab must not walk into a hidden tab. */
+  function settingsRows() {
+    return all("#P3-1-L1 .tabs-content:not([hidden]) .field-row");
   }
 
-  function focusField(key) {
+  /**
+   * Reveal one tab panel and mark its own trigger selected.
+   *
+   * The hidden attribute and aria-selected move together: the stylesheet draws
+   * the selected tab from aria-selected, so a panel that opened without its
+   * trigger selecting would leave the strip pointing at the wrong group.
+   */
+  function activateGroup(id) {
+    all("#P3-1-L1 .tabs-trigger").forEach(function (trigger) {
+      var active = trigger.dataset.group === id;
+      trigger.setAttribute("aria-selected", active ? "true" : "false");
+      // Roving tabindex: the strip is one tab stop, the arrows move inside it.
+      trigger.setAttribute("tabindex", active ? "0" : "-1");
+    });
+    all("#P3-1-L1 .tabs-content").forEach(function (panel) {
+      if (panel.dataset.group === id) panel.removeAttribute("hidden");
+      else panel.setAttribute("hidden", "");
+    });
+  }
+
+  /**
+   * Highlight one row, show the detail block that explains it, and — unless
+   * the caller says otherwise — move the keyboard into its control.
+   *
+   * moveFocus is false for a tab switch: the highlight has to follow the group
+   * the user just picked (the detail pane explains the focused field), but
+   * stealing focus from the tab strip would break arrow-key navigation of it.
+   */
+  function focusField(key, moveFocus) {
     var control = null;
     all("#P3-1-L1 .field-row").forEach(function (row) {
       var focused = row.dataset.field === key;
       row.classList.toggle("is-focused", focused);
-      if (focused) control = row.querySelector(".f-control");
+      // Only the visible panel's editor can take focus; a hidden one would move
+      // the keyboard somewhere the user cannot see.
+      if (focused && !row.closest("[hidden]")) {
+        control = row.querySelector(".f-control");
+      }
     });
     // Real focus follows the highlight. A highlighted row that does not hold
     // the keyboard would swallow Space, and a select only opens its own menu
     // for the element that has focus.
-    if (control && typeof control.focus === "function") control.focus();
+    if (moveFocus !== false && control && typeof control.focus === "function") {
+      control.focus();
+    }
     all("#P3-1-A1 .detail-block").forEach(function (block) {
       if (block.dataset.field === key) block.removeAttribute("hidden");
       else block.setAttribute("hidden", "");
     });
   }
 
+  /** Open one tab and put its first row under the highlight. */
+  function selectGroup(id) {
+    activateGroup(id);
+    var first = settingsRows()[0];
+    if (first && first.dataset.field) focusField(first.dataset.field, false);
+  }
   /**
    * A control reports its own change; the row only says which field it is.
    *
@@ -165,6 +203,19 @@ export const CLIENT_SCRIPT = `
   document.addEventListener("change", function (event) {
     var target = event.target;
     if (!target || typeof target.closest !== "function") return;
+    // The header's principle picker is chrome, not configuration: it re-skins
+    // the document in place (every token block is already in the page) and only
+    // reports the choice so the preference survives the window.
+    var picker = target.closest("#P0-1-W3");
+    if (picker) {
+      root.classList.toggle("atlas", picker.value === "atlas");
+      send({
+        type: "principle",
+        value: picker.value,
+      });
+      return;
+    }
+
     var control = target.closest("#P3-1-L1 .f-control");
     if (!control || control.disabled || !control.dataset.field) return;
     // The language row is the one setting that redraws every label, and the
@@ -213,9 +264,9 @@ export const CLIENT_SCRIPT = `
       return;
     }
 
-    var head = target.closest(".group-head");
-    if (head && head.dataset.group) {
-      toggleGroup(head.dataset.group);
+    var tab = target.closest("#P3-1-L1 .tabs-trigger");
+    if (tab && tab.dataset.group) {
+      selectGroup(tab.dataset.group);
       return;
     }
 
@@ -272,13 +323,40 @@ export const CLIENT_SCRIPT = `
       return;
     }
 
-    if (view === "settings" && event.key === "Tab") {
+    if (view !== "settings") return;
+
+    // Arrows walk the tab strip (ARIA tabs pattern). The trigger is a real
+    // focusable button, so the browser's own Tab reaches the strip and the
+    // arrows stay inside it.
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      var eventTarget = event.target;
+      var focusedTab =
+        eventTarget && typeof eventTarget.closest === "function"
+          ? eventTarget.closest("#P3-1-L1 .tabs-trigger")
+          : null;
+      if (!focusedTab) return;
+      var triggers = all("#P3-1-L1 .tabs-trigger");
+      var index = triggers.indexOf(focusedTab);
+      if (index < 0) return;
       event.preventDefault();
-      var rows = all("#P3-1-L1 .field-row");
+      var move = event.key === "ArrowRight" ? 1 : -1;
+      var nextTab = triggers[(index + move + triggers.length) % triggers.length];
+      selectGroup(nextTab.dataset.group);
+      nextTab.focus();
+      return;
+    }
+
+    if (event.key === "Tab") {
+      event.preventDefault();
+      // Only the visible panel's rows: Tab cycles the group the user is on,
+      // rather than walking the six panels behind it.
+      var rows = settingsRows();
       if (!rows.length) return;
       var keys = rows.map(function (row) { return row.dataset.field; });
-      var current = document.querySelector("#P3-1-L1 .field-row.is-focused");
-      var at = current ? keys.indexOf(current.dataset.field) : -1;
+      var at = -1;
+      rows.forEach(function (row, i) {
+        if (row.classList.contains("is-focused")) at = i;
+      });
       var step = event.shiftKey ? -1 : 1;
       var next = at < 0 ? 0 : (at + step + keys.length) % keys.length;
       focusField(keys[next]);

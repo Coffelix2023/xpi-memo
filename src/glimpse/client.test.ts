@@ -89,8 +89,8 @@ describe("glimpse in-page client", () => {
       ".nav-item",
       ".candidate-item",
       ".detail-block",
-      ".group-head",
-      ".group-body",
+      ".tabs-trigger",
+      ".tabs-content",
       ".field-row",
       "button[data-decision]",
       ".f-control",
@@ -102,6 +102,10 @@ describe("glimpse in-page client", () => {
   it("keeps the keyboard contract: arrows select, Escape closes", () => {
     expect(CLIENT_SCRIPT).toContain("ArrowUp");
     expect(CLIENT_SCRIPT).toContain("ArrowDown");
+    // The settings tab strip is walked with left/right, per the ARIA tabs
+    // pattern; up/down stay with the pending list.
+    expect(CLIENT_SCRIPT).toContain("ArrowLeft");
+    expect(CLIENT_SCRIPT).toContain("ArrowRight");
     expect(CLIENT_SCRIPT).toMatch(ESCAPE_CLOSES);
   });
 });

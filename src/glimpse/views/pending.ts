@@ -1,5 +1,4 @@
-import { describeMemoryKindOrNull } from "../../kinds.js";
-import type { PanelLanguage } from "../../panel-text.js";
+import { kindLabel, type PanelLanguage } from "../../panel-text.js";
 import { type PendingCandidate, rationaleText } from "../../pending-candidate.js";
 import { localeFor, relativeAge } from "../format.js";
 import { el, esc, textEl } from "../html.js";
@@ -56,7 +55,7 @@ function detailRows(candidate: PendingCandidate, ctx: PendingContext): string {
   > = [
     [
       "pending.type",
-      describeMemoryKindOrNull(candidate.kind)?.label ?? candidate.kind,
+      kindLabel(candidate.kind, language),
     ],
     [
       "pending.bank",
@@ -135,7 +134,7 @@ function candidateRow(
         {
           class: "cand-kind",
         },
-        describeMemoryKindOrNull(candidate.kind)?.label ?? candidate.kind,
+        kindLabel(candidate.kind, language),
       ) + conflict,
     ) +
     textEl(

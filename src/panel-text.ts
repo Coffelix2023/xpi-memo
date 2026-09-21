@@ -219,6 +219,13 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "info.tier": "L0 session trace → T1 xpi-memo → T2 deferred → T3 deferred",
     "info.today": "today",
     "info.total": "total",
+    "kind.global_preference": "Preference",
+    "kind.global_workflow": "Workflow",
+    "kind.project_constraint": "Constraint",
+    "kind.project_decision": "Decision",
+    "kind.project_gene": "Repository fact",
+    "kind.project_gotcha": "Gotcha",
+    "kind.session_context": "Session context",
     "note.admissionAllowGlobalPreference": "Skip the review queue",
     "note.admissionAllowGlobalWorkflow": "Skip the review queue",
     "note.admissionAllowProjectConstraint": "Skip the review queue",
@@ -436,6 +443,14 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "info.tier": "L0 会话轨迹 → T1 xpi-memo → T2 延后 → T3 延后",
     "info.today": "今日",
     "info.total": "总数",
+    // 7 类记忆的用户可见名称，与 README.zh-CN.md 的分类法一致
+    "kind.global_preference": "偏好",
+    "kind.global_workflow": "工作流",
+    "kind.project_constraint": "约束",
+    "kind.project_decision": "决策",
+    "kind.project_gene": "仓库事实",
+    "kind.project_gotcha": "坑点",
+    "kind.session_context": "会话上下文",
     "note.admissionAllowGlobalPreference": "跳过待审队列",
     "note.admissionAllowGlobalWorkflow": "跳过待审队列",
     "note.admissionAllowProjectConstraint": "跳过待审队列",
@@ -493,6 +508,20 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
 export function panelText(key: string, language: PanelLanguage): string {
   const selected: Record<string, string> | undefined = PANEL_TEXT[language];
   return selected?.[key] ?? PANEL_TEXT.en[key] ?? key;
+}
+
+/**
+ * The user-facing name of one memory kind, in the panel's language.
+ *
+ * `kinds.ts` keeps the English taxonomy because its labels also land in exported
+ * Markdown and in the stored records; this reads the same seven kinds through the
+ * panel dictionary, so a Chinese panel never shows "Constraint". A kind the
+ * dictionary does not know falls back to its own id — the id is what the queue
+ * stores, so an unknown kind stays readable instead of rendering a `kind.*` key.
+ */
+export function kindLabel(kind: string, language: PanelLanguage): string {
+  const key = `kind.${kind}`;
+  return PANEL_TEXT[language]?.[key] ?? PANEL_TEXT.en[key] ?? kind;
 }
 
 const PLACEHOLDER_PATTERN = /\{(\w+)\}/g;

@@ -25,6 +25,7 @@ export const SHELL_SHORT = {
   navRecent: "P0-1-N2",
   navSettings: "P0-1-N3",
   navStatus: "P0-1-N4",
+  principle: "P0-1-W3",
   sidebar: "P0-1-A3",
   theme: "P0-1-W1",
   window: "P0-1-A1",
@@ -73,6 +74,22 @@ export const GROUP_SHORT: Readonly<Record<string, string>> = {
   privacy: "P3-1-B5",
   retrieval: "P3-1-B1",
   storage: "P3-1-B2",
+};
+
+/**
+ * Tab-panel short codes, keyed by the same group ids.
+ *
+ * The group code names the group's tab (its control); the panel it reveals owns
+ * the `P` code, so `aria-controls` and `aria-labelledby` can point at each other.
+ */
+export const SETTINGS_PANEL_SHORT: Readonly<Record<string, string>> = {
+  admission: "P3-1-P6",
+  display: "P3-1-P4",
+  mentalModels: "P3-1-P7",
+  pipeline: "P3-1-P3",
+  privacy: "P3-1-P5",
+  retrieval: "P3-1-P1",
+  storage: "P3-1-P2",
 };
 
 /** Field short codes, keyed by config field id. */
@@ -126,6 +143,7 @@ export function allShortCodes(): string[] {
     ...Object.values(RECENT_SHORT),
     ...Object.values(SETTINGS_SHORT),
     ...Object.values(GROUP_SHORT),
+    ...Object.values(SETTINGS_PANEL_SHORT),
     ...Object.values(FIELD_SHORT),
     ...Object.values(STATUS_SHORT),
   ];

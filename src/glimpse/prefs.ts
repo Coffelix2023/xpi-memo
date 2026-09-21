@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-
+import { THEME_PRINCIPLES, type ThemePrinciple } from "./tokens.js";
 /**
  * Window-scoped appearance preferences.
  *
@@ -17,11 +17,18 @@ import { dirname, join } from "node:path";
 export type PanelTheme = "dark" | "light";
 
 export interface PanelPreferences {
+  /** Which token set the window wears (`THEMES.md`). */
+  principle: ThemePrinciple;
+  /** Which variant of that set: `dark` or `light`. */
   theme: PanelTheme;
 }
 
-/** Dark is the documented default (`TUI-DESIGN.md` §2.A, `THEMES.md`). */
+/**
+ * Dark default, `default` principle — the documented pair
+ * (`TUI-DESIGN.md` §2.A, `THEMES.md`).
+ */
 export const DEFAULT_PANEL_PREFERENCES: PanelPreferences = {
+  principle: "default",
   theme: "dark",
 };
 
@@ -35,6 +42,10 @@ function isPanelTheme(value: unknown): value is PanelTheme {
   return value === "dark" || value === "light";
 }
 
+function isThemePrinciple(value: unknown): value is ThemePrinciple {
+  return THEME_PRINCIPLES.includes(value as ThemePrinciple);
+}
+
 /**
  * Read preferences, falling back to the default for a missing, unreadable,
  * malformed, or partially-valid file. Never throws.
@@ -43,16 +54,18 @@ export function loadPanelPreferences(path: string): PanelPreferences {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
     if (typeof parsed === "object" && parsed !== null) {
-      const theme = (
-        parsed as {
-          theme?: unknown;
-        }
-      ).theme;
-      if (isPanelTheme(theme)) {
-        return {
-          theme,
-        };
-      }
+      const { principle, theme } = parsed as {
+        principle?: unknown;
+        theme?: unknown;
+      };
+      // Each field falls back on its own, so a file written before the
+      // principle existed still keeps its theme.
+      return {
+        principle: isThemePrinciple(principle)
+          ? principle
+          : DEFAULT_PANEL_PREFERENCES.principle,
+        theme: isPanelTheme(theme) ? theme : DEFAULT_PANEL_PREFERENCES.theme,
+      };
     }
   } catch {
     // Missing, unreadable, or not JSON — the default is the answer either way.

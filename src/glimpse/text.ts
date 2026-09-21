@@ -37,6 +37,9 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "pending.store": "Store",
     "pending.title": "Candidates",
     "pending.type": "type",
+    // Literal theme names, not prose: they read the same in both languages.
+    "principle.atlas": "Atlas",
+    "principle.default": "Default",
     "recent.action": "action",
     "recent.action.candidate": "candidate",
     "recent.action.confirmation": "confirmation",
@@ -92,6 +95,7 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "status.trend": "last 7d",
     "status.usage": "today events",
     "toggle.lang": "Toggle language",
+    "toggle.principle": "Theme principle",
     "toggle.theme": "Toggle theme",
   },
   zh: {
@@ -116,6 +120,9 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "pending.store": "存入",
     "pending.title": "候选",
     "pending.type": "类型",
+    // 主题名是字面值，不是文案：两种语言同形
+    "principle.atlas": "Atlas",
+    "principle.default": "Default",
     "recent.action": "动作",
     "recent.action.candidate": "候选生成",
     "recent.action.confirmation": "确认",
@@ -170,6 +177,7 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "status.trend": "近 7 日",
     "status.usage": "今日事件",
     "toggle.lang": "切换语言",
+    "toggle.principle": "主题原则",
     "toggle.theme": "切换主题",
   },
 };

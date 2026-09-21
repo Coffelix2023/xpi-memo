@@ -13,6 +13,7 @@ import {
 import { panelText } from "../panel-text.js";
 import { modelFixture, settingsRowsFixture, statusFixture } from "./fixture.js";
 import type { GlimpseOpenFn, GlimpseWindow } from "./module.js";
+import { loadPanelPreferences } from "./prefs.js";
 import { openGlimpsePanel, WINDOW_HEIGHT, WINDOW_WIDTH } from "./window.js";
 
 /**
@@ -177,6 +178,43 @@ describe("glimpse window (5.1)", () => {
     // The theme is a window preference, not configuration: it must not go
     // through `save`, which writes the config file.
     expect(save).not.toHaveBeenCalled();
+
+    await opened.emit("closed");
+    await panel;
+  });
+
+  it("persists the theme principle without re-rendering the window", async () => {
+    const opened = fakeWindow();
+    const save = vi.fn();
+    const panel = openGlimpsePanel({
+      actions: stubActions({
+        save,
+      }),
+      config: TEST_CONFIG,
+      initialView: "pending",
+      language: "zh",
+      model: modelWithoutLanguage(),
+      prefsPath: prefsPath(),
+      resolveModule: async () => ({
+        open: () => opened.win,
+      }),
+    });
+
+    const rendersBefore = opened.html.length;
+    await opened.emit("message", {
+      type: "principle",
+      value: "atlas",
+    });
+
+    // The page already swapped the class; a re-render would only reset the
+    // scroll position. The principle is a window preference like the theme, so
+    // it must not reach `save` either.
+    expect(opened.html.length).toBe(rendersBefore);
+    expect(save).not.toHaveBeenCalled();
+    expect(loadPanelPreferences(prefsPath())).toEqual({
+      principle: "atlas",
+      theme: "dark",
+    });
 
     await opened.emit("closed");
     await panel;

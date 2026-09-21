@@ -58,7 +58,7 @@ export const COMPONENT_STYLES = `
 .btn:focus-visible,
 .nav-item:focus-visible,
 .icon-btn:focus-visible,
-.group-head:focus-visible,
+.tabs-trigger:focus-visible,
 .candidate-item:focus-visible,
 .snapshot:focus-visible {
   outline: 2px solid var(--ring);

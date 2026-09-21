@@ -1,7 +1,12 @@
 import { type PanelLanguage, panelText } from "../../panel-text.js";
 import { SETTINGS_GROUPS } from "../../settings-groups.js";
 import { el, esc, textEl } from "../html.js";
-import { FIELD_SHORT, GROUP_SHORT, SETTINGS_SHORT } from "../short-codes.js";
+import {
+  FIELD_SHORT,
+  GROUP_SHORT,
+  SETTINGS_PANEL_SHORT,
+  SETTINGS_SHORT,
+} from "../short-codes.js";
 import { glimpseText } from "../text.js";
 
 /**
@@ -157,70 +162,81 @@ function fieldRow(
   );
 }
 
-function groupSection(
+/**
+ * One tab trigger: the group's name, its field count, and its semantic id.
+ *
+ * The trigger carries `GROUP_SHORT`, not the panel: the code names the group's
+ * control, which is where the accordion's head used to be, so review notes
+ * written against `P3-1-B1` still point at the retrieval group's control.
+ */
+function groupTab(
+  group: {
+    fields: readonly string[];
+    id: string;
+  },
+  language: PanelLanguage,
+  active: boolean,
+): string {
+  return el(
+    "button",
+    {
+      "aria-controls": SETTINGS_PANEL_SHORT[group.id],
+      "aria-selected": String(active),
+      class: `tabs-trigger${active ? " is-active" : ""}`,
+      "data-group": group.id,
+      id: GROUP_SHORT[group.id],
+      role: "tab",
+      tabindex: active ? "0" : "-1",
+      type: "button",
+    },
+    textEl(
+      "span",
+      {
+        class: "tab-name",
+      },
+      panelText(`group.${group.id}`, language),
+    ) +
+      textEl(
+        "span",
+        {
+          class: "tab-count",
+        },
+        group.fields.length,
+      ),
+  );
+}
+
+/** One tab panel: the group's field rows, revealed while its own tab is selected. */
+function groupPanel(
   group: {
     fields: readonly string[];
     id: string;
   },
   rowsByField: ReadonlyMap<string, SettingsRowLike>,
   language: PanelLanguage,
-  open: boolean,
+  active: boolean,
 ): string {
-  const head = el(
-    "button",
-    {
-      "aria-expanded": String(open),
-      class: "group-head",
-      "data-group": group.id,
-      id: GROUP_SHORT[group.id],
-      type: "button",
-    },
-    textEl(
-      "span",
-      {
-        class: "group-arrow",
-      },
-      open ? "▾" : "▸",
-    ) +
-      textEl(
-        "span",
-        {
-          class: "group-name",
-        },
-        panelText(`group.${group.id}`, language),
-      ) +
-      textEl(
-        "span",
-        {
-          class: "group-count",
-        },
-        group.fields.length,
-      ),
-  );
-
-  const body = el(
-    "div",
-    {
-      class: "group-body",
-      hidden: !open,
-    },
-    group.fields
-      .map((field) => {
-        const row = rowsByField.get(field);
-        const short = FIELD_SHORT[field as keyof typeof FIELD_SHORT];
-        // A group naming a field the row list does not carry is a wiring bug,
-        // not a rendering concern; skip it rather than emit a broken row.
-        return row && short ? fieldRow(row, language, short) : "";
-      })
-      .join(""),
-  );
+  const rows = group.fields
+    .map((field) => {
+      const row = rowsByField.get(field);
+      const short = FIELD_SHORT[field as keyof typeof FIELD_SHORT];
+      // A group naming a field the row list does not carry is a wiring bug,
+      // not a rendering concern; skip it rather than emit a broken row.
+      return row && short ? fieldRow(row, language, short) : "";
+    })
+    .join("");
 
   return el(
     "div",
     {
-      class: "group",
+      "aria-labelledby": GROUP_SHORT[group.id],
+      class: "tabs-content",
+      "data-group": group.id,
+      hidden: !active,
+      id: SETTINGS_PANEL_SHORT[group.id],
+      role: "tabpanel",
     },
-    head + body,
+    rows,
   );
 }
 
@@ -262,20 +278,40 @@ export function renderSettingsView(input: SettingsViewInput): string {
     ...group.fields,
   ]);
 
-  // The first group starts open, matching the terminal panel.
-  const groups = SETTINGS_GROUPS.map((group, index) =>
-    groupSection(group, rowsByField, language, index === 0),
+  // The first tab starts selected, matching the terminal panel.
+  const tabs = SETTINGS_GROUPS.map((group, index) =>
+    groupTab(group, language, index === 0),
+  ).join("");
+  const panels = SETTINGS_GROUPS.map((group, index) =>
+    groupPanel(group, rowsByField, language, index === 0),
   ).join("");
 
+  const tablist = el(
+    "div",
+    {
+      "aria-label": panelText("tab.settings", language),
+      class: "tabs-list",
+      role: "tablist",
+    },
+    tabs,
+  );
+
+  // The strip stays put; only the selected panel scrolls, so the tab a
+  // reviewer is on is never scrolled out of reach.
   const list = el(
     "div",
     {
-      "aria-label": panelText("group.retrieval", language),
-      class: "settings-groups",
+      class: "settings-tabs",
       id: SETTINGS_SHORT.groups,
-      role: "listbox",
     },
-    groups,
+    tablist +
+      el(
+        "div",
+        {
+          class: "settings-scroll",
+        },
+        panels,
+      ),
   );
 
   const detail = el(
@@ -328,16 +364,5 @@ export function renderSettingsView(input: SettingsViewInput): string {
       .join(""),
   );
 
-  return (
-    error +
-    loading +
-    el(
-      "div",
-      {
-        class: "settings-scroll",
-      },
-      list,
-    ) +
-    detail
-  );
+  return error + loading + list + detail;
 }

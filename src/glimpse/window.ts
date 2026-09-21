@@ -10,6 +10,7 @@ import {
   type PanelTheme,
   savePanelPreferences,
 } from "./prefs.js";
+import { THEME_PRINCIPLES, type ThemePrinciple } from "./tokens.js";
 import { assembleParts, type GlimpseModel } from "./views/index.js";
 
 /**
@@ -76,6 +77,10 @@ type PanelMessage =
   | {
       type: "theme";
       value: PanelTheme;
+    }
+  | {
+      type: "principle";
+      value: ThemePrinciple;
     };
 
 const VIEWS: readonly string[] = [
@@ -88,6 +93,8 @@ const THEMES: readonly string[] = [
   "dark",
   "light",
 ];
+/** The principles the page may report; the vocabulary lives in tokens.ts. */
+const PRINCIPLES: readonly string[] = THEME_PRINCIPLES;
 const LANGUAGES: readonly string[] = [
   "en",
   "zh",
@@ -123,6 +130,13 @@ function parseMessage(data: unknown): PanelMessage | null {
         ? {
             type: "theme",
             value: message.value as PanelTheme,
+          }
+        : null;
+    case "principle":
+      return typeof message.value === "string" && PRINCIPLES.includes(message.value)
+        ? {
+            type: "principle",
+            value: message.value as ThemePrinciple,
           }
         : null;
     case "language":
@@ -171,6 +185,7 @@ function buildHtml(
   options: GlimpsePanelOptions,
   state: {
     language: PanelLanguage;
+    principle: ThemePrinciple;
     selectedIndex: number;
     theme: PanelTheme;
     view: ViewId;
@@ -183,11 +198,13 @@ function buildHtml(
   return renderDocument({
     ...assembleParts(model, {
       initialView: state.view,
+      principle: state.principle,
       selectedIndex: state.selectedIndex,
       theme: state.theme,
     }),
     initialView: state.view,
     language: state.language,
+    principle: state.principle,
     theme: state.theme,
   });
 }
@@ -209,6 +226,7 @@ export async function openGlimpsePanel(options: GlimpsePanelOptions): Promise<bo
   };
   const state = {
     language: options.language,
+    principle: prefs.principle,
     selectedIndex: 0,
     theme: prefs.theme,
     view: options.initialView,
@@ -239,7 +257,18 @@ export async function openGlimpsePanel(options: GlimpsePanelOptions): Promise<bo
           case "theme":
             state.theme = message.value;
             prefs = {
+              ...prefs,
               theme: message.value,
+            };
+            savePanelPreferences(options.prefsPath, prefs);
+            return;
+          case "principle":
+            // The page already swapped the class; this only records the choice,
+            // which is why no view is re-rendered here.
+            state.principle = message.value;
+            prefs = {
+              ...prefs,
+              principle: message.value,
             };
             savePanelPreferences(options.prefsPath, prefs);
             return;

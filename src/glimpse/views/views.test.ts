@@ -8,6 +8,7 @@ import {
   settingsRowsFixture,
   statusFixture,
 } from "../fixture.js";
+import { GROUP_SHORT, SETTINGS_PANEL_SHORT } from "../short-codes.js";
 import { renderFooter, renderHeader, renderSidebar } from "./chrome.js";
 import { renderPendingView } from "./pending.js";
 import { renderRecentView } from "./recent.js";
@@ -38,6 +39,8 @@ const RECALL_POLICY_SELECT =
 const EMBEDDING_MODEL_INPUT = /<input[^>]*data-field="embeddingModel"[^>]*>/;
 const CONTROL_FOR_LIMIT = /<(select|input)[^>]*data-field="limit"/;
 const CONTROL_FOR_DATA_DIR = /<(select|input)[^>]*data-field="dataDir"/;
+/** A settings tab panel the server rendered closed. */
+const HIDDEN_TAB_PANEL_PATTERN = /class="tabs-content"[^>]*hidden/g;
 const ISO_STAMP = /\d{4}-\d{2}-\d{2}T/;
 const CLOCK_TIME = />\d{2}:\d{2}</;
 
@@ -87,6 +90,22 @@ describe("pending view", () => {
     // candidates.
     expect(html).toContain("用户明确陈述为长期偏好");
     expect(html).not.toContain("The user stated this as a durable preference.");
+  });
+
+  it("names the candidate's kind in the panel's language", () => {
+    // The fixture queue carries a preference, a constraint, and a gotcha. The
+    // stored content stays whatever language it was written in; the taxonomy
+    // label is copy and travels through the dictionary.
+    expect(html).toContain(">偏好<");
+    expect(html).toContain(">约束<");
+    expect(html).toContain(">坑点<");
+    for (const english of [
+      "Preference",
+      "Constraint",
+      "Gotcha",
+    ]) {
+      expect(html, english).not.toContain(english);
+    }
   });
 
   it("renders the evidence row in the panel's language", () => {
@@ -225,8 +244,10 @@ describe("recent view", () => {
     // was a line of dashes; this is the case the page was unreadable for.
     expect(html).toContain("被动 · 已注入 · #cd7a990fc903a7d6");
     expect(html).toContain("mnemosyne · 命中 8 · 注入 3");
-    // A row that has a bank and a kind still shows them.
-    expect(html).toContain("Decision · xpi-memo");
+    // A row that has a bank and a kind still shows them, and the kind is copy:
+    // it reads in the panel's language like every other label.
+    expect(html).toContain("决策 · xpi-memo");
+    expect(html).not.toContain("Decision · xpi-memo");
   });
 
   it("leaves the recall query out of the row", () => {
@@ -326,17 +347,36 @@ describe("settings view", () => {
     expect(html).toContain('<span class="f-value">auto</span>');
   });
 
-  it("renders one head per configured group", () => {
-    expect(countClass(html, "group-head")).toBe(SETTINGS_GROUPS.length);
+  it("renders one tab per configured group", () => {
+    expect(countClass(html, "tabs-trigger")).toBe(SETTINGS_GROUPS.length);
+    expect(countText(html, 'role="tab"')).toBe(SETTINGS_GROUPS.length);
+    expect(countText(html, 'role="tabpanel"')).toBe(SETTINGS_GROUPS.length);
     expect(SETTINGS_GROUPS).toHaveLength(7);
   });
 
-  it("opens exactly the first group", () => {
-    expect(countText(html, 'aria-expanded="true"')).toBe(1);
-    // Five of six bodies start hidden.
-    expect(countText(html, 'class="group-body" hidden')).toBe(
+  it("wires each tab to its own panel", () => {
+    // The pair of references is the whole reason the panels carry ids: a
+    // trigger that opened a panel it does not control would leave the strip
+    // pointing at the wrong group.
+    for (const group of SETTINGS_GROUPS) {
+      const trigger = GROUP_SHORT[group.id];
+      const panel = SETTINGS_PANEL_SHORT[group.id];
+      expect(html, trigger).toContain(`id="${trigger}"`);
+      expect(html, trigger).toContain(`aria-controls="${panel}"`);
+      expect(html, panel).toContain(`aria-labelledby="${trigger}"`);
+    }
+  });
+
+  it("opens exactly the first tab", () => {
+    expect(countText(html, 'aria-selected="true"')).toBe(1);
+    // The other six panels start hidden. The attribute order inside a panel is
+    // the element builder's business, so this matches the pair of attributes
+    // rather than an exact tag.
+    expect(html.match(HIDDEN_TAB_PANEL_PATTERN)?.length ?? 0).toBe(
       SETTINGS_GROUPS.length - 1,
     );
+    // Roving tabindex: the strip is one tab stop, the arrows move inside it.
+    expect(countText(html, 'tabindex="-1"')).toBe(SETTINGS_GROUPS.length - 1);
   });
 
   it("marks an environment-pinned field as locked", () => {
@@ -439,17 +479,37 @@ describe("window chrome", () => {
   const input = {
     activeView: "settings" as const,
     language: "zh" as const,
+    principle: "default" as const,
     summary,
     theme: "dark" as const,
   };
 
-  it("header carries the badge and both toggles", () => {
+  it("header carries the badge, both toggles, and the principle picker", () => {
     const html = renderHeader(input);
 
     expect(html).toContain('id="P0-1-B1"');
     expect(html).toContain('id="P0-1-W1"');
     expect(html).toContain('id="P0-1-W2"');
+    expect(html).toContain('id="P0-1-W3"');
     expect(html).toContain("运行中");
+  });
+
+  it("the principle picker offers both principles and marks the current one", () => {
+    const html = renderHeader(input);
+    const picker = html.slice(html.indexOf("<select"), html.indexOf("</select>"));
+
+    // The labels are literal theme names, so they read the same in either
+    // language; only the picker's accessible name is copy.
+    expect(picker).toContain('aria-label="主题原则"');
+    expect(picker).toContain('<option selected value="default">Default</option>');
+    expect(picker).toContain('<option value="atlas">Atlas</option>');
+
+    const atlas = renderHeader({
+      ...input,
+      principle: "atlas",
+    });
+    expect(atlas).toContain('<option selected value="atlas">Atlas</option>');
+    expect(atlas).not.toContain('<option selected value="default">');
   });
 
   it("sidebar lists four views and marks the active one", () => {

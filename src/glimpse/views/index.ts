@@ -3,6 +3,7 @@ import type { PendingCandidate } from "../../pending-candidate.js";
 import type { MemoryStatus } from "../../status.js";
 import { summarize } from "../../status-summary.js";
 import type { GlimpseDocumentParts, PanelTheme, ViewId } from "../document.js";
+import type { ThemePrinciple } from "../tokens.js";
 import { renderFooter, renderHeader, renderSidebar } from "./chrome.js";
 import { renderPendingView } from "./pending.js";
 import { renderRecentView } from "./recent.js";
@@ -34,6 +35,7 @@ export interface GlimpseModel {
 
 export interface AssembleOptions {
   initialView: ViewId;
+  principle: ThemePrinciple;
   /** Which pending candidate starts selected. */
   selectedIndex?: number;
   theme: PanelTheme;
@@ -48,6 +50,7 @@ export function assembleParts(
   const chrome = {
     activeView: options.initialView,
     language,
+    principle: options.principle,
     summary,
     theme: options.theme,
   };

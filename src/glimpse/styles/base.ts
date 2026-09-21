@@ -29,8 +29,10 @@ export const BASE_STYLES = `
   --space-4: 16px;
   --space-6: 24px;
   --space-8: 32px;
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  /* Atlas 的 --radius 是 0rem，减出来的负值会被当作非法值丢掉；用 max() 明说
+     「不小于 0」，直角是声明出来的，不是靠浏览器丢弃非法值得到的。 */
+  --radius-sm: max(0px, calc(var(--radius) - 4px));
+  --radius-md: max(0px, calc(var(--radius) - 2px));
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 }

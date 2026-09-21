@@ -18,19 +18,24 @@ import { assembleParts } from "./views/index.js";
  * wrong. The number is 75 = the 57 codes the design dictionary carried plus the
  * 18 added when the settings groups grew from five to six and their fields from
  * twenty to thirty-seven, plus the settings view's loading and error regions,
- * plus the three added by the mental-model group (one group, two fields).
+ * plus the three added by the mental-model group (one group, two fields),
+ * plus the seven tab panels the settings view gained when its accordion became
+ * a tab strip (one panel id per group), plus the header's theme-principle
+ * picker (one control).
  */
-const EXPECTED_CODE_COUNT = 80;
+const EXPECTED_CODE_COUNT = 88;
 
 function renderFixtureDocument(): string {
   const model = modelFixture();
   return renderDocument({
     ...assembleParts(model, {
       initialView: "pending",
+      principle: "default",
       theme: "dark",
     }),
     initialView: "pending",
     language: model.language,
+    principle: "default",
     theme: "dark",
   });
 }

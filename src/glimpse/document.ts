@@ -7,7 +7,16 @@ import { PENDING_VIEW_STYLES } from "./styles/views/pending.js";
 import { RECENT_VIEW_STYLES } from "./styles/views/recent.js";
 import { SETTINGS_VIEW_STYLES } from "./styles/views/settings.js";
 import { STATUS_VIEW_STYLES } from "./styles/views/status.js";
-import { DARK_TOKENS, LIGHT_TOKENS, themeTokensCss } from "./tokens.js";
+import {
+  ATLAS_DARK_TOKENS,
+  ATLAS_LIGHT_TOKENS,
+  ATLAS_SELECTOR,
+  DARK_SELECTOR,
+  DARK_TOKENS,
+  LIGHT_TOKENS,
+  type ThemePrinciple,
+  themeTokensCss,
+} from "./tokens.js";
 
 /** The four views, in sidebar order. */
 export type ViewId = "pending" | "recent" | "settings" | "status";
@@ -44,6 +53,9 @@ export interface GlimpseDocumentParts {
 export interface GlimpseDocumentInput extends GlimpseDocumentParts {
   initialView: ViewId;
   language: PanelLanguage;
+  /** Which token set the window wears (`THEMES.md`). */
+  principle: ThemePrinciple;
+  /** Which variant of that set: the `dark` class, or not. */
   theme: PanelTheme;
 }
 
@@ -75,22 +87,47 @@ function viewSection(view: ViewId, initialView: ViewId, body: string): string {
 }
 
 /**
+ * The class list for `<html>`: the principle's class, then `dark`.
+ *
+ * Both are plain classes so one attribute answers either question, and the
+ * composed `.atlas.dark` (0,2,0) outranks `.dark` on its own. The names come
+ * from `tokens.ts`'s selectors, minus the leading dot, so a renamed selector
+ * cannot leave this file pointing at a class the stylesheet does not define.
+ */
+/**
+ * The default principle adds no class: its tokens are declared on `:root`, so
+ * `class=""` already means "default light" and `class="dark"` "default dark".
+ */
+const DEFAULT_PRINCIPLE_CLASS = "";
+
+function htmlClasses(principle: ThemePrinciple, theme: PanelTheme): string {
+  const principleClass =
+    principle === "atlas" ? ATLAS_SELECTOR.slice(1) : DEFAULT_PRINCIPLE_CLASS;
+  return [
+    principleClass,
+    theme === "dark" ? DARK_SELECTOR.slice(1) : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
  * The whole window document.
  *
- * There is no first-frame theme script: the theme is resolved in Node before
- * this document exists and is baked into the `class` attribute below, so the
- * first painted frame already has the right one. The prototype needed a script
- * only because it kept preferences in page storage.
+ * There is no first-frame theme script: the theme principle and variant are
+ * resolved in Node before this document exists and are baked into the `class`
+ * attribute below, so the first painted frame has the right pair. The prototype
+ * needed a script only because it kept preferences in page storage.
  */
 export function renderDocument(input: GlimpseDocumentInput): string {
-  const dark = input.theme === "dark";
+  const classes = htmlClasses(input.principle, input.theme);
   const views = VIEW_IDS.map((view) =>
     viewSection(view, input.initialView, input.views[view]),
   ).join("\n");
 
   return [
     "<!DOCTYPE html>",
-    `<html class="${dark ? "dark" : ""}" lang="${input.language}">`,
+    `<html class="${classes}" lang="${input.language}">`,
     "<head>",
     '<meta charset="utf-8">',
     "<title>XpiMemo T1 Console</title>",
@@ -125,10 +162,17 @@ function compareTokenNames(a: string, b: string): number {
   return 0;
 }
 
-/** Token names the window's own styles may reference. Used by the tests. */
+/**
+ * Every token name any principle declares, for the stylesheet's own checks.
+ *
+ * A rule that references `var(--x)` with `x` missing here is a rule that reads a
+ * variable no theme defines.
+ */
 export const THEME_TOKEN_NAMES: readonly string[] = [
   ...new Set([
     ...Object.keys(LIGHT_TOKENS),
     ...Object.keys(DARK_TOKENS),
+    ...Object.keys(ATLAS_LIGHT_TOKENS),
+    ...Object.keys(ATLAS_DARK_TOKENS),
   ]),
 ].sort(compareTokenNames);

@@ -4,6 +4,7 @@ import type { ViewId } from "../document.js";
 import { el, textEl } from "../html.js";
 import { SHELL_SHORT } from "../short-codes.js";
 import { glimpseText } from "../text.js";
+import { THEME_PRINCIPLES, type ThemePrinciple } from "../tokens.js";
 
 /**
  * The three parts of the window that are always on screen: header, sidebar, and
@@ -19,6 +20,8 @@ export interface ChromeInput {
   /** The view the window opens on; drives the active nav item. */
   activeView: ViewId;
   language: PanelLanguage;
+  /** Which token set the header's picker is on. */
+  principle: ThemePrinciple;
   summary: StatusSummary;
   theme: "dark" | "light";
 }
@@ -47,7 +50,7 @@ const NAV: ReadonlyArray<{
 ];
 
 export function renderHeader(input: ChromeInput): string {
-  const { activeView, language, summary, theme } = input;
+  const { activeView, language, principle, summary, theme } = input;
 
   const badge = textEl(
     "span",
@@ -63,16 +66,34 @@ export function renderHeader(input: ChromeInput): string {
     {
       class: "app-header-actions",
     },
-    textEl(
-      "button",
+    el(
+      "select",
       {
-        "aria-label": glimpseText("toggle.theme", language),
-        class: "icon-btn",
-        id: SHELL_SHORT.theme,
-        type: "button",
+        "aria-label": glimpseText("toggle.principle", language),
+        class: "theme-select",
+        id: SHELL_SHORT.principle,
       },
-      theme === "dark" ? "◐" : "◑",
+      THEME_PRINCIPLES.map((value) =>
+        textEl(
+          "option",
+          {
+            selected: value === principle,
+            value,
+          },
+          glimpseText(`principle.${value}`, language),
+        ),
+      ).join(""),
     ) +
+      textEl(
+        "button",
+        {
+          "aria-label": glimpseText("toggle.theme", language),
+          class: "icon-btn",
+          id: SHELL_SHORT.theme,
+          type: "button",
+        },
+        theme === "dark" ? "◐" : "◑",
+      ) +
       textEl(
         "button",
         {

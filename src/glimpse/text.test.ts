@@ -8,12 +8,16 @@ const LANGUAGES = [
 ] as const;
 
 /**
- * Keys that read the same in every language on purpose: a product name, and
- * the literal `on`/`off` values the info bar prints for the pause flag. The
- * translation guard skips these rather than being weakened for everything.
+ * Keys that read the same in every language on purpose: a product name, the two
+ * theme principles, and the literal `on`/`off` values the info bar prints for the
+ * pause flag. The translation guard skips these rather than being weakened for
+ * everything.
  */
 const NOT_TRANSLATED = new Set([
   "app.name",
+  // The two theme principles are proper names, not copy.
+  "principle.atlas",
+  "principle.default",
   "info.off",
   "info.on",
 ]);

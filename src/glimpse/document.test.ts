@@ -20,6 +20,7 @@ function build(overrides: Partial<GlimpseDocumentInput> = {}): string {
     header: '<header class="app-header" data-test="header"></header>',
     initialView: "pending",
     language: "zh",
+    principle: "default",
     sidebar: '<nav class="app-sidebar" data-test="sidebar"></nav>',
     theme: "dark",
     views: MARKERS,
@@ -44,14 +45,24 @@ describe("glimpse window document", () => {
     expect(html).toContain("<title>");
   });
 
-  it("declares both theme blocks", () => {
+  it("declares one light/dark block pair per theme principle", () => {
     const html = build();
 
-    expect(html).toContain(":root {");
-    expect(html).toContain(".dark {");
-    // Every token is declared under each block, so switching is total.
+    // The leading newline pins the block's own selector: '.dark {' alone would
+    // also match inside '.atlas.dark {'.
+    for (const selector of [
+      ":root {",
+      "\n.dark {",
+      "\n.atlas {",
+      "\n.atlas.dark {",
+    ]) {
+      expect(html, selector).toContain(selector);
+    }
+
+    // Every token of a principle's own set reaches the document, so a
+    // principle switch is total rather than partial.
     for (const name of THEME_TOKEN_NAMES) {
-      expect(html.split(`--${name}:`).length - 1, name).toBe(2);
+      expect(html, name).toContain(`--${name}:`);
     }
   });
 
@@ -80,6 +91,30 @@ describe("glimpse window document", () => {
         theme: "light",
       }),
     ).not.toContain('<html class="dark"');
+  });
+
+  it("bakes the atlas class for the atlas principle", () => {
+    // The two switches are independent: the principle adds its own class and
+    // leaves the dark class alone, so `.atlas.dark` is reachable.
+    expect(
+      build({
+        principle: "atlas",
+        theme: "dark",
+      }),
+    ).toContain('<html class="atlas dark"');
+    expect(
+      build({
+        principle: "atlas",
+        theme: "light",
+      }),
+    ).toContain('<html class="atlas"');
+    // The default principle stays class-less: its tokens are on `:root`.
+    expect(
+      build({
+        principle: "default",
+        theme: "light",
+      }),
+    ).toContain('<html class=""');
   });
 
   it("carries the language on the html element", () => {

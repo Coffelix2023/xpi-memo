@@ -1,76 +1,86 @@
 /**
- * Settings view: five accordion groups plus a pinned detail panel.
+ * Settings view: a top tab strip over one scrolling field panel, plus the pinned
+ * detail panel.
  *
- * The group list scrolls on its own; the detail panel is fixed so it does
- * not scroll away with the list.
+ * The strip is the shadcn Tabs anatomy (`tabs-list` / `tabs-trigger` /
+ * `tabs-content`), so the seven groups read as one row of top navigation instead
+ * of a stack of collapsibles: a group's fields are one click away, and only the
+ * selected panel scrolls.
  */
 export const SETTINGS_VIEW_STYLES = `
 /* ═══════════════════════════════════════════════════════════════
-   设置页：6 组手风琴 + 底部详情面板
-   内容区内高 452（500 − 48 padding）= 列表区（flex:1）+ 16 间隔 + 详情（≥72）
+   设置页：顶部 tabs 条 + 一个滚动字段区 + 底部详情面板
+   内容区内高 = tabs 条（定尺）+ 面板区（flex:1）+ 间隔 + 详情（≥72）
+   条文定尺、只有面板滚动：切组时当前标签不会被滚走。
    详情是 min-height 而不是 height：字段说明是整句中文，写死高度就是写死截断。
    ═══════════════════════════════════════════════════════════════ */
+.settings-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
+}
+
+/* Tabs 条：muted 底 + 内边距，选中项提亮成卡片色（shadcn 的 tabs-list） */
+.tabs-list {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+}
+
+.tabs-trigger {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.tabs-trigger:hover {
+  color: var(--foreground);
+}
+
+/* 选中态读 aria-selected 而不是 class：屏幕阅读器与视觉读同一个事实 */
+.tabs-trigger[aria-selected="true"] {
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: var(--shadow-sm);
+  font-weight: 600;
+}
+
+.tab-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+/* 只有选中的面板参与滚动，其余由 hidden 属性摘掉 */
 .settings-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
 
-.settings-groups {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.group {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.group-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  height: 44px;
-  padding: 0 var(--space-4);
-  background: var(--muted);
-  border: 0;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 120ms ease;
-}
-
-.group-head:hover {
-  background: var(--accent);
-  color: var(--accent-foreground);
-}
-
-.group-arrow {
-  flex: none;
-  width: 12px;
-  color: var(--primary);
-  font-family: var(--font-mono);
-}
-
-.group-name {
-  flex: 1;
-  font-weight: 600;
-  color: var(--foreground);
-}
-
-.group-count {
-  flex: none;
-  font-size: 12px;
-  color: var(--muted-foreground);
-}
-
-.group-body {
+.tabs-content {
   display: flex;
   flex-direction: column;
 }
-
 
 /* 字段行三列：标签 / 当前值 / 备注 */
 .field-row {
