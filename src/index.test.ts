@@ -3978,9 +3978,20 @@ describe("xpi-memo bootstrap entrypoint", () => {
 
     expect(notifications).toHaveLength(1);
     const status = JSON.parse(notifications[0] ?? "{}") as {
+      mentalModels?: {
+        counts: Record<string, number>;
+        definitions: string;
+        enabled: boolean;
+        injectedDecisions: number;
+        outcomes: Record<string, number>;
+        recent: unknown[];
+      };
       doctor?: {
         evidence: {
           bankRows: Record<string, number | null>;
+          mentalModels?: {
+            counts: Record<string, number>;
+          };
           roots: unknown[];
         };
         state: string;
@@ -3990,6 +4001,24 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(status.doctor?.state).toBe("NEVER_CALLED");
     expect(status.doctor?.evidence.bankRows.default).toBe(0);
     expect(status.doctor?.evidence.roots).toHaveLength(3);
+    // Task 5.2: every projection state is always present (never "not measured"),
+    // the synthesis switch is reported explicitly, and no body is included.
+    expect(status.mentalModels?.counts).toEqual({
+      absent: 1,
+      disabled: 0,
+      failed: 0,
+      fresh: 0,
+      pending: 0,
+      skipped: 1,
+      stale: 0,
+    });
+    expect(status.mentalModels?.enabled).toBe(false);
+    expect(status.mentalModels?.definitions).toContain("user-working-style");
+    expect(status.mentalModels?.outcomes).toEqual({});
+    expect(JSON.stringify(status.mentalModels)).not.toContain("prefer");
+    expect(status.doctor?.evidence.mentalModels?.counts).toEqual(
+      status.mentalModels?.counts,
+    );
   });
   it("runs the offline extraction runner at session shutdown when enabled", async () => {
     const dataDir = createTemporaryDirectory();

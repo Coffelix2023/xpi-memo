@@ -140,6 +140,24 @@ describe("transformer", () => {
       memory_injected: {
         injectedMemoryIds: [],
       },
+      mental_model_injected: {
+        chars: 40,
+        injectedCount: 1,
+        omittedCount: 0,
+        definitionIds: [
+          "user-working-style",
+        ],
+        ownerKeys: [
+          "global",
+        ],
+      },
+      mental_model_refresh: {
+        definitionId: "user-working-style",
+        outcome: "refreshed",
+        ownerKey: "global",
+        sourceCount: 2,
+        status: "refreshed",
+      },
       routing_decision: {
         bank: "default",
         kind: "session_context",

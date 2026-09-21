@@ -33,6 +33,8 @@ export type ConsoleSettings = Partial<
     | "globalLimit"
     | "language"
     | "limit"
+    | "mentalModelDefinitions"
+    | "mentalModelSynthesisEnabled"
     | "offlineExtractionModel"
     | "paused"
     | "projectLimit"
@@ -476,6 +478,18 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
       "5",
       "10",
       "20",
+    ],
+  },
+  mentalModelDefinitions: {
+    environment: "XPI_MEMO_MENTAL_MODEL_DEFINITIONS",
+    text: true,
+    values: [],
+  },
+  mentalModelSynthesisEnabled: {
+    environment: "XPI_MEMO_MENTAL_MODEL_SYNTHESIS_ENABLED",
+    values: [
+      "off",
+      "on",
     ],
   },
   offlineExtractionEnabled: {

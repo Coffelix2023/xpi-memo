@@ -4,6 +4,8 @@
  * alert fires at RECALL_ZERO_STREAK_THRESHOLD.
  */
 import type { FeedbackSummary } from "./feedback.js";
+import type { MentalModelStateCounts } from "./mental-model/evaluate.js";
+import type { MentalModelRefreshOutcome } from "./mental-model/types.js";
 
 export const RECALL_ZERO_STREAK_THRESHOLD = 10;
 
@@ -99,6 +101,11 @@ export interface MemoryDoctorInput {
   feedback?: FeedbackSummary;
   /** t1_memory_write event count from the L0 session trace. */
   l0T1WriteEvents: number;
+  /** Projection states + refresh-outcome counts (task 5.2), like `security`. */
+  mentalModels?: {
+    counts: MentalModelStateCounts;
+    outcomes: Partial<Record<MentalModelRefreshOutcome, number>>;
+  };
   /** Candidates waiting in candidates.json. */
   pendingCandidates: number;
   security?: {
@@ -251,6 +258,11 @@ export function buildMemoryDoctorReport(
         wrong: 0,
       },
       l0T1WriteEvents: input.l0T1WriteEvents,
+      ...(input.mentalModels
+        ? {
+            mentalModels: input.mentalModels,
+          }
+        : {}),
       pendingCandidates: input.pendingCandidates,
       roots: surfaces,
       security: input.security ?? {

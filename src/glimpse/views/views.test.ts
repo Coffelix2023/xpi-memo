@@ -294,7 +294,7 @@ describe("settings view", () => {
 
   it("renders one row per configured field", () => {
     expect(countClass(html, "field-row")).toBe(rows.length);
-    expect(rows).toHaveLength(37);
+    expect(rows).toHaveLength(39);
   });
 
   it("renders an editable control for every writable shape", () => {
@@ -328,7 +328,7 @@ describe("settings view", () => {
 
   it("renders one head per configured group", () => {
     expect(countClass(html, "group-head")).toBe(SETTINGS_GROUPS.length);
-    expect(SETTINGS_GROUPS).toHaveLength(6);
+    expect(SETTINGS_GROUPS).toHaveLength(7);
   });
 
   it("opens exactly the first group", () => {

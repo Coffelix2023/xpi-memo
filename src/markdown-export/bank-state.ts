@@ -60,6 +60,12 @@ export type BankStateRead =
     };
 
 export interface BankStateReadOptions {
+  /**
+   * Restrict the read to these banks (default: every bank under `dataDir`).
+   * A bounded per-owner read (mental-model projections) must not pull every
+   * unrelated project bank into memory just to filter afterwards.
+   */
+  banks?: readonly string[];
   dataDir: string;
   /** Test seam for the size-cap test; defaults to BANK_STATE_MAX_BYTES. */
   maxBytes?: number;
@@ -146,10 +152,13 @@ export function parseBankStateExport(
   return rows;
 }
 
+/** Read options with every optional field resolved (`banks` excluded). */
+type ResolvedBankStateReadOptions = Required<Omit<BankStateReadOptions, "banks">>;
+
 /** Read one bank with `mnemosyne export` into a private temp directory. */
 async function readOneBank(
   run: MnemosyneRunner,
-  options: Required<BankStateReadOptions>,
+  options: ResolvedBankStateReadOptions,
   bank: string,
 ): Promise<BankMemoryRow[]> {
   const directory = mkdtempSync(join(options.tempRoot, BANK_STATE_TEMP_PREFIX));
@@ -190,13 +199,19 @@ export function createCliBankStateReader(
   run: MnemosyneRunner = runMnemosyne,
 ): BankStateReader {
   return async (options) => {
-    const resolved: Required<BankStateReadOptions> = {
+    const resolved: ResolvedBankStateReadOptions = {
       dataDir: options.dataDir,
       maxBytes: options.maxBytes ?? BANK_STATE_MAX_BYTES,
       tempRoot: options.tempRoot ?? tmpdir(),
       timeoutMs: options.timeoutMs ?? BANK_STATE_TIMEOUT_MS,
     };
-    const banks = listBankNames(resolved.dataDir);
+    const available = listBankNames(resolved.dataDir);
+    // An explicit bank list narrows the read; unknown names are dropped so a
+    // caller can never force a read of a bank that does not exist.
+    const banks =
+      options.banks === undefined
+        ? available
+        : available.filter((bank) => options.banks?.includes(bank) === true);
     // No bank file yet: an empty state, not a read failure.
     if (banks.length === 0)
       return {

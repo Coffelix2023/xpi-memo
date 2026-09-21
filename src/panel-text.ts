@@ -61,6 +61,10 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "choice.language": "Recommend: yours · en=English panel · zh=中文面板",
     "choice.limit":
       "Recommend: 5 · 1/5/10/20 memory rows the Agent may inject per turn",
+    "choice.mentalModelDefinitions":
+      "Empty projects nothing · ids come from code, never from a conversation",
+    "choice.mentalModelSynthesisEnabled":
+      "Recommend: off · off=local freshness only · on=model refresh at session end",
     "choice.offlineExtractionEnabled":
       "Recommend: off · off=rules only · on=extract without a model",
     "choice.offlineExtractionModel":
@@ -134,6 +138,10 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
       "Language of this panel · human-only · Space switches en/zh, Enter saves",
     "detail.limit":
       "Rows the Agent may inject per turn · Space cycles 1/5/10/20, Enter saves",
+    "detail.mentalModelDefinitions":
+      "Which built-in standing questions may project · Space edits the list inline",
+    "detail.mentalModelSynthesisEnabled":
+      "Refresh stale projections with a model · off keeps checks local · Space toggles",
     "detail.offlineExtractionEnabled":
       "Extract memories without a model · affects Agent recall · Space toggles, Enter saves",
     "detail.offlineExtractionModel":
@@ -183,6 +191,8 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.l0Enabled": "Session trace",
     "field.language": "Language",
     "field.limit": "Recall limit",
+    "field.mentalModelDefinitions": "Mental-model definitions",
+    "field.mentalModelSynthesisEnabled": "Mental-model synthesis",
     "field.offlineExtractionEnabled": "Offline extraction",
     "field.offlineExtractionModel": "Offline model",
     "field.passiveFeedback": "Passive feedback",
@@ -197,6 +207,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.sleepMode": "Sleep mode",
     "group.admission": "Admission",
     "group.display": "Display",
+    "group.mentalModels": "Mental models",
     "group.pipeline": "Pipeline",
     "group.privacy": "Privacy",
     "group.retrieval": "Retrieval",
@@ -233,6 +244,8 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "note.l0Enabled": "Keep this session's trace",
     "note.language": "Panel and hint language",
     "note.limit": "Rows injected per turn",
+    "note.mentalModelDefinitions": "Built-in ids, comma-separated",
+    "note.mentalModelSynthesisEnabled": "Needs a model at session end",
     "note.offlineExtractionEnabled": "Works without a model",
     "note.offlineExtractionModel": "session-model or provider/model",
     "note.passiveFeedback": "Record usage feedback",
@@ -292,6 +305,9 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "choice.l0Enabled": "推荐: on · off=不留轨迹 · on=保留本轮轨迹供召回",
     "choice.language": "推荐: 你的母语 · en=English · zh=中文",
     "choice.limit": "推荐: 5 · 1/5/10/20 是 Agent 每轮可注入的条数",
+    "choice.mentalModelDefinitions": "留空则不投影 · id 由代码定义, 不能自造",
+    "choice.mentalModelSynthesisEnabled":
+      "推荐: off · off=只用本地新鲜度检测 · on=会话结束时用模型刷新",
     "choice.offlineExtractionEnabled": "推荐: off · off=只用规则 · on=无模型也能提取",
     "choice.offlineExtractionModel":
       "session-model 复用当前聊天模型, 也可写具体模型 id",
@@ -348,6 +364,10 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "detail.l0Enabled": "保留本轮会话轨迹供以后召回 · 空格切换 on/off, Enter 保存",
     "detail.language": "面板与提示的语言 · 只与你有关 · 空格切换 en/zh, Enter 保存",
     "detail.limit": "Agent 每轮注入的条数 · 空格切换 1/5/10/20, Enter 保存",
+    "detail.mentalModelDefinitions":
+      "可投影的内置标准问题 · 空格行内编辑 id 列表, Esc 取消",
+    "detail.mentalModelSynthesisEnabled":
+      "用模型刷新过期投影 · off 只做本地检测 · 空格切换",
     "detail.offlineExtractionEnabled":
       "无模型时也能提取记忆 · 影响 Agent 召回 · 空格切换 on/off, Enter 保存",
     "detail.offlineExtractionModel": "离线提取用的模型 · 空格进入行内编辑, Esc 取消",
@@ -388,6 +408,8 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.l0Enabled": "记录会话轨迹",
     "field.language": "界面语言",
     "field.limit": "单次召回条数",
+    "field.mentalModelDefinitions": "心智模型定义",
+    "field.mentalModelSynthesisEnabled": "心智模型合成",
     "field.offlineExtractionEnabled": "离线提取",
     "field.offlineExtractionModel": "离线提取模型",
     "field.passiveFeedback": "被动使用反馈",
@@ -402,6 +424,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.sleepMode": "记忆整理方式",
     "group.admission": "自动准入",
     "group.display": "界面与反馈",
+    "group.mentalModels": "心智模型",
     "group.pipeline": "记忆管道",
     "group.privacy": "隐私与维护",
     "group.retrieval": "召回与检索",
@@ -438,6 +461,8 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "note.l0Enabled": "保留本轮会话轨迹",
     "note.language": "面板与提示语言",
     "note.limit": "每次注入的条数",
+    "note.mentalModelDefinitions": "内置 id, 逗号分隔",
+    "note.mentalModelSynthesisEnabled": "会话结束时需要模型",
     "note.offlineExtractionEnabled": "无模型也能提取",
     "note.offlineExtractionModel": "session-model 或 供应方/模型",
     "note.passiveFeedback": "记录使用反馈",

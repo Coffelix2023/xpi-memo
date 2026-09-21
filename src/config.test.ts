@@ -12,6 +12,10 @@ import {
   saveUserConfig,
   type UserConfig,
 } from "./config.js";
+import {
+  ACTIVE_PROJECT_OPERATING_MODEL_ID,
+  USER_WORKING_STYLE_ID,
+} from "./mental-model/definitions.js";
 
 const temporaryDirectories: string[] = [];
 /** Anything that looks like a credential must never appear in the mapping. */
@@ -794,5 +798,167 @@ describe("runtime surface flags", () => {
     }).config;
     expect(config.profileInjection).toBe(false);
     expect(config.passiveFeedback).toBe(true);
+  });
+});
+
+describe("mental-model configuration", () => {
+  it("defaults synthesis off and enables every built-in definition", () => {
+    const { config, ignoredKeys } = loadConfig({
+      configHome: createTemporaryDirectory(),
+      env: {},
+    });
+    expect(config.mentalModelSynthesisEnabled).toBe(false);
+    expect(config.mentalModelDefinitions.split(",")).toEqual([
+      ACTIVE_PROJECT_OPERATING_MODEL_ID,
+      USER_WORKING_STYLE_ID,
+    ]);
+    expect(ignoredKeys).toEqual([]);
+  });
+
+  it("loads a config file written before this change unchanged", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    // Exactly the keys an older installation could have written.
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        limit: 7,
+        offlineExtractionEnabled: true,
+        profileInjection: false,
+        retrievalMode: "fts5",
+      }),
+    );
+    const { config, ignoredKeys } = loadConfig({
+      configHome,
+      env: {},
+    });
+    expect(ignoredKeys).toEqual([]);
+    expect(config.limit).toBe(7);
+    expect(config.offlineExtractionEnabled).toBe(true);
+    expect(config.profileInjection).toBe(false);
+    expect(config.retrievalMode).toBe("fts5");
+    // The new keys simply take their safe defaults.
+    expect(config.mentalModelSynthesisEnabled).toBe(false);
+    expect(config.mentalModelDefinitions).toBe(
+      DEFAULT_XPI_MEMO_CONFIG.mentalModelDefinitions,
+    );
+  });
+
+  it("normalises a partial definition list to registry order", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        mentalModelDefinitions: `${USER_WORKING_STYLE_ID}, ${ACTIVE_PROJECT_OPERATING_MODEL_ID}`,
+        mentalModelSynthesisEnabled: true,
+      }),
+    );
+    const { config, ignoredKeys } = loadConfig({
+      configHome,
+      env: {},
+    });
+    expect(ignoredKeys).toEqual([]);
+    expect(config.mentalModelDefinitions).toBe(
+      `${ACTIVE_PROJECT_OPERATING_MODEL_ID},${USER_WORKING_STYLE_ID}`,
+    );
+    expect(config.mentalModelSynthesisEnabled).toBe(true);
+  });
+
+  it("fails closed on an invalid definition list and reports the key", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        mentalModelDefinitions: "user-working-style,not-a-model",
+      }),
+    );
+    const { config, ignoredKeys } = loadConfig({
+      configHome,
+      env: {},
+    });
+    expect(config.mentalModelDefinitions).toBe(
+      DEFAULT_XPI_MEMO_CONFIG.mentalModelDefinitions,
+    );
+    expect(ignoredKeys).toEqual([
+      "mentalModelDefinitions",
+    ]);
+  });
+
+  it("fails closed on a non-boolean synthesis switch", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        mentalModelSynthesisEnabled: "yes",
+      }),
+    );
+    const { config, ignoredKeys } = loadConfig({
+      configHome,
+      env: {},
+    });
+    expect(config.mentalModelSynthesisEnabled).toBe(false);
+    expect(ignoredKeys).toEqual([
+      "mentalModelSynthesisEnabled",
+    ]);
+  });
+
+  it("reads both keys from the environment and lets it win", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        mentalModelDefinitions: ACTIVE_PROJECT_OPERATING_MODEL_ID,
+        mentalModelSynthesisEnabled: false,
+      }),
+    );
+    const { config } = loadConfig({
+      configHome,
+      env: {
+        XPI_MEMO_MENTAL_MODEL_DEFINITIONS: USER_WORKING_STYLE_ID,
+        XPI_MEMO_MENTAL_MODEL_SYNTHESIS_ENABLED: "true",
+      },
+    });
+    expect(config.mentalModelDefinitions).toBe(USER_WORKING_STYLE_ID);
+    expect(config.mentalModelSynthesisEnabled).toBe(true);
+  });
+
+  it("keeps an empty definition list writable so every model can be off", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    saveUserConfig({
+      configHome,
+      env: {},
+      values: {
+        mentalModelDefinitions: "",
+        mentalModelSynthesisEnabled: true,
+      },
+    });
+    const saved = JSON.parse(readFileSync(configPath(configHome), "utf8"));
+    expect(saved).toEqual({
+      mentalModelDefinitions: "",
+      mentalModelSynthesisEnabled: true,
+    });
+    const { config, ignoredKeys } = loadConfig({
+      configHome,
+      env: {},
+    });
+    expect(config.mentalModelDefinitions).toBe("");
+    expect(ignoredKeys).toEqual([]);
   });
 });

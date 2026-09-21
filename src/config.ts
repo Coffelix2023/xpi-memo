@@ -9,7 +9,25 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import {
+  formatMentalModelDefinitionList,
+  mentalModelDefinitionIds,
+  parseMentalModelDefinitionList,
+} from "./mental-model/definitions.js";
+
 import type { RecallPolicy } from "./recall-policy.js";
+
+/**
+ * Default enablement list for the built-in mental-model definitions.
+ *
+ * Derived from the registry so adding a definition cannot silently ship
+ * disabled. Synthesis itself is still off by default, so this list costs
+ * nothing until `mentalModelSynthesisEnabled` is turned on.
+ */
+const DEFAULT_MENTAL_MODEL_DEFINITIONS = formatMentalModelDefinitionList(
+  mentalModelDefinitionIds(),
+);
+
 export const DEFAULT_XPI_MEMO_CONFIG = {
   admissionAllowGlobalPreference: true,
   admissionAllowGlobalWorkflow: true,
@@ -36,6 +54,10 @@ export const DEFAULT_XPI_MEMO_CONFIG = {
   l0Enabled: true,
   language: "en",
   limit: 5,
+  /** Comma-separated built-in definition ids; empty enables none. */
+  mentalModelDefinitions: DEFAULT_MENTAL_MODEL_DEFINITIONS,
+  /** Master switch for gated projection synthesis; off issues no model call. */
+  mentalModelSynthesisEnabled: false,
   offlineExtractionEnabled: false,
   offlineExtractionModel: "session-model",
   passiveFeedback: true,
@@ -111,6 +133,16 @@ export interface XpiMemoConfig {
   l0Enabled: boolean;
   language: Language;
   limit: number;
+  /**
+   * Comma-separated built-in mental-model definition ids that may project.
+   * Code-owned ids only; an unknown token fails closed to the default list.
+   */
+  mentalModelDefinitions: string;
+  /**
+   * Master switch for gated mental-model synthesis. `false` (the default)
+   * keeps deterministic freshness checks local and issues no model request.
+   */
+  mentalModelSynthesisEnabled: boolean;
   offlineExtractionEnabled: boolean;
   /**
    * Model used by gated offline extraction: `"session-model"` reuses the chat
@@ -158,6 +190,8 @@ export interface UserConfig {
   l0Enabled?: unknown;
   language?: unknown;
   limit?: unknown;
+  mentalModelDefinitions?: unknown;
+  mentalModelSynthesisEnabled?: unknown;
   offlineExtractionEnabled?: unknown;
   offlineExtractionModel?: unknown;
   passiveFeedback?: unknown;
@@ -255,6 +289,8 @@ export interface SaveUserConfigOptions {
       | "l0Enabled"
       | "language"
       | "limit"
+      | "mentalModelDefinitions"
+      | "mentalModelSynthesisEnabled"
       | "offlineExtractionEnabled"
       | "paused"
       | "passiveFeedback"
@@ -293,6 +329,8 @@ const WRITABLE_KEYS = new Set([
   "l0Enabled",
   "language",
   "limit",
+  "mentalModelDefinitions",
+  "mentalModelSynthesisEnabled",
   "offlineExtractionEnabled",
   "offlineExtractionModel",
   "paused",
@@ -330,6 +368,8 @@ const ENV_KEYS: Record<string, string> = {
   l0Enabled: "XPI_MEMO_L0_ENABLED",
   language: "XPI_MEMO_LANGUAGE",
   limit: "XPI_MEMO_LIMIT",
+  mentalModelDefinitions: "XPI_MEMO_MENTAL_MODEL_DEFINITIONS",
+  mentalModelSynthesisEnabled: "XPI_MEMO_MENTAL_MODEL_SYNTHESIS_ENABLED",
   offlineExtractionEnabled: "XPI_MEMO_OFFLINE_EXTRACTION_ENABLED",
   offlineExtractionModel: "XPI_MEMO_OFFLINE_EXTRACTION_MODEL",
   passiveFeedback: "XPI_MEMO_PASSIVE_FEEDBACK",
@@ -495,6 +535,36 @@ function resolveSleepMode(
   return DEFAULT_XPI_MEMO_CONFIG.sleepMode;
 }
 
+/**
+ * Mental-model enablement list validator (change
+ * add-mental-model-projections, task 1.3). A configured value is valid only
+ * when every token names a code-owned definition, so a typo fails closed to
+ * the default list instead of silently disabling or inventing a model.
+ */
+function mentalModelDefinitionList(value: unknown): value is string {
+  return typeof value === "string" && parseMentalModelDefinitionList(value) !== null;
+}
+
+/**
+ * Resolve the enablement list: environment, then the config file, then the
+ * default. A usable value is normalised to registry order so the panel shows
+ * one canonical spelling.
+ */
+function resolveMentalModelDefinitions(
+  environmentValue: string | undefined,
+  userValue: unknown,
+): string {
+  if (mentalModelDefinitionList(environmentValue))
+    return formatMentalModelDefinitionList(
+      parseMentalModelDefinitionList(environmentValue) ?? [],
+    );
+  if (mentalModelDefinitionList(userValue))
+    return formatMentalModelDefinitionList(
+      parseMentalModelDefinitionList(userValue) ?? [],
+    );
+  return DEFAULT_XPI_MEMO_CONFIG.mentalModelDefinitions;
+}
+
 function admissionEvidenceFloor(value: unknown): value is AdmissionEvidenceFloor {
   return value === "repository-fact" || value === "session-conclusion";
 }
@@ -558,6 +628,17 @@ const ADMISSION_PREFERENCE_VALIDATORS: Record<string, (value: unknown) => boolea
   admissionMinConfidence: confidence,
   admissionSourceScope,
   archiveRetentionDays: positiveInteger,
+};
+
+/**
+ * Validators for the mental-model keys (change
+ * add-mental-model-projections, task 1.3). Same contract as the admission
+ * table: an invalid value is ignored and named in `ignoredKeys` rather than
+ * rejecting the whole config file.
+ */
+const MENTAL_MODEL_VALIDATORS: Record<string, (value: unknown) => boolean> = {
+  mentalModelDefinitions: mentalModelDefinitionList,
+  mentalModelSynthesisEnabled: boolean,
 };
 /**
  * Free-text config values: a model id or an endpoint. Free text by design, so
@@ -640,7 +721,12 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
     if (value === "false") return false;
     return fallback;
   };
-  const invalidAdmissionKeys = Object.entries(ADMISSION_PREFERENCE_VALIDATORS)
+  // One table lookup for every key that carries a validator: a value that
+  // fails its validator is ignored and reported, never fatal to the file.
+  const invalidConfigKeys = [
+    ...Object.entries(ADMISSION_PREFERENCE_VALIDATORS),
+    ...Object.entries(MENTAL_MODEL_VALIDATORS),
+  ]
     .filter(([key, isValid]) => {
       const value = (user.config as Record<string, unknown>)[key];
       return value !== undefined && !isValid(value);
@@ -781,6 +867,16 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
       (positiveInteger(user.config.limit)
         ? user.config.limit
         : DEFAULT_XPI_MEMO_CONFIG.limit),
+    mentalModelDefinitions: resolveMentalModelDefinitions(
+      envString(env, "XPI_MEMO_MENTAL_MODEL_DEFINITIONS"),
+      user.config.mentalModelDefinitions,
+    ),
+    mentalModelSynthesisEnabled: envBool(
+      "XPI_MEMO_MENTAL_MODEL_SYNTHESIS_ENABLED",
+      boolean(user.config.mentalModelSynthesisEnabled)
+        ? user.config.mentalModelSynthesisEnabled
+        : DEFAULT_XPI_MEMO_CONFIG.mentalModelSynthesisEnabled,
+    ),
     offlineExtractionEnabled: envBool(
       "XPI_MEMO_OFFLINE_EXTRACTION_ENABLED",
       boolean(user.config.offlineExtractionEnabled)
@@ -841,7 +937,7 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
     config,
     ignoredKeys: [
       ...user.ignoredKeys,
-      ...invalidAdmissionKeys,
+      ...invalidConfigKeys,
     ].sort(),
   };
 }

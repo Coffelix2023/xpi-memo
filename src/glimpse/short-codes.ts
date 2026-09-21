@@ -68,6 +68,7 @@ export const STATUS_SHORT = {
 export const GROUP_SHORT: Readonly<Record<string, string>> = {
   admission: "P3-1-B6",
   display: "P3-1-B4",
+  mentalModels: "P3-1-B7",
   pipeline: "P3-1-B3",
   privacy: "P3-1-B5",
   retrieval: "P3-1-B1",
@@ -101,6 +102,8 @@ export const FIELD_SHORT: Readonly<Record<SettingsFieldId, string>> = {
   l0Enabled: "P3-1-S13",
   language: "P3-1-S15",
   limit: "P3-1-S4",
+  mentalModelDefinitions: "P3-1-S38",
+  mentalModelSynthesisEnabled: "P3-1-S39",
   offlineExtractionEnabled: "P3-1-S9",
   offlineExtractionModel: "P3-1-S21",
   passiveFeedback: "P3-1-S17",

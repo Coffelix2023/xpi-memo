@@ -223,4 +223,44 @@ describe("task 5.4 — role budgets and stable injection shape", () => {
       ),
     ).toBeNull();
   });
+
+  // Task 4.3: rows an injected projection already covers are suppressed from
+  // automatic injection, counted, and otherwise left alone.
+  it("suppresses covered source ids and counts them", () => {
+    const covered = kindItem("project_decision", "covered row");
+    const unmatched = kindItem("project_decision", "independent row");
+    const ranked = rankRecallResults(
+      [
+        covered,
+        unmatched,
+      ],
+      "decision",
+      {
+        charBudget: 10_000,
+        itemBudget: 5,
+        excludeSourceIds: [
+          "covered row",
+        ],
+      },
+    );
+    expect(ranked?.contextual.map(({ content }) => content)).toEqual([
+      "independent row",
+    ]);
+    expect(ranked?.diagnostics.suppressedCovered).toBe(1);
+  });
+
+  it("leaves covered rows in place when no exclusion set is supplied", () => {
+    const ranked = rankRecallResults(
+      [
+        kindItem("project_decision", "covered row"),
+      ],
+      "decision",
+      {
+        charBudget: 10_000,
+        itemBudget: 5,
+      },
+    );
+    expect(ranked?.contextual).toHaveLength(1);
+    expect(ranked?.diagnostics.suppressedCovered).toBe(0);
+  });
 });

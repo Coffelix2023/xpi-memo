@@ -19,6 +19,9 @@ import type { RecallItem } from "./recall.js";
 export interface RecallRankingOptions {
   /** Per-role character budget (applied before truncation). */
   charBudget: number;
+  /** Source ids an injected projection already covers (task 4.3). Omit for
+   * explicit recall, which must stay untouched. */
+  excludeSourceIds?: readonly string[];
   /** Boost per kind when the query mentions that intent. */
   intentBoost?: number;
   /** Per-role item budget. */
@@ -38,6 +41,8 @@ export interface RankedRecallOutput {
       items: number;
       chars: number;
     }>;
+    /** Rows dropped because an injected projection already covers them (task 4.3). */
+    suppressedCovered: number;
     supersededFiltered: number;
   };
   standing: RecallItem[];
@@ -47,6 +52,9 @@ const DEFAULT_INTENT_BOOST = 0.25;
 const DEFAULT_NOW = new Date();
 /** Memories older than this contribute no recency boost. */
 const RECENCY_HALF_LIFE_DAYS = 30;
+
+/** No exclusion set: the default for explicit recall and every legacy caller. */
+const NO_EXCLUSIONS: readonly string[] = [];
 
 const INTENT_KEYWORDS: ReadonlyArray<{
   kind: MemoryKind;
@@ -205,13 +213,21 @@ export function rankRecallResults(
   const boost = options.intentBoost ?? DEFAULT_INTENT_BOOST;
   const intents = detectQueryIntent(query);
 
+  const exclude = new Set(options.excludeSourceIds ?? NO_EXCLUSIONS);
   let supersededFiltered = 0;
+  let suppressedCovered = 0;
   const seen = new Set<string>();
   let deduplicated = 0;
 
   const eligible = items.filter((item) => {
     if (isSuperseded(item)) {
       supersededFiltered += 1;
+      return false;
+    }
+    // Covered by an injected projection: dropped only from automatic
+    // injection, never from explicit recall (which passes no exclusions).
+    if (typeof item.id === "string" && exclude.has(item.id)) {
+      suppressedCovered += 1;
       return false;
     }
     const key = dedupeKey(item);
@@ -267,6 +283,7 @@ export function rankRecallResults(
           role: "standing",
         },
       ],
+      suppressedCovered,
       supersededFiltered,
     },
   };

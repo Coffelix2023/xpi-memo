@@ -28,6 +28,11 @@ export const L0_EVENT_TYPES = [
   "routing_rejected",
   "memory_failed",
   "routing_decision",
+  // Mental-model lifecycle (change add-mental-model-projections, task 5.1):
+  // freshness/refresh/skip/refusal/failure outcomes and delivery outcomes.
+  // Body-free like every other event: codes, counts, and ids only.
+  "mental_model_refresh",
+  "mental_model_injected",
 ] as const;
 
 export type L0EventType = (typeof L0_EVENT_TYPES)[number];
@@ -57,6 +62,49 @@ export interface L0MemoryLifecyclePayload {
   kind?: string;
   operationId: string;
   scope?: string;
+}
+
+/**
+ * Bounded payload for one mental-model refresh attempt (task 5.1).
+ *
+ * Every field is a code, a count, or an identifier: the projection body, the
+ * source bodies, the prompt, and the raw model output never reach L0.
+ */
+export interface L0MentalModelRefreshPayload {
+  definitionId: string;
+  /** First 12 hex chars of the current source digest; null when unreadable. */
+  digestPrefix: string | null;
+  durationMs: number;
+  /** Bounded outcome code, e.g. `refreshed` / `no-refresh-needed` / `safety-refused`. */
+  outcome: string;
+  outputChars: number;
+  ownerKey: string;
+  scope: "global" | "project";
+  sourceBoundary: number | null;
+  sourceCount: number;
+  /** Coarse grouping of `outcome`: refreshed / skipped / failed. */
+  status: "failed" | "refreshed" | "skipped";
+  trigger: "session_before_compact" | "session_shutdown";
+}
+
+/**
+ * Bounded payload for one automatic-delivery decision (task 5.1).
+ *
+ * `definitionIds`/`ownerKeys` are capped by the delivery item budget, and
+ * `omittedReasons` is a bounded list of closed reason codes.
+ */
+export interface L0MentalModelInjectedPayload {
+  chars: number;
+  definitionIds: readonly string[];
+  injectedCount: number;
+  lifecycleStage: "automatic-recall";
+  omittedCount: number;
+  ownerKeys: readonly string[];
+  policyVersion: string;
+  /** Closed omission/refusal reason codes; never free text. */
+  reasons: readonly string[];
+  /** Discriminator that separates a delivery record from a refresh record. */
+  status: "injected" | "omitted";
 }
 /** Schema version for forward-compatible evolution. */
 export const L0_SCHEMA_VERSION = 1;

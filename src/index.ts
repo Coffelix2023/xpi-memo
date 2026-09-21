@@ -60,6 +60,7 @@ import {
   resolveLocalProjectIdentity,
   revokeLocalProject,
 } from "./local-identity.ts";
+import { createCliBankStateReader } from "./markdown-export/bank-state.js";
 import {
   exportMarkdown,
   memoryProjectionStatusFor,
@@ -74,7 +75,49 @@ import {
   createMemoryIdempotencyStore,
   type MemoryIdempotencyStore,
 } from "./memory-idempotency.ts";
-import { filterRecallEntries, MAX_MEMORY_SAFETY_COUNT } from "./memory-safety.js";
+import {
+  filterRecallEntries,
+  MAX_MEMORY_SAFETY_COUNT,
+  MEMORY_SAFETY_POLICY_VERSION,
+} from "./memory-safety.js";
+import {
+  isMentalModelDefinitionEnabled,
+  MENTAL_MODEL_DEFINITIONS,
+  mentalModelDefinition,
+  mentalModelDefinitionIds,
+} from "./mental-model/definitions.js";
+import {
+  deliverMentalModels,
+  type MentalModelDelivery,
+} from "./mental-model/delivery.js";
+import {
+  evaluateMentalModels,
+  type MentalModelStateCounts,
+  summarizeMentalModelStates,
+} from "./mental-model/evaluate.js";
+import {
+  createMentalModelSourceMemo,
+  type MentalModelSourceMemo,
+} from "./mental-model/memo.js";
+import {
+  mentalModelInjectedRecord,
+  mentalModelRefreshRecord,
+  summarizeMentalModelAudit,
+} from "./mental-model/observability.js";
+import { refreshMentalModels } from "./mental-model/refresh.js";
+import {
+  createMentalModelRefreshLedger,
+  DEFAULT_MENTAL_MODEL_REFRESH_LIMITS,
+} from "./mental-model/refresh-ledger.js";
+import {
+  formatMentalModelTrace,
+  traceMentalModelProjection,
+} from "./mental-model/trace.js";
+import { DEFAULT_MENTAL_MODEL_TIMEOUT_MS } from "./mental-model/types.js";
+import {
+  createMentalModelSessionRunner,
+  resolveMentalModelSynthesisModel,
+} from "./mental-model-runner.ts";
 import { buildObservabilitySnapshot } from "./observability.ts";
 import {
   DEFAULT_OFFLINE_EXTRACTION_MAX_CHARS_PER_SESSION,
@@ -94,6 +137,7 @@ import {
   matchOfflineExtractionModel,
 } from "./offline-extraction-runner.ts";
 import {
+  createExactIdReader,
   createMnemosyneAdapter,
   type ExactMemoryReader,
   findMemoryByIdFromRecall,
@@ -662,6 +706,163 @@ function sessionModelRunnerFor(
     model,
     timeoutMs: DEFAULT_OFFLINE_EXTRACTION_TIMEOUT_MS,
   });
+}
+
+/**
+ * Default mental-model synthesis runner (add-mental-model-projections, 3.5).
+ * Uses the same `offlineExtractionModel` value and model-resolution rules as
+ * offline extraction, so one model setting drives both optional model paths.
+ */
+function mentalModelSynthesisFor(
+  ctx: ExtensionContext,
+  config: ReturnType<typeof loadConfig>["config"],
+): {
+  generator?: {
+    model?: string;
+    provider?: string;
+  };
+  runner?: import("./mental-model/synthesis.js").MentalModelSynthesisRunner;
+} {
+  if (!ctx.modelRegistry) return {};
+  const model = resolveMentalModelSynthesisModel(
+    config.offlineExtractionModel,
+    ctx.model,
+    () => ctx.modelRegistry.getAll(),
+  );
+  if (!model) return {};
+  return {
+    runner: createMentalModelSessionRunner({
+      client: ctx.modelRegistry,
+      model,
+      timeoutMs: DEFAULT_MENTAL_MODEL_TIMEOUT_MS,
+    }),
+    generator: {
+      model: model.id,
+      provider: model.provider,
+    },
+  };
+}
+
+/**
+ * Best-effort mental-model refresh at an offline lifecycle point
+ * (add-mental-model-projections, task 3.5). Fire-and-forget by design: a
+ * bank read or model call must never block compact or session completion.
+ * The per-session refresh ledger makes compact + shutdown run without
+ * refreshing the same unchanged definition twice.
+ *
+ * Task 5.1: every returned result becomes one bounded, body-free audit + L0
+ * lifecycle record, so status can distinguish "no refresh needed" from
+ * "synthesis disabled" from "refused" without reading a single body.
+ */
+function scheduleMentalModelRefresh(options: {
+  audit: AuditLog;
+  config: ReturnType<typeof loadConfig>["config"];
+  ctx: ExtensionContext;
+  dependencies: XpiMemoDependencies;
+  l0: L0Coordinator;
+  memo: ReturnType<typeof createMentalModelSourceMemo>;
+  trigger: "session_before_compact" | "session_shutdown";
+}): void {
+  const { config, l0 } = options;
+  const sessionId = l0.sessionId();
+  if (!sessionId) return;
+  const synthesis = mentalModelSynthesisFor(options.ctx, config);
+  void refreshMentalModels({
+    dataDir: config.dataDir,
+    definitions: MENTAL_MODEL_DEFINITIONS,
+    ledger: createMentalModelRefreshLedger({
+      sessionId,
+      statePath: join(config.dataDir, "mental-models", "refresh-ledger.json"),
+    }),
+    limits: DEFAULT_MENTAL_MODEL_REFRESH_LIMITS,
+    memo: options.memo,
+    projectBank: projectBankFor(options.ctx, options.dependencies),
+    read: createCliBankStateReader(options.dependencies.run),
+    runner: synthesis.runner,
+    isDefinitionEnabled: (definitionId) =>
+      isMentalModelDefinitionEnabled(config.mentalModelDefinitions, definitionId),
+    sessionId,
+    generator: synthesis.generator,
+    synthesisEnabled: config.mentalModelSynthesisEnabled,
+  })
+    .then((results) => {
+      for (const result of results) {
+        const record = mentalModelRefreshRecord(result, options.trigger);
+        // Task 5.1 boundary: with synthesis off, "synthesis disabled" is the
+        // expected default rather than an event — status already reports
+        // `enabled: false`. Failures are still recorded, because a freshness
+        // verdict that could not be computed is exactly what an operator needs
+        // to see.
+        if (!config.mentalModelSynthesisEnabled && record.status !== "failed") continue;
+        options.audit.record("mental-model", {
+          ...record,
+        });
+        l0.recordSafe("mental_model_refresh", {
+          ...record,
+        });
+      }
+    })
+    .catch(() => {
+      // A refresh failure must never block the lifecycle point.
+    });
+}
+
+/**
+ * Canonical project bank for the current context, or null when no project
+ * identity is recognized. Mirrors `createRuntime`'s resolution exactly so a
+ * projection owner can never disagree with routing.
+ */
+function projectBankFor(
+  ctx: ExtensionContext,
+  dependencies: XpiMemoDependencies,
+): string | null {
+  const trusted = trustFor(ctx, dependencies);
+  const gitProject = (dependencies.resolveProjectIdentity ?? resolveProjectIdentity)(
+    ctx.cwd,
+  );
+  const localProject = gitProject
+    ? null
+    : resolveLocalProjectIdentity(ctx.cwd, trusted);
+  const project = gitProject ?? localProject;
+  return project ? `project-${project.id}` : null;
+}
+
+/**
+ * Projection states for status output (task 5.2).
+ *
+ * Bounded and fail-soft: a bank read or projection read problem is reported as
+ * the fail-closed state by `evaluateMentalModels` itself, so status never
+ * claims a projection is fresh when it could not be checked. A thrown error
+ * degrades to "everything skipped" rather than failing the status command.
+ */
+async function mentalModelStatesFor(options: {
+  config: ReturnType<typeof loadConfig>["config"];
+  projectBank: string | null;
+  run: MnemosyneRunner;
+}): Promise<MentalModelStateCounts> {
+  const summarize = (evaluations: Awaited<ReturnType<typeof evaluateMentalModels>>) =>
+    summarizeMentalModelStates(evaluations, {
+      definitions: MENTAL_MODEL_DEFINITIONS,
+    });
+  try {
+    return summarize(
+      await evaluateMentalModels({
+        dataDir: options.config.dataDir,
+        definitions: MENTAL_MODEL_DEFINITIONS,
+        memo: createMentalModelSourceMemo(),
+        projectBank: options.projectBank,
+        read: createCliBankStateReader(options.run),
+        sessionId: "",
+        isDefinitionEnabled: (definitionId) =>
+          isMentalModelDefinitionEnabled(
+            options.config.mentalModelDefinitions,
+            definitionId,
+          ),
+      }),
+    );
+  } catch {
+    return summarize([]);
+  }
 }
 
 async function runOfflineExtractionForLifecycle(
@@ -2139,6 +2340,14 @@ async function statusForContext(
   // cached per process, so this stays a single extra CLI call at most.
   const exactIdRead = await probeExactIdReadCapability(run, config.dataDir);
   const security = securityForAudit(auditEntries);
+  // Task 5.2: body-free projection states plus bounded lifecycle counters.
+  // `summarizeMentalModelAudit` reads only records this extension wrote.
+  const mentalModelAudit = summarizeMentalModelAudit(auditEntries);
+  const mentalModelStates = await mentalModelStatesFor({
+    config,
+    projectBank,
+    run,
+  });
   const feedback = summarizeFeedback(auditEntries);
   const doctor: MemoryDoctorReport = buildMemoryDoctorReport(
     {
@@ -2153,6 +2362,10 @@ async function statusForContext(
       pendingCandidates,
       feedback,
       security,
+      mentalModels: {
+        counts: mentalModelStates,
+        outcomes: mentalModelAudit.outcomes,
+      },
     },
     detectMemoryRootSurfaces(config.dataDir),
   );
@@ -2202,6 +2415,23 @@ async function statusForContext(
         : {}),
     },
     security,
+    mentalModels: {
+      counts: mentalModelStates,
+      definitions: config.mentalModelDefinitions,
+      enabled: config.mentalModelSynthesisEnabled,
+      injectedChars: mentalModelAudit.injectedChars,
+      injectedDecisions: mentalModelAudit.injectedDecisions,
+      omitted: mentalModelAudit.omitted,
+      outcomes: mentalModelAudit.outcomes,
+      recent: mentalModelAudit.recent.map((entry) => ({
+        definitionId: entry.definitionId,
+        outcome: entry.outcome,
+        ownerKey: entry.ownerKey,
+        scope: entry.scope,
+        sourceCount: entry.sourceCount,
+        status: entry.status,
+      })),
+    },
     ...(lastExtraction?.metadata.reason === "near-duplicate"
       ? {
           nearDuplicates: {
@@ -2356,6 +2586,45 @@ export function mergeSearchOutcomes(outcomes: SearchOutcome[]): SearchOutcome {
   };
 }
 
+/**
+ * Bounded mental-model delivery for automatic context assembly (task 4.4).
+ *
+ * Returns null only when delivery is not wired (no memo): the caller then
+ * behaves exactly as before. An unwired or unreadable projection layer never
+ * removes ordinary recall — failures degrade to "no projection block".
+ */
+async function mentalModelDeliveryFor(options: {
+  config: ReturnType<typeof loadConfig>["config"];
+  dependencies: XpiMemoDependencies;
+  memo?: MentalModelSourceMemo;
+  projectBank: string | null;
+  query: string;
+  sessionId: string;
+}): Promise<MentalModelDelivery | null> {
+  const { memo } = options;
+  if (!memo) return null;
+  try {
+    return deliverMentalModels({
+      evaluations: await evaluateMentalModels({
+        dataDir: options.config.dataDir,
+        definitions: MENTAL_MODEL_DEFINITIONS,
+        isDefinitionEnabled: (definitionId) =>
+          isMentalModelDefinitionEnabled(
+            options.config.mentalModelDefinitions,
+            definitionId,
+          ),
+        memo,
+        projectBank: options.projectBank,
+        read: createCliBankStateReader(options.dependencies.run),
+        sessionId: options.sessionId,
+      }),
+      projectBank: options.projectBank,
+      query: options.query,
+    });
+  } catch {
+    return null;
+  }
+}
 /** Injection result shared by the TUI widget and the RPC message path (plan-note-03). */
 interface RecallOutcome {
   /** Memory block for the model; null when nothing was injected. */
@@ -2371,6 +2640,7 @@ async function recallForContext(
   policy: RecallPolicy,
   surface: ReturnType<typeof createMemorySurface>,
   l0?: L0Coordinator,
+  mentalModelMemo?: MentalModelSourceMemo,
 ): Promise<RecallOutcome> {
   const notRecalled: RecallOutcome = {
     context: null,
@@ -2419,8 +2689,19 @@ async function recallForContext(
     const outcome = mergeSearchOutcomes(usable);
     const response = toRecallResponse(outcome);
     response.results = applyFeedbackToRecall(response.results, runtime.audit.list());
+    // Task 4.4: bounded projection delivery runs before ordinary ranking, and
+    // its covered source ids suppress rows the projection already represents.
+    const mentalModel = await mentalModelDeliveryFor({
+      config: runtime.config,
+      dependencies,
+      memo: mentalModelMemo,
+      projectBank: runtime.context.projectBank ?? null,
+      query,
+      sessionId: l0?.sessionId() ?? "",
+    });
     const ranked = rankRecallResults(response.results, query, {
       charBudget: AUTO_INJECT_CHAR_BUDGET,
+      excludeSourceIds: mentalModel?.coveredSourceIds ?? [],
       itemBudget: runtime.config.limit,
     });
     const rankedItems = ranked
@@ -2515,6 +2796,26 @@ async function recallForContext(
         policyVersion: safety.policyVersion,
         safetyReasons: safety.reasons,
       });
+    // Task 5.1: one bounded, body-free record per automatic delivery decision.
+    // It is written only when the decision was notable, so a default
+    // installation with no projections writes nothing on the prompt path.
+    if (mentalModel?.notable) {
+      const record = mentalModelInjectedRecord({
+        chars: mentalModel.injected.reduce((total, item) => total + item.chars, 0),
+        definitionIds: mentalModel.injected.map((item) => item.definitionId),
+        injectedCount: mentalModel.injected.length,
+        omittedCount: mentalModel.omitted,
+        ownerKeys: mentalModel.injected.map((item) => item.ownerKey),
+        policyVersion: MEMORY_SAFETY_POLICY_VERSION,
+        reasons: mentalModel.reasons,
+      });
+      runtime.audit.record("mental-model", {
+        ...record,
+      });
+      l0?.recordSafe("mental_model_injected", {
+        ...record,
+      });
+    }
     // plan-note-03 visibility: one status line shared by the TUI widget and the
     const action = policy === "active" ? "inject" : "recall";
     surface.complete(action, injected.length);
@@ -2522,6 +2823,7 @@ async function recallForContext(
       // Profile block rides with the recall block; either may be absent.
       context:
         [
+          mentalModel?.context ?? null,
           context,
           profileInjection,
         ]
@@ -2766,7 +3068,49 @@ export default function xpiMemo(
         env: dependencies.env ?? process.env,
       }).config;
       const usage =
-        "Usage: /xpi-memo-trace --session <id> --position <n> | --candidate <id>";
+        "Usage: /xpi-memo-trace --session <id> --position <n> | --candidate <id> | --projection <definitionId>";
+
+      // Projection source trace (task 5.3): derived references, no bodies.
+      const projectionFlag = flags.indexOf("--projection");
+      if (projectionFlag >= 0) {
+        const definitionId = flags[projectionFlag + 1];
+        if (!definitionId || definitionId.startsWith("--")) {
+          ctx.ui.notify(usage, "warning");
+          return;
+        }
+        const definition = mentalModelDefinition(definitionId);
+        if (!definition) {
+          ctx.ui.notify(
+            `Unknown mental-model definition ${definitionId}. Built-in ids: ${mentalModelDefinitionIds().join(", ")}.`,
+            "warning",
+          );
+          return;
+        }
+        const capability = await probeExactIdReadCapability(
+          dependencies.run,
+          config.dataDir,
+        );
+        const trace = await traceMentalModelProjection({
+          dataDir: config.dataDir,
+          definition,
+          exactIdReadAvailable: capability.available,
+          projectBank: projectBankFor(ctx, dependencies),
+          read: createCliBankStateReader(dependencies.run),
+          readMemoryById: createExactIdReader(dependencies.run),
+          isDefinitionEnabled: (id) =>
+            isMentalModelDefinitionEnabled(config.mentalModelDefinitions, id),
+        });
+        // No owner (project scope without identity): nothing safe to trace.
+        if (!trace) {
+          ctx.ui.notify(
+            `No projection for ${definitionId} in this context: a project identity is required and none was recognized.`,
+            "warning",
+          );
+          return;
+        }
+        ctx.ui.notify(formatMentalModelTrace(trace), "info");
+        return;
+      }
 
       // Candidate trace: pending queue + its candidate_created L0 event.
       if (candidateFlag >= 0) {
@@ -3091,6 +3435,20 @@ export default function xpiMemo(
     return auditShared;
   };
 
+  // Mental-model source memo, shared by every lifecycle refresh. It is
+  // invalidated on observed T1 mutations (stored/confirmed/deleted) so changed
+  // source state can never be served from a stale evaluation; over-invalidation
+  // only costs one re-read.
+  const mentalModelMemo = createMentalModelSourceMemo();
+  defaultMemoryEventBus().subscribe((event) => {
+    if (
+      event.kind === "stored" ||
+      event.kind === "confirmed" ||
+      event.kind === "deleted"
+    )
+      mentalModelMemo.invalidateAll();
+  });
+
   pi.on("input", (event, ctx) => {
     // 5.4 user_message capture: best-effort, never blocks the session.
     const l0 = l0ForHooks();
@@ -3198,6 +3556,7 @@ export default function xpiMemo(
       "active",
       getSurface(ctx),
       l0ForHooks(),
+      mentalModelMemo,
     );
   });
   pi.on("before_agent_start", async (event, ctx) => {
@@ -3242,6 +3601,7 @@ export default function xpiMemo(
           runtime.config.recallPolicy,
           getSurface(ctx),
           l0ForHooks(),
+          mentalModelMemo,
         )
       : null;
     // plan-note-03: one status line per recall source, shared with the TUI.
@@ -3282,6 +3642,7 @@ export default function xpiMemo(
       "active",
       getSurface(ctx),
       l0ForHooks(),
+      mentalModelMemo,
     );
     const config = loadConfig({
       env: dependencies.env,
@@ -3301,6 +3662,17 @@ export default function xpiMemo(
         // Extraction failure must not block compact.
       }
     }
+    // Mental-model refresh (add-mental-model-projections, 3.5): best-effort,
+    // non-blocking, deduplicated against shutdown by the per-session ledger.
+    scheduleMentalModelRefresh({
+      audit: auditForHooks(),
+      config,
+      ctx,
+      dependencies,
+      l0: l0ForHooks(),
+      memo: mentalModelMemo,
+      trigger: "session_before_compact",
+    });
   });
   pi.on("session_shutdown", async (_event, ctx) => {
     const config = loadConfig({
@@ -3354,6 +3726,18 @@ export default function xpiMemo(
         "info",
       );
     }
+    // Mental-model refresh at shutdown (add-mental-model-projections, 3.5):
+    // best-effort and fire-and-forget like extraction. The per-session ledger
+    // skips definitions compact already refreshed with unchanged sources.
+    scheduleMentalModelRefresh({
+      audit: auditForHooks(),
+      config,
+      ctx,
+      dependencies,
+      l0: l0ForHooks(),
+      memo: mentalModelMemo,
+      trigger: "session_shutdown",
+    });
   });
 
   pi.registerTool(

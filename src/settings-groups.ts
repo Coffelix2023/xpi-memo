@@ -60,6 +60,13 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     ],
   },
   {
+    id: "mentalModels",
+    fields: [
+      "mentalModelSynthesisEnabled",
+      "mentalModelDefinitions",
+    ],
+  },
+  {
     id: "admission",
     fields: [
       "admissionAllowGlobalPreference",

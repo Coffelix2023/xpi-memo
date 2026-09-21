@@ -41,6 +41,7 @@ describe("bounded T1 audit metadata", () => {
       "tool-verification-failed",
       "candidate-auto-admitted",
       "candidate-rescan",
+      "mental-model",
     ]);
   });
   it("serializes tool-verified verification evidence (task 7.1)", () => {
@@ -253,5 +254,41 @@ describe("bounded T1 audit metadata", () => {
     });
     expect(audit.list()).toHaveLength(2);
     expect(audit.list()[1]?.metadata.reason).toBe("project-identity-required");
+  });
+
+  // Two log handles exist per extension instance (the hook-scoped one and the
+  // runtime one), so a stale in-memory snapshot must never clobber records the
+  // other handle just wrote.
+  it("converges when two log handles append to the same file", () => {
+    const statePath = join(createTemporaryDirectory(), "audit.json");
+    const first = createAuditLog({
+      statePath,
+    });
+    const second = createAuditLog({
+      statePath,
+    });
+
+    first.record("write", {
+      kind: "global_preference",
+    });
+    second.record("mental-model", {
+      definitionId: "user-working-style",
+      outcome: "refreshed",
+      status: "refreshed",
+    });
+    first.record("recall", {
+      resultCount: 1,
+    });
+
+    const onDisk = JSON.parse(readFileSync(statePath, "utf8")) as {
+      entries: Array<{
+        action: string;
+      }>;
+    };
+    expect(onDisk.entries.map((entry) => entry.action)).toEqual([
+      "write",
+      "mental-model",
+      "recall",
+    ]);
   });
 });

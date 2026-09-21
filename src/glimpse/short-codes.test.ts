@@ -17,9 +17,10 @@ import { assembleParts } from "./views/index.js";
  * that reads its expectation from the code under test passes when both are
  * wrong. The number is 75 = the 57 codes the design dictionary carried plus the
  * 18 added when the settings groups grew from five to six and their fields from
- * twenty to thirty-seven, plus the settings view's loading and error regions.
+ * twenty to thirty-seven, plus the settings view's loading and error regions,
+ * plus the three added by the mental-model group (one group, two fields).
  */
-const EXPECTED_CODE_COUNT = 77;
+const EXPECTED_CODE_COUNT = 80;
 
 function renderFixtureDocument(): string {
   const model = modelFixture();
@@ -91,12 +92,12 @@ describe("rendered document carries every code as an id", () => {
   });
 
   it("renders the settings field count the config actually has", () => {
-    // 37 fields across 6 groups, per `SETTINGS_GROUPS`. The window must not
+    // 39 fields across 7 groups, per `SETTINGS_GROUPS`. The window must not
     // fall back to the prototype's twenty.
     const fieldCodes = Object.values(FIELD_SHORT);
     const html = renderFixtureDocument();
 
-    expect(fieldCodes).toHaveLength(37);
+    expect(fieldCodes).toHaveLength(39);
     for (const code of fieldCodes) {
       expect(html, code).toContain(`id="${code}"`);
     }

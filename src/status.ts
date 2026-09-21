@@ -9,6 +9,8 @@ import type { MemoryDoctorReport } from "./doctor.js";
 import type { MemoryEvent } from "./event-stream.js";
 import type { FeedbackSummary } from "./feedback.js";
 import { describeMemoryKindOrNull } from "./kinds.js";
+import type { MentalModelStateCounts } from "./mental-model/evaluate.js";
+import type { MentalModelRefreshOutcome } from "./mental-model/types.js";
 import type { ObservabilitySnapshot } from "./observability.js";
 
 export interface MemoryStatus {
@@ -60,6 +62,30 @@ export interface MemoryStatus {
   fallback: boolean | null;
   /** Bounded explicit/passive feedback and relation counters. */
   feedback?: FeedbackSummary;
+  /**
+   * Body-free mental-model projection states and bounded lifecycle counters
+   * (change add-mental-model-projections, task 5.2).
+   *
+   * `counts` always carries all six states plus `skipped`, so a zero is never
+   * read as "not measured"; `recent` is a bounded tail of refresh records.
+   */
+  mentalModels?: {
+    counts: MentalModelStateCounts;
+    definitions: string;
+    enabled: boolean;
+    injectedChars: number;
+    injectedDecisions: number;
+    omitted: number;
+    outcomes: Partial<Record<MentalModelRefreshOutcome, number>>;
+    recent: Array<{
+      definitionId: string;
+      outcome: MentalModelRefreshOutcome;
+      ownerKey: string;
+      scope: "global" | "project";
+      sourceCount: number;
+      status: "failed" | "refreshed" | "skipped";
+    }>;
+  };
   /** Near-duplicate pairs reported by mechanical sleep; never mutates storage. */
   nearDuplicates?: {
     count: number;
@@ -288,6 +314,35 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
         }
       : {}),
     fallback: status.fallback,
+    ...(status.mentalModels
+      ? {
+          mentalModels: {
+            definitions: status.mentalModels.definitions,
+            enabled: status.mentalModels.enabled,
+            injectedChars: status.mentalModels.injectedChars,
+            injectedDecisions: status.mentalModels.injectedDecisions,
+            omitted: status.mentalModels.omitted,
+            outcomes: status.mentalModels.outcomes,
+            recent: status.mentalModels.recent.slice(0, 5).map((entry) => ({
+              definitionId: entry.definitionId,
+              outcome: entry.outcome,
+              ownerKey: entry.ownerKey,
+              scope: entry.scope,
+              sourceCount: entry.sourceCount,
+              status: entry.status,
+            })),
+            counts: {
+              absent: status.mentalModels.counts.absent,
+              disabled: status.mentalModels.counts.disabled,
+              failed: status.mentalModels.counts.failed,
+              fresh: status.mentalModels.counts.fresh,
+              pending: status.mentalModels.counts.pending,
+              skipped: status.mentalModels.counts.skipped,
+              stale: status.mentalModels.counts.stale,
+            },
+          },
+        }
+      : {}),
     observability: status.observability,
     ...(status.feedback
       ? {

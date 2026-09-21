@@ -25,6 +25,7 @@ export const AUDIT_ACTIONS = [
   "tool-verification-failed",
   "candidate-auto-admitted",
   "candidate-rescan",
+  "mental-model",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -42,9 +43,19 @@ export interface AuditMetadata {
   /** Bounded exact-ID read capability verdict (change memory-forget-exact-id):
    * a reason code, never a memory body. */
   capability?: string;
+  /** Bounded character count of a generated or injected projection body. */
+  chars?: number;
   confidence?: number;
   /** Admission decision (stabilize change, task 4.1): pending / shadow-verified / auto-stored. */
   decision?: string;
+  /** Mental-model definition the lifecycle record refers to (task 5.1). */
+  definitionId?: string;
+  /** Deliverable projections in one decision (task 5.1); bounded by budget. */
+  definitionIds?: string[];
+  /** First 12 hex chars of a source digest; never a digest body. */
+  digestPrefix?: string;
+  /** Bounded wall-clock duration of one refresh attempt. */
+  durationMs?: number;
   evidenceType?: EvidenceType;
   /** Bounded verbatim excerpt of a verified repository fact (stabilize change, task 4.1). */
   excerpt?: string;
@@ -72,9 +83,17 @@ export interface AuditMetadata {
   operationId?: string;
   /** Bounded outcome of a failed operation (task 3.1): rejected / degraded. */
   outcome?: string;
+  /** Bounded generated-character count of one refresh attempt. */
+  outputChars?: number;
+  /** Projection owner key (`global` or the canonical project bank). */
+  ownerKey?: string;
+  /** Projection owner keys in one delivery decision (task 5.1). */
+  ownerKeys?: string[];
   policyVersion?: string;
   proposalsTotal?: number;
   reason?: string;
+  /** Closed omission/refusal reason codes; never free text. */
+  reasons?: string[];
   rejectedCount?: number;
   replacementMemoryId?: string;
   /** Number of results the backend returned (task 5.6). */
@@ -82,6 +101,10 @@ export interface AuditMetadata {
   safetyReasons?: string[];
   /** Canonical semantic scope (task 1.2): global / project / session. */
   scope?: "global" | "project" | "session";
+  /** Last traced L0 position at the successful source boundary. */
+  sourceBoundary?: number;
+  /** Number of selected governed sources for one projection. */
+  sourceCount?: number;
   status?: string;
   storedCount?: number;
   supersedes?: string;
@@ -149,6 +172,20 @@ const ALLOWED_METADATA_KEYS = new Set([
   "policyVersion",
   "safetyReasons",
   "capability",
+  // Mental-model lifecycle (change add-mental-model-projections, task 5.1).
+  // Bounded codes and counts only: never a projection body, a source body, a
+  // prompt, or raw model output.
+  "chars",
+  "definitionId",
+  "definitionIds",
+  "digestPrefix",
+  "durationMs",
+  "outputChars",
+  "ownerKey",
+  "ownerKeys",
+  "reasons",
+  "sourceBoundary",
+  "sourceCount",
   "resultCount",
   "scope",
   "status",
@@ -227,7 +264,15 @@ export function createAuditLog({
       metadata: safeMetadata(metadata),
       timestamp: new Date().toISOString(),
     };
-    state.entries.push(entry);
+    // Another log handle (a second instance in this process, or another
+    // process) may have appended since this handle was created. Re-read the
+    // tail before appending so writing one audit record never clobbers
+    // records the caller never saw — observability must not lose events to a
+    // stale in-memory snapshot.
+    state.entries = [
+      ...loadState(statePath).entries,
+      entry,
+    ];
     if (state.entries.length > limit)
       state.entries.splice(0, state.entries.length - limit);
     saveState(statePath, state);

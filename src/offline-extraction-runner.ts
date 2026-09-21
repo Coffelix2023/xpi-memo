@@ -159,8 +159,7 @@ function transcriptFor(events: readonly L0Event[], maxInputChars: number): strin
   return lines.reverse().join("\n");
 }
 
-/** Assistant text of a message-shaped model reply; empty for any other shape. */
-function assistantText(message: unknown): string {
+export function assistantText(message: unknown): string {
   if (typeof message === "string") return message;
   if (!isRecord(message) || !Array.isArray(message.content)) return "";
   return message.content
@@ -189,7 +188,7 @@ type ParsedModelReply =
     };
 
 /** Parse the first parsable JSON object/array in the reply, tolerating code fences. */
-function parseStructured(text: string): ParsedModelReply | undefined {
+export function parseStructured(text: string): ParsedModelReply | undefined {
   const trimmed = text.trim();
   const candidates = [
     trimmed,

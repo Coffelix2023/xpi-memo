@@ -64,6 +64,8 @@ interface ProsePayload {
   arguments?: unknown;
   bank?: unknown;
   content?: unknown;
+  definitionId?: unknown;
+  definitionIds?: unknown;
   error?: unknown;
   filePath?: unknown;
   injectedMemoryIds?: unknown;
@@ -71,10 +73,13 @@ interface ProsePayload {
   isError?: unknown;
   kind?: unknown;
   memoryId?: unknown;
+  outcome?: unknown;
   output?: unknown;
+  ownerKey?: unknown;
   path?: unknown;
   phase?: unknown;
   reason?: unknown;
+  sourceCount?: unknown;
   summary?: unknown;
   text?: unknown;
   toolCallId?: unknown;
@@ -109,6 +114,12 @@ function prose(event: L0Event, filters: ExportFilters): string {
         ? payload.injectedMemoryIds
         : [];
       return `Memory injected: ${ids.length} item${ids.length === 1 ? "" : "s"}`;
+    }
+    case "mental_model_refresh":
+      return `Mental model ${text(payload.outcome)} [${text(payload.definitionId)}] (${text(payload.ownerKey)}, ${text(payload.sourceCount)} sources)`;
+    case "mental_model_injected": {
+      const ids = Array.isArray(payload.definitionIds) ? payload.definitionIds : [];
+      return `Mental model injected: ${ids.length} projection${ids.length === 1 ? "" : "s"}`;
     }
     case "memory_deleted":
       return `Memory deleted: ${text(payload.memoryId)}`;

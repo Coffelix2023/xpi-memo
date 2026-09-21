@@ -242,9 +242,13 @@
       }
     },
     {
-      // 逐条串行处理 proposal,ensureProjectBank 有副作用且需按序,bank 初始化失败要立即 reject 该条
+      // 逐条串行处理 proposal,ensureProjectBank 有副作用且需按序,bank 初始化失败要立即 reject 该条;
+      // 心智模型刷新同样按定义串行: 共享同一次会话的刷新台账与输出预算, 顺序即确定性;
+      // evaluate.ts 也逐定义串行读源: 复用同一份会话记忆化, 顺序即确定性
       "includes": [
-        "src/offline-extraction.ts"
+        "src/offline-extraction.ts",
+        "src/mental-model/evaluate.ts",
+        "src/mental-model/refresh.ts"
       ],
       "linter": {
         "rules": {
