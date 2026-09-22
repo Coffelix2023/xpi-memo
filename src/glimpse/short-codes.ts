@@ -84,7 +84,8 @@ export const TRIGGERS_SHORT = {
 /** Group short codes, keyed by the group id in `SETTINGS_GROUPS`. */
 export const GROUP_SHORT: Readonly<Record<string, string>> = {
   admission: "P3-1-B6",
-  decision: "P3-1-B8",
+  // B8 named the removed decision group (change
+  // remove-typesafe-decision-boundary). Never reuse it.
   display: "P3-1-B4",
   mentalModels: "P3-1-B7",
   pipeline: "P3-1-B3",
@@ -101,7 +102,7 @@ export const GROUP_SHORT: Readonly<Record<string, string>> = {
  */
 export const SETTINGS_PANEL_SHORT: Readonly<Record<string, string>> = {
   admission: "P3-1-P6",
-  decision: "P3-1-P8",
+  // P8 named the removed decision group's panel. Never reuse it.
   display: "P3-1-P4",
   mentalModels: "P3-1-P7",
   pipeline: "P3-1-P3",
@@ -128,13 +129,9 @@ export const FIELD_SHORT: Readonly<Record<SettingsFieldId, string>> = {
   autoExport: "P3-1-S8",
   confirmStore: "P3-1-S7",
   dataDir: "P3-1-S11",
-  decisionCalibrationEnabled: "P3-1-S45",
-  decisionRepeatJudgmentEnabled: "P3-1-S43",
-  decisionRepeatThreshold: "P3-1-S44",
-  decisionRerankEnabled: "P3-1-S41",
-  decisionRerankGapThreshold: "P3-1-S42",
-  decisionRunnerEnabled: "P3-1-S40",
-  decisionStabilityThreshold: "P3-1-S46",
+  // P3-1-S40..P3-1-S46 are a reserved, permanently empty range: they named
+  // the decision-boundary settings removed by change
+  // remove-typesafe-decision-boundary. Never reuse them.
   embeddingApiUrl: "P3-1-S24",
   embeddingMode: "P3-1-S22",
   embeddingModel: "P3-1-S23",

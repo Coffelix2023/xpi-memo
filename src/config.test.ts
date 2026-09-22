@@ -196,6 +196,50 @@ describe("XpiMemo configuration", () => {
     ]);
   });
 
+  // Regression (remove-typesafe-decision-boundary): the seven decision keys were
+  // deleted outright instead of being kept as deprecated no-ops. A config file
+  // that still carries them must load unchanged — the config object is built from
+  // an explicit key map, so a leftover key is inert rather than fatal, and it is
+  // not reported as an invalid value either.
+  it("treats leftover decision-boundary keys as inert unknown keys", () => {
+    const configHome = createTemporaryDirectory();
+    mkdirSync(join(configHome, "xpi-memo"), {
+      recursive: true,
+    });
+    writeFileSync(
+      configPath(configHome),
+      JSON.stringify({
+        decisionCalibrationEnabled: true,
+        decisionRepeatJudgmentEnabled: true,
+        decisionRepeatThreshold: 5,
+        decisionRerankEnabled: true,
+        decisionRerankGapThreshold: 0.05,
+        decisionRunnerEnabled: true,
+        decisionStabilityThreshold: 0.9,
+      }),
+    );
+
+    const { config, ignoredKeys } = loadConfig({
+      configHome,
+      env: {},
+    });
+
+    // A stale key is neither a fatal parse error nor an invalid value.
+    expect(ignoredKeys).toEqual([]);
+    for (const key of [
+      "decisionCalibrationEnabled",
+      "decisionRepeatJudgmentEnabled",
+      "decisionRepeatThreshold",
+      "decisionRerankEnabled",
+      "decisionRerankGapThreshold",
+      "decisionRunnerEnabled",
+      "decisionStabilityThreshold",
+    ])
+      expect(Object.hasOwn(config, key)).toBe(false);
+    // Everything else in the file still resolves to the documented defaults.
+    expect(config).toEqual(DEFAULT_XPI_MEMO_CONFIG);
+  });
+
   it("loads paused from user config and lets the environment override it", () => {
     const configHome = createTemporaryDirectory();
     mkdirSync(join(configHome, "xpi-memo"), {

@@ -21,28 +21,9 @@ import {
 import { buildCandidateDigest, renderCandidateDigest } from "./candidate-digest.ts";
 import { type CandidateStore, createCandidateStore } from "./candidate-lifecycle.ts";
 import { l0Status } from "./cli/l0.js";
-import {
-  loadConfig,
-  mnemosyneEnvironment,
-  saveUserConfig,
-  type XpiMemoConfig,
-} from "./config.ts";
+import { loadConfig, mnemosyneEnvironment, saveUserConfig } from "./config.ts";
 import { type CandidateDecision, type ConsoleActions, openConsole } from "./console.ts";
 import { classifyProhibitedContent } from "./content-policy.ts";
-import { createHttpDecisionRunner } from "./decision/http-runner.js";
-import {
-  createDecisionLedger,
-  type DecisionLedger,
-  readDecisionLedger,
-} from "./decision/observability.js";
-import {
-  countSynonymRepeats,
-  judgeRepeatStability,
-  stabilityCandidate,
-  type UserPromptRecord,
-} from "./decision/repeat-stability.js";
-import { gatedRerankRecall } from "./decision/rerank.js";
-import type { DecisionRunner } from "./decision/types.js";
 import { runT1Delete } from "./deletion-lifecycle.js";
 import { upsertDnaEntry } from "./dna/ingest.ts";
 import { buildDnaInjection } from "./dna/inject.ts";
@@ -297,8 +278,6 @@ interface ToolDetails {
   };
 }
 export interface XpiMemoDependencies {
-  /** Test injection point for the decision runner (task 1.2). */
-  decisionRunner?: DecisionRunner;
   env?: NodeJS.ProcessEnv;
   exactMemoryReader?: ExactMemoryReader;
   /**
@@ -867,187 +846,6 @@ function sessionModelRunnerFor(
     client: ctx.modelRegistry,
     model,
     timeoutMs: DEFAULT_OFFLINE_EXTRACTION_TIMEOUT_MS,
-  });
-}
-
-/**
- * Decision boundary plumbing (change add-typesafe-decision-hooks).
- *
- * The master switch is checked here, not inside the consumers, so "off" is a
- * structural guarantee: no runner is built and no consumer can reach one.
- */
-function decisionLedgerFor(config: XpiMemoConfig): DecisionLedger {
-  return createDecisionLedger(join(config.dataDir, "decision-counters.json"));
-}
-
-function decisionRunnerFor(
-  dependencies: XpiMemoDependencies,
-  config: XpiMemoConfig,
-): DecisionRunner | undefined {
-  if (!config.decisionRunnerEnabled) return undefined;
-  if (dependencies.decisionRunner) return dependencies.decisionRunner;
-  return createHttpDecisionRunner({
-    env: dependencies.env,
-  });
-}
-
-/** How many trailing session directories the repeat counter reads. */
-const STABILITY_SESSION_WINDOW = 20;
-/** Hard cap on prompts counted for one repeat decision. */
-const STABILITY_PROMPT_WINDOW = 500;
-/**
- * Cross-session prompt cache. The O(n²) merge runs per prompt, so the disk
- * read is amortised instead of repeated; the current prompt is merged in
- * directly so a repeat is detected on the prompt that completes it.
- *
- * ponytail: fixed TTL cache, no invalidation; a long-lived process can miss
- * prompts another process wrote until the TTL elapses.
- */
-const STABILITY_CACHE_TTL_MS = 60_000;
-let stabilityPromptCache: {
-  at: number;
-  prompts: UserPromptRecord[];
-} | null = null;
-
-async function recentUserPrompts(dataDir: string): Promise<UserPromptRecord[]> {
-  const sessionsRoot = sessionsDirFor(dataDir);
-  let entries: string[] = [];
-  try {
-    entries = readdirSync(sessionsRoot);
-  } catch {
-    return [];
-  }
-  // Session directory names are timestamp-prefixed, so lexicographic order
-  // is chronological and the tail is the recent window.
-  const recent = [
-    ...entries,
-  ]
-    .sort()
-    .slice(-STABILITY_SESSION_WINDOW);
-  const perSession = await Promise.all(
-    recent.map(async (entry) => {
-      try {
-        const reader = createEventLogReader({
-          sessionDir: join(sessionsRoot, entry),
-        });
-        const events = await reader.readByType("user_message");
-        const records: UserPromptRecord[] = [];
-        for (const event of events) {
-          const text = event.payload.text;
-          if (typeof text !== "string" || text.trim().length === 0) continue;
-          records.push({
-            position: event.position,
-            sessionId: entry,
-            text,
-            timestamp: event.timestamp,
-          });
-        }
-        return records;
-      } catch {
-        // An unreadable session contributes zero prompts (read-only count).
-        return [];
-      }
-    }),
-  );
-  return perSession.flat().slice(-STABILITY_PROMPT_WINDOW);
-}
-
-/**
- * Repeat-prompt stability proposal (task 3.x). Bounded and fail-open: a
- * disabled runner or a failed judgment leaves the candidate queue untouched,
- * which is exactly the behaviour before this rule existed.
- */
-async function maybeProposeStabilityCandidate(options: {
-  audit: AuditLog;
-  candidates: CandidateStore;
-  config: XpiMemoConfig;
-  context: RoutingContext;
-  current?: UserPromptRecord;
-  ledger: DecisionLedger;
-  l0: L0Coordinator;
-  runner?: DecisionRunner;
-}): Promise<void> {
-  const { config } = options;
-  if (!config.decisionRunnerEnabled || !config.decisionRepeatJudgmentEnabled) return;
-  const now = Date.now();
-  if (
-    stabilityPromptCache === null ||
-    now - stabilityPromptCache.at >= STABILITY_CACHE_TTL_MS
-  ) {
-    stabilityPromptCache = {
-      at: now,
-      prompts: await recentUserPrompts(config.dataDir),
-    };
-  }
-  const prompts = [
-    ...stabilityPromptCache.prompts,
-  ];
-  const current = options.current;
-  if (
-    current &&
-    !prompts.some(
-      (record) =>
-        record.sessionId === current.sessionId && record.position === current.position,
-    )
-  ) {
-    prompts.push(current);
-    stabilityPromptCache.prompts.push(current);
-  }
-
-  const [group] = countSynonymRepeats(prompts, config.decisionRepeatThreshold);
-  if (!group) return;
-  if (
-    options.candidates.list().some((candidate) => candidate.content === group.exemplar)
-  )
-    return;
-
-  const judgment = await judgeRepeatStability(group, {
-    enabled: true,
-    ledger: options.ledger,
-    runner: options.runner,
-  });
-  if (
-    judgment.probability === null ||
-    judgment.probability < config.decisionStabilityThreshold
-  )
-    return;
-  const candidate = stabilityCandidate(group, judgment.probability, {
-    context: options.context,
-    threshold: config.decisionStabilityThreshold,
-  });
-  if (!candidate) return;
-  const route = routeMemoryKind(candidate.kind, options.context);
-  const added = options.candidates.add(candidate, {
-    confidence: candidate.evidence.confidence,
-    content: candidate.content,
-    dataDir: config.dataDir,
-    kind: candidate.kind,
-    provenance: candidate.evidence.provenance,
-    scope: route.scope,
-    targetBank: route.bank,
-    source: {
-      evidenceType: candidate.evidence.type,
-      source: candidate.evidence.source,
-      timestamp: candidate.evidence.timestamp,
-    },
-  });
-  options.audit.record("candidate", {
-    bank: candidate.targetBank,
-    evidenceType: candidate.evidence.type,
-    kind: candidate.kind,
-    reason: candidate.reason,
-    scope: candidate.targetScope,
-    status: added.status,
-  });
-  // A repeat signal is a proposal, never a write: nothing reaches T1 here.
-  options.l0.recordSafe("candidate_created", {
-    bank: candidate.targetBank,
-    candidateId: candidate.id,
-    evidenceType: candidate.evidence.type,
-    kind: candidate.kind,
-    reason: candidate.reason,
-    scope: candidate.targetScope,
-    source: candidate.evidence.provenance,
   });
 }
 
@@ -2714,15 +2512,6 @@ async function statusForContext(
   // Task 5.2: body-free projection states plus bounded lifecycle counters.
   // `summarizeMentalModelAudit` reads only records this extension wrote.
   const mentalModelAudit = summarizeMentalModelAudit(auditEntries);
-  // Task 1.5: bounded, body-free decision counters. Read from their own
-  // ledger file so they survive the 200-entry audit window.
-  const decisionLedger = readDecisionLedger(
-    join(config.dataDir, "decision-counters.json"),
-  );
-  const decisionCalls = Object.values(decisionLedger.calls).reduce(
-    (total, count) => total + count,
-    0,
-  );
   const mentalModelStates = await mentalModelStatesFor({
     config,
     projectBank,
@@ -2741,11 +2530,6 @@ async function statusForContext(
       l0T1WriteEvents,
       pendingCandidates,
       feedback,
-      decision: {
-        calls: decisionCalls,
-        failures: decisionLedger.failures,
-        gateSkips: decisionLedger.gateSkips,
-      },
       security,
       mentalModels: {
         counts: mentalModelStates,
@@ -2768,16 +2552,6 @@ async function statusForContext(
       memoryProjection,
     },
     doctor,
-    decision: {
-      calibrationEnabled: config.decisionCalibrationEnabled,
-      calls: decisionLedger.calls,
-      failures: decisionLedger.failures,
-      gateSkips: decisionLedger.gateSkips,
-      policyVersion: decisionLedger.policyVersion,
-      repeatJudgmentEnabled: config.decisionRepeatJudgmentEnabled,
-      rerankEnabled: config.decisionRerankEnabled,
-      runnerEnabled: config.decisionRunnerEnabled,
-    },
     embedding: {
       mode: config.embeddingMode,
       model: config.embeddingModel || null,
@@ -3104,24 +2878,7 @@ async function recallForContext(
       excludeSourceIds: mentalModel?.coveredSourceIds ?? [],
       itemBudget: runtime.config.limit,
     });
-    // Task 2.x: the rerank runs only when the master switch and the consumer
-    // switch are both on, and it never changes the selected member set.
-    const ranked =
-      coarse === null
-        ? null
-        : (
-            await gatedRerankRecall(coarse, {
-              ledger: decisionLedgerFor(runtime.config),
-              gate: {
-                enabled:
-                  runtime.config.decisionRunnerEnabled &&
-                  runtime.config.decisionRerankEnabled,
-                gapThreshold: runtime.config.decisionRerankGapThreshold,
-              },
-              query,
-              runner: decisionRunnerFor(dependencies, runtime.config),
-            })
-          ).ranked;
+    const ranked = coarse;
     const rankedItems = ranked
       ? [
           ...ranked.standing,
@@ -4067,13 +3824,6 @@ export default function xpiMemo(
             dataDir: runtime.config.dataDir,
             paused: runtime.config.paused,
           },
-          decision: {
-            calibrate:
-              runtime.config.decisionRunnerEnabled &&
-              runtime.config.decisionCalibrationEnabled,
-            ledger: decisionLedgerFor(runtime.config),
-            runner: decisionRunnerFor(dependencies, runtime.config),
-          },
           dna: {
             cwd: ctx.cwd,
             trusted: trustFor(ctx, dependencies),
@@ -4081,25 +3831,6 @@ export default function xpiMemo(
         },
         input,
       );
-    // Task 3.x: deterministic repeat counting, then at most one bounded
-    // stability judgment. Fail-open: a disabled runner or a failed judgment
-    // leaves the candidate queue untouched.
-    if (input?.text === event.prompt)
-      await maybeProposeStabilityCandidate({
-        audit: runtime.audit,
-        candidates: runtime.candidates,
-        config: runtime.config,
-        context: runtime.context,
-        l0: runtime.l0,
-        ledger: decisionLedgerFor(runtime.config),
-        runner: decisionRunnerFor(dependencies, runtime.config),
-        current: {
-          position: input.eventPosition,
-          sessionId: input.sessionId,
-          text: input.text,
-          timestamp: new Date().toISOString(),
-        },
-      });
     const decision = decideRecall(
       runtime.config.recallPolicy,
       event.prompt,

@@ -10,7 +10,6 @@ A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension
 
 - **T1 Governed Memory** — routing (global/project/session), write governance with candidate confirmation, policy-driven recall
 - **Memory Activation Loop** — explicit user intent (preferences, workflow, project decisions, gotchas, session context) is captured deterministically from the prompt, idempotent per L0 event + content fingerprint, with a gated offline extraction path (disabled by default) at session shutdown that shows a progress line above the editor in the TUI
-- **Optional Decision Boundary** — three narrow judgments (a gated recall rerank, a repeat-prompt stability check, and confidence calibration) can be routed to a TypeSafe System One model through one provider-neutral boundary, **off by default**; the master switch off means no runner is built at all, every failure falls back to the previous behaviour, and the key stays in `TYPESAFE_API_KEY` — see [GUIDE.md § Decision connection](./GUIDE.md#decision-connection-optional)
 - **Human-Readable Observability** — canonical 7-kind taxonomy (Preference, Workflow, Repository fact, Constraint, Decision, Gotcha, Session context) with roles, scopes, and trust states shared by console, status, and export
 - **L0 Session Trace** — lossless append-only JSONL log per session (10 MB rotation); the event truth for how state changed (daily logs and memory provenance derive from it, while the bank holds the current state)
 - **Derived Mental-Model Projections** — two code-owned, versioned questions (a global working style, the current project's operating model) answered only from already-confirmed T1 rows, refreshed at session boundaries with synthesis **off by default**; the injected text is labelled as untrusted derived data, never becomes a memory kind, and is dropped once its sources move on
@@ -126,8 +125,6 @@ Environment variables:
 - `XPI_MEMO_PROFILE_INJECTION` = `true|false` (default `true`; `false` omits the derived preference-profile block)
 - `XPI_MEMO_EVENT_PRESENTATION` = `true|false` (default `true`; `false` silences footer/status lifecycle events)
 - `XPI_MEMO_PASSIVE_FEEDBACK` = `true|false` (default `true`; `false` stops passive usage-feedback writes)
-- `decisionRunnerEnabled` / `decisionRerankEnabled` / `decisionRepeatJudgmentEnabled` / `decisionCalibrationEnabled` = the decision-boundary switches (env: `XPI_MEMO_DECISION_RUNNER` / `XPI_MEMO_DECISION_RERANK` / `XPI_MEMO_DECISION_REPEAT_JUDGMENT` / `XPI_MEMO_DECISION_CALIBRATION`, all default `false`), plus `decisionRerankGapThreshold` (`XPI_MEMO_DECISION_RERANK_GAP`, default `0.05`), `decisionRepeatThreshold` (`XPI_MEMO_DECISION_REPEAT_THRESHOLD`, default `3`) and `decisionStabilityThreshold` (`XPI_MEMO_DECISION_STABILITY_THRESHOLD`, default `0.9`) — see [GUIDE.md § Decision connection](./GUIDE.md#decision-connection-optional)
-- `TYPESAFE_API_KEY` / `TYPESAFE_API_URL` = credential and endpoint for the optional decision runner (env-only; never written to xpi-memo's config). The endpoint is **required** — there is no built-in default host, and with none configured the boundary has no runner and every consumer stays at its pre-feature behaviour
 
 
 ### No extraction progress line?

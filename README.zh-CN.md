@@ -10,7 +10,6 @@
 
 - **T1 受治理记忆** — 路由（全局/项目/会话）、带候选确认的写入治理、策略驱动的召回
 - **记忆激活回路** — 显式用户意图（偏好、工作流、项目决策、坑点、会话上下文）从提示中确定性捕获，按 L0 事件位置 + 内容指纹幂等；会话结束时还有一条门控的离线提取路径（默认关闭），TUI 下运行时在输入框上方显示进度提示
-- **可选决策出口** — 三类窄判断（门控式召回头部精排、重复提示的稳定性判定、置信度校准）可以经由一个 provider-neutral 边界转交 TypeSafe System One 模型，**默认关闭**；总开关关闭时不构造任何 runner，任何失败都回退到既有行为，密钥只放在 `TYPESAFE_API_KEY` —— 详见 [GUIDE.md § Decision connection](./GUIDE.md#decision-connection-optional)
 - **人类可读的可观测性** — 固定的 7 类分类法（偏好、工作流、仓库事实、约束、决策、坑点、会话上下文），其角色、作用域与信任状态在控制台、状态与导出中一致
 - **L0 会话轨迹** — 每会话一份无损追加式 JSONL 日志（10 MB 轮转）；状态如何变化的事件真相（日志与记忆溯源都由它派生，bank 保存的是当前状态）
 - **派生的心智模型投影** — 两个由代码拥有、带版本的固定问题（全局工作风格、当前项目运行模型），只从**已确认**的 T1 条目派生答案，仅在会话边界刷新、合成**默认关闭**；注入文本被标记为不可信的派生数据，不会变成新的记忆 kind，源状态一变就不再参与召回
@@ -77,7 +76,7 @@ pi install npm:glimpseui
 
 **待审页**点下决策立刻生效：点「存入」「拒绝」或「稍后」会写完改动，并用回传的队列重绘列表，所以被存入或被拒绝的候选当场就从列表消失，不必等重开面板。存入和拒绝都会让那一行消失，「稍后」则一行都不动，所以按钮栏会给出结果标签（`已存入` / `已拒绝` / `已跳过`），一旦你切到别的候选就收起。
 
-**设置页**的分组和 TUI 一样，但排成顶部标签条：一组一个标签（召回与检索 / 存储与提取 / 记忆管道 / 心智模型 / 自动准入 / 决策接入 / 界面与反馈 / 隐私与维护）。点标签即可把那组字段提到前面，也可以先聚焦标签条再按 `←` / `→`；只有选中的面板滚动，标签条不会被滚走。当前高亮的那一行由底部详情面板负责解释。
+**设置页**的分组和 TUI 一样，但排成顶部标签条：一组一个标签（召回与检索 / 存储与提取 / 记忆管道 / 心智模型 / 自动准入 / 界面与反馈 / 隐私与维护）。点标签即可把那组字段提到前面，也可以先聚焦标签条再按 `←` / `→`；只有选中的面板滚动，标签条不会被滚走。当前高亮的那一行由底部详情面板负责解释。
 
 **标题栏**上是状态徽标加三个控件：主题原则下拉（`Default` / `Atlas`）、明暗开关、语言开关。两个外观选项都是窗口偏好，存在 `<数据目录>/ui-prefs.json`，不进 config 文件；切换时窗口原地换肤（四套配色都已在页面里），下次打开仍然生效。
 
@@ -127,8 +126,6 @@ pi install npm:glimpseui
 - `XPI_MEMO_PROFILE_INJECTION` = `true|false`（默认 `true`；`false` 时不注入派生的偏好画像块）
 - `XPI_MEMO_EVENT_PRESENTATION` = `true|false`（默认 `true`；`false` 时静默页脚/状态生命周期事件）
 - `XPI_MEMO_PASSIVE_FEEDBACK` = `true|false`（默认 `true`；`false` 时停止被动使用反馈写入）
-- `decisionRunnerEnabled` / `decisionRerankEnabled` / `decisionRepeatJudgmentEnabled` / `decisionCalibrationEnabled` = 决策出口开关（环境变量：`XPI_MEMO_DECISION_RUNNER` / `XPI_MEMO_DECISION_RERANK` / `XPI_MEMO_DECISION_REPEAT_JUDGMENT` / `XPI_MEMO_DECISION_CALIBRATION`，全部默认 `false`），另有 `decisionRerankGapThreshold`（`XPI_MEMO_DECISION_RERANK_GAP`，默认 `0.05`）、`decisionRepeatThreshold`（`XPI_MEMO_DECISION_REPEAT_THRESHOLD`，默认 `3`）与 `decisionStabilityThreshold`（`XPI_MEMO_DECISION_STABILITY_THRESHOLD`，默认 `0.9`）—— 详见 [GUIDE.md § Decision connection](./GUIDE.md#decision-connection-optional)
-- `TYPESAFE_API_KEY` / `TYPESAFE_API_URL` = 可选决策 runner 的凭据与接口地址（仅环境变量，永远不写进 xpi-memo 配置）。接口地址**必须显式配置**——没有内置默认 host，未配置时该边界没有 runner，所有消费方都停留在接入前的行为
 
 完整的配置表（含默认值与影响）见 [GUIDE.md](./GUIDE.md)。
 

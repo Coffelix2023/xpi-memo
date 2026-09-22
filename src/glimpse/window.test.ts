@@ -747,7 +747,7 @@ describe("terminal panel remains complete (5.3)", () => {
     // carries every configured field. `views.test.ts` pins the window to render
     // one row per entry; this pins the entry count to the live config.
     const rows = settingsItems(DEFAULT_XPI_MEMO_CONFIG, {});
-    expect(rows).toHaveLength(46);
+    expect(rows).toHaveLength(39);
     expect(rows).toHaveLength(settingsRowsFixture().length);
   });
 });

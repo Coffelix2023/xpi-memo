@@ -40,21 +40,6 @@ export interface MemoryStatus {
     id: string;
     label: string;
   } | null;
-  /**
-   * Body-free decision-boundary state (change add-typesafe-decision-hooks,
-   * task 1.5): switch state plus bounded call / failure / gate-skip counters.
-   * Never carries a judged state, an answer, or a key.
-   */
-  decision?: {
-    calibrationEnabled: boolean;
-    calls: Record<string, number>;
-    failures: number;
-    gateSkips: number;
-    policyVersion: string;
-    repeatJudgmentEnabled: boolean;
-    rerankEnabled: boolean;
-    runnerEnabled: boolean;
-  };
   diskBytes: number | null;
   /** Empty-memory diagnosis + evidence bundle (task 4.2/4.3). */
   doctor?: MemoryDoctorReport;
@@ -314,22 +299,6 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
       : null,
     diskBytes: status.diskBytes,
     doctor: status.doctor,
-    ...(status.decision
-      ? {
-          decision: {
-            calibrationEnabled: status.decision.calibrationEnabled,
-            failures: status.decision.failures,
-            gateSkips: status.decision.gateSkips,
-            policyVersion: status.decision.policyVersion,
-            repeatJudgmentEnabled: status.decision.repeatJudgmentEnabled,
-            rerankEnabled: status.decision.rerankEnabled,
-            runnerEnabled: status.decision.runnerEnabled,
-            calls: {
-              ...status.decision.calls,
-            },
-          },
-        }
-      : {}),
     events: status.events?.slice(-10),
     embedding: {
       mode: status.embedding.mode,

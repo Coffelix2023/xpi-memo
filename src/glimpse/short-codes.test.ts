@@ -23,9 +23,11 @@ import { assembleParts } from "./views/index.js";
  * a tab strip (one panel id per group), plus the header's theme-principle
  * picker (one control), plus the pending view's decision notice (one status
  * line), plus the status view's extraction line (one meta row), plus the
- * triggers view: one nav entry and four anchors inside it.
+ * triggers view: one nav entry and four anchors inside it. Nine were removed by
+ * the change remove-typesafe-decision-boundary: seven decision-boundary fields,
+ * that group's tab, and its panel.
  */
-const EXPECTED_CODE_COUNT = 104;
+const EXPECTED_CODE_COUNT = 95;
 
 function renderFixtureDocument(): string {
   const model = modelFixture();
@@ -99,12 +101,12 @@ describe("rendered document carries every code as an id", () => {
   });
 
   it("renders the settings field count the config actually has", () => {
-    // 46 fields across 8 groups, per `SETTINGS_GROUPS`. The window must not
+    // 39 fields across 7 groups, per `SETTINGS_GROUPS`. The window must not
     // fall back to the prototype's twenty.
     const fieldCodes = Object.values(FIELD_SHORT);
     const html = renderFixtureDocument();
 
-    expect(fieldCodes).toHaveLength(46);
+    expect(fieldCodes).toHaveLength(39);
     for (const code of fieldCodes) {
       expect(html, code).toContain(`id="${code}"`);
     }

@@ -84,18 +84,6 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     ],
   },
   {
-    id: "decision",
-    fields: [
-      "decisionRunnerEnabled",
-      "decisionRerankEnabled",
-      "decisionRerankGapThreshold",
-      "decisionRepeatJudgmentEnabled",
-      "decisionRepeatThreshold",
-      "decisionCalibrationEnabled",
-      "decisionStabilityThreshold",
-    ],
-  },
-  {
     id: "display",
     fields: [
       "language",
