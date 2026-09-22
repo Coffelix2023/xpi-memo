@@ -8,7 +8,7 @@ This capability closes xpi-memo's activation gap: valuable user and project know
 
 ### Requirement: Explicit memory intent MUST enter a governed activation path
 
-The system MUST detect explicit user intent to preserve a preference, workflow, project constraint, project decision, project gotcha, or bounded session context without requiring a separate manual memory-tool call.
+The system MUST detect explicit user intent to preserve a preference, workflow, project constraint, project decision, project gotcha, bounded session context, or an art/write-domain statement without requiring a separate manual memory-tool call. Art/write-domain statements MUST be governed through the DNA file outcome instead of a T1 candidate; all other categories MUST follow the existing T1 candidate or storage governance unchanged.
 
 #### Scenario: User states an explicit preference
 
@@ -22,12 +22,18 @@ The system MUST detect explicit user intent to preserve a preference, workflow, 
 - **THEN** the system MUST route it to the current project scope when a recognized project exists
 - **AND THEN** the system MUST apply the existing candidate or storage governance for that category
 
+#### Scenario: User states an art/write-domain rule
+
+- **WHEN** the user explicitly states a durable visual-design or writing-creation rule in a trusted project
+- **THEN** the system MUST create a governed DNA file outcome with user-statement provenance in the matching domain
+- **AND THEN** it MUST NOT create a T1 candidate or T1 record for that statement
+- **AND THEN** in an untrusted project or when the statement falls outside the art/write domains, the system MUST fall back to the existing T1 governance path
+
 #### Scenario: Ambiguous content is encountered
 
 - **WHEN** content could map to more than one category or lacks enough scope context
 - **THEN** the system MUST skip direct durable storage or create a governed candidate
 - **AND THEN** it MUST NOT guess a category or silently place project content in the global scope
-
 ### Requirement: Capture evidence MUST distinguish user statements from agent-derived content
 
 The system MUST preserve the difference between explicit user statements, verified repository or tool evidence, model-derived suggestions, and T2-derived proposals. Content captured or derived for offline processing MUST pass the same external-boundary credential protection as other memory transmission, and unsafe or uncertain content MUST not enter durable memory, candidates, or diagnostic body output.

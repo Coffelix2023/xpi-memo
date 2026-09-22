@@ -1,7 +1,11 @@
+import { createHash } from "node:crypto";
 import type { AuditLog } from "./audit.js";
 import type { RoutingContext } from "./banks.js";
 import type { CandidateStore } from "./candidate-lifecycle.js";
 import { classifyProhibitedContent } from "./content-policy.js";
+import { upsertDnaEntry } from "./dna/ingest.ts";
+import { detectDnaDomains } from "./dna/inject.ts";
+import { DNA_DOMAINS, type DnaDomain } from "./dna/schema.ts";
 import {
   createEvidenceRecord,
   type EvidenceType,
@@ -42,6 +46,11 @@ export type MemoryActivationResult =
       status: "rejected";
     }
   | {
+      domain: DnaDomain;
+      id: string;
+      status: "dna";
+    }
+  | {
       reason: MemoryIntentSkipReason | "duplicate-content" | "missing-l0-provenance";
       status: "skipped";
     };
@@ -60,6 +69,11 @@ export interface MemoryActivationRuntime {
     paused: boolean;
   };
   context: RoutingContext;
+  /** Project root + trust verdict for the DNA domain split; absent = T1 only. */
+  dna?: {
+    cwd: string;
+    trusted: boolean;
+  };
   idempotency: MemoryIdempotencyStore;
   l0: L0Coordinator;
   provenance?: MemoryActivationProvenance;
@@ -224,6 +238,56 @@ function provenancePayload(
     sourceSessionId: provenance.sessionId,
   };
 }
+function dnaIntentId(content: string): string {
+  return `user-${createHash("sha256").update(content).digest("hex").slice(0, 16)}`;
+}
+
+/**
+ * DNA domain split (change add-dna-project-domain-memory, tasks 5.1/5.2).
+ * An explicit, durable statement that lands in exactly one DNA domain is
+ * written to .pi/DNA.yaml with user-statement provenance instead of creating
+ * a T1 candidate. Every other case — untrusted project, no field wired, no
+ * domain hit, both domains, session-scoped content — returns null so the
+ * caller falls through to the existing T1 governance path unchanged.
+ */
+function routeToDna(
+  intent: Extract<
+    MemoryIntentResult,
+    {
+      type: "memory";
+    }
+  >,
+  runtime: MemoryActivationRuntime,
+): MemoryActivationResult | null {
+  if (!runtime.dna?.trusted) return null;
+  if (intent.kind === "session_context") return null;
+  const domains = detectDnaDomains(intent.content);
+  const hits = DNA_DOMAINS.filter((domain) => domains[domain]);
+  if (hits.length !== 1) return null;
+  const domain = hits[0];
+  const write = upsertDnaEntry({
+    cwd: runtime.dna.cwd,
+    domain,
+    trusted: true,
+    entry: {
+      confidence: "high",
+      id: dnaIntentId(intent.content),
+      semantic: intent.content.slice(0, 4000),
+      source: "user-authored",
+    },
+  });
+  if (write.status === "stored")
+    return {
+      domain,
+      id: write.id,
+      status: "dna",
+    };
+  // In-domain safety/schema rejection is terminal: never double-store to T1.
+  return {
+    reason: `dna-${write.reason}`,
+    status: "rejected",
+  };
+}
 /** Route explicit user intent through the existing T1 governance path. */
 export async function activateExplicitMemoryIntent(
   text: string,
@@ -232,6 +296,8 @@ export async function activateExplicitMemoryIntent(
 ): Promise<MemoryActivationResult> {
   const intent = extractExplicitMemoryIntent(text, runtime.context);
   if (intent.type === "skip") return skipResult(runtime, intent);
+  const dnaOutcome = routeToDna(intent, runtime);
+  if (dnaOutcome) return dnaOutcome;
   const operation = operationFor(intent.content, intent.kind, runtime, provenance);
   const classification = classifyProhibitedContent({
     content: operation.content,

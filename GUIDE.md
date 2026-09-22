@@ -94,6 +94,33 @@ Admission is **on by default for every kind**. A candidate is written to T1 unle
 | `assist` | Explicit-only; no automatic injection |
 | `high-value-auto` (default) | Automatic recall only on continuity/history triggers (e.g. "继续上次", "resume where we left off") |
 
+## Project domain memory (`.pi/DNA.yaml`)
+
+Two "human-flavor" domains live in one project file instead of T1: `art` (frontend visual design detail) and `write` (writing / creative habits). Everything else — code habits, project decisions, gotchas — stays in T1. The boundary in one line: **human taste goes into the file, engineering goes into the bank.**
+
+```yaml
+# .pi/DNA.yaml — hand-editable; comments and formatting are preserved
+art:
+  - id: card-border
+    semantic: Cards need a 1px border, no shadows
+    params: { border: 1px, shadow: none }
+    source: user-authored
+    confidence: high
+write: []
+```
+
+- **Entry fields** — `id` (kebab-case, unique per domain), `semantic`, optional `params`, `source` (`user-authored` / `agent-derived` / `agent-translated-user-confirmed`), `confidence` (`high` / `medium` / `low`). Every write is validated fail-closed: unknown fields, duplicate ids, prohibited content, or unconfirmed credentials are rejected and the file stays byte-identical.
+- **Who writes** — mainly the agent, through the `xpi_memo_dna_write` tool; you can hand-edit any time. A `user-authored` entry is yours: a conflicting agent update is rejected with a bounded conflict diagnostic and your version is kept. Explicit trusted statements that land in exactly one domain are captured into the file with user-statement provenance instead of creating a T1 candidate; everything else (untrusted project, out-of-domain, both domains) falls back to the existing T1 governance path.
+- **How it is delivered** — whole-domain injection, not recall: frontend-looking prompts inject the full `art` domain, writing prompts inject `write`, unrelated sessions inject nothing. The block is headed `项目文件上下文(.pi/DNA.yaml)`, is budgeted (40 entries / 4000 chars, truncation is labelled), and `xpi_memo_recall` never searches this file.
+- **Trust gate** — active only in a project Pi trusts; otherwise the file is not read, not written, and never created.
+- **Rollback** — it is an ordinary tracked file: `git diff .pi/DNA.yaml` to review, `git checkout -- .pi/DNA.yaml` or `git revert` to undo. Deleting the file turns the feature off; T1 is unaffected.
+
+| Domain | What belongs here | Stays in T1 instead |
+| --- | --- | --- |
+| `art` | visual taste: spacing, borders, colour, layout | component architecture, UI bug gotchas |
+| `write` | writing style, tone, story/script habits | docs standards, PR wording rules |
+| (none) | — | code habits (`global_workflow`), project decisions / constraints / gotchas |
+
 ## Mental models (derived standing answers)
 
 Confirmed memories answer single facts well; a **mental-model projection** answers a *standing question* built from several of them: "how does this user prefer to work" and "how does this project operate today". Two definitions ship in code and neither can be invented at runtime — `user-working-style` (global preferences and workflows) and `active-project-operating-model` (this project's constraints, decisions, repository facts, and gotchas).

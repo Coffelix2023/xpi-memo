@@ -25,6 +25,14 @@ import { loadConfig, mnemosyneEnvironment, saveUserConfig } from "./config.ts";
 import { type CandidateDecision, type ConsoleActions, openConsole } from "./console.ts";
 import { classifyProhibitedContent } from "./content-policy.ts";
 import { runT1Delete } from "./deletion-lifecycle.js";
+import { upsertDnaEntry } from "./dna/ingest.ts";
+import { buildDnaInjection } from "./dna/inject.ts";
+import {
+  DNA_CONFIDENCE,
+  DNA_DOMAINS,
+  DNA_ID_PATTERN,
+  DNA_SOURCES,
+} from "./dna/schema.ts";
 import {
   buildMemoryDoctorReport,
   detectMemoryRootSurfaces,
@@ -517,6 +525,112 @@ function recordMemoryFailure(
   });
 }
 
+/** Bounded DNA context for the current prompt; any failure fails open to null. */
+function dnaContextFor(
+  ctx: ExtensionContext,
+  dependencies: XpiMemoDependencies,
+  prompt: string,
+): string | null {
+  try {
+    return buildDnaInjection({
+      cwd: ctx.cwd,
+      prompt,
+      trusted: trustFor(ctx, dependencies),
+    });
+  } catch {
+    return null;
+  }
+}
+
+const dnaWriteParameters = Type.Object({
+  confidence: Type.Union(
+    DNA_CONFIDENCE.map((level) => Type.Literal(level)),
+    {
+      description: "Entry confidence tier (required, closed enum)",
+    },
+  ),
+  domain: Type.Union(
+    DNA_DOMAINS.map((domain) => Type.Literal(domain)),
+    {
+      description: "DNA domain (required, closed enum: art | write)",
+    },
+  ),
+  id: Type.String({
+    description: "Entry id (kebab-case, unique within the domain)",
+    maxLength: 64,
+    pattern: DNA_ID_PATTERN,
+  }),
+  params: Type.Optional(
+    Type.Record(
+      Type.String({
+        maxLength: 64,
+      }),
+      Type.Union([
+        Type.String({
+          maxLength: 300,
+        }),
+        Type.Number(),
+        Type.Boolean(),
+      ]),
+    ),
+  ),
+  semantic: Type.String({
+    description: "Semantic description of the rule",
+    maxLength: 4000,
+    minLength: 1,
+  }),
+  source: Type.Union(
+    DNA_SOURCES.map((source) => Type.Literal(source)),
+    {
+      description: "Provenance label (required, closed enum)",
+    },
+  ),
+});
+type DnaWriteParams = Static<typeof dnaWriteParameters>;
+
+async function executeDnaWrite(
+  params: DnaWriteParams,
+  ctx: ExtensionContext,
+  dependencies: XpiMemoDependencies,
+) {
+  const result = upsertDnaEntry({
+    cwd: ctx.cwd,
+    domain: params.domain,
+    trusted: trustFor(ctx, dependencies),
+    entry: {
+      confidence: params.confidence,
+      id: params.id,
+      ...(params.params
+        ? {
+            params: params.params,
+          }
+        : {}),
+      semantic: params.semantic,
+      source: params.source,
+    },
+  });
+  if (result.status === "stored")
+    return toolResult(
+      {
+        bank: ".pi/DNA.yaml",
+        id: result.id,
+        scope: "project",
+        status: "stored",
+      },
+      `stored ${result.domain}/${result.id} in .pi/DNA.yaml`,
+    );
+  const issues = (result.issues ?? [])
+    .map((issue) => `${issue.path}: ${issue.message}`)
+    .join("; ");
+  const status = result.reason === "io" ? "error" : "rejected";
+  return toolResult(
+    {
+      reason: result.reason,
+      status,
+    },
+    `DNA write rejected (${result.reason})${result.detail ? `: ${result.detail}` : ""}${issues ? ` — ${issues}` : ""}`,
+  );
+}
 function realTool<TParams extends TSchema>(
   name: string,
   label: string,
@@ -3709,6 +3823,10 @@ export default function xpiMemo(
             dataDir: runtime.config.dataDir,
             paused: runtime.config.paused,
           },
+          dna: {
+            cwd: ctx.cwd,
+            trusted: trustFor(ctx, dependencies),
+          },
         },
         input,
       );
@@ -3735,11 +3853,13 @@ export default function xpiMemo(
     ]
       .map((outcome) => outcome?.statusLine)
       .filter((line): line is string => typeof line === "string" && line.length > 0);
+    const dnaContext = dnaContextFor(ctx, dependencies, event.prompt);
     const contexts = [
       startupOutcome?.context,
       promptOutcome?.context,
+      dnaContext,
     ].filter((value): value is string => Boolean(value));
-    if (statusLines.length === 0) return;
+    if (statusLines.length === 0 && contexts.length === 0) return;
     const contextLines =
       contexts.length === 0
         ? []
@@ -3898,6 +4018,15 @@ export default function xpiMemo(
       "Recall bounded T1 memory for the current project and global scope.",
       recallParameters,
       (params, ctx) => executeRecall(params, ctx, dependencies, l0ForHooks()),
+    ),
+  );
+  pi.registerTool(
+    realTool(
+      "xpi_memo_dna_write",
+      "XpiMemo DNA Write",
+      "Write one project domain-memory entry into .pi/DNA.yaml (art or write domain).",
+      dnaWriteParameters,
+      (params, ctx) => executeDnaWrite(params, ctx, dependencies),
     ),
   );
   pi.registerTool(

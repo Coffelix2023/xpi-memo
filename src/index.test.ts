@@ -16,6 +16,7 @@ import {
   initTheme,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { Value } from "typebox/value";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // These tests drive the terminal command paths. This machine has Glimpse
@@ -543,6 +544,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       "xpi_memo_feedback",
       "xpi_memo_remember",
       "xpi_memo_recall",
+      "xpi_memo_dna_write",
       "xpi_memo_show_injected",
       "xpi_memo_forget",
       "xpi_memo_sleep",
@@ -5133,6 +5135,150 @@ describe("memory-boundaries skill", () => {
     ]) {
       expect(skill).toContain(outcome);
     }
+  });
+});
+
+describe("DNA prompt injection wiring (tasks 3.2-3.4)", () => {
+  const dnaFile = `art:\n  - id: card-border\n    semantic: 卡片必须有 1px 边框\n    source: user-authored\n    confidence: high\nwrite: []\n`;
+
+  async function runHook(options: { cwd: string; trusted: boolean }): Promise<string> {
+    const dataDir = createTemporaryDirectory();
+    const { events } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      isProjectTrusted: () => options.trusted,
+      resolveProjectIdentity: () => null,
+      run: async () =>
+        JSON.stringify({
+          engine: "linear",
+          results: [],
+          explain: {
+            stages: [],
+            embedding: {
+              available: false,
+              computed: false,
+            },
+          },
+        }),
+    });
+    const beforeAgentStart = events.find(({ name }) => name === "before_agent_start");
+    if (!beforeAgentStart) throw new Error("before_agent_start hook not registered");
+    const result = await beforeAgentStart.handler(
+      {
+        prompt: "帮我调整这个页面的布局",
+        type: "before_agent_start",
+      },
+      createToolContext({
+        cwd: options.cwd,
+      }),
+    );
+    return (
+      (
+        result as
+          | {
+              message?: {
+                content?: string;
+              };
+            }
+          | undefined
+      )?.message?.content ?? ""
+    );
+  }
+
+  it("injects the bounded DNA block for a frontend prompt in a trusted project", async () => {
+    const dataDir = createTemporaryDirectory();
+    mkdirSync(join(dataDir, ".pi"), {
+      recursive: true,
+    });
+    writeFileSync(join(dataDir, ".pi", "DNA.yaml"), dnaFile, "utf8");
+    const content = await runHook({
+      cwd: dataDir,
+      trusted: true,
+    });
+    expect(content).toContain("项目文件上下文(.pi/DNA.yaml)");
+    expect(content).toContain("卡片必须有 1px 边框");
+  });
+
+  it("injects nothing from DNA in an untrusted project", async () => {
+    const dataDir = createTemporaryDirectory();
+    mkdirSync(join(dataDir, ".pi"), {
+      recursive: true,
+    });
+    writeFileSync(join(dataDir, ".pi", "DNA.yaml"), dnaFile, "utf8");
+    const content = await runHook({
+      cwd: dataDir,
+      trusted: false,
+    });
+    expect(content).not.toContain("项目文件上下文(.pi/DNA.yaml)");
+    expect(content).not.toContain("卡片必须有 1px 边框");
+  });
+
+  it("rejects dna write input missing required fields at the schema layer", () => {
+    const { tools } = loadExtension();
+    const tool = tools.find(({ name }) => name === "xpi_memo_dna_write");
+    if (!tool) throw new Error("dna write tool not registered");
+    expect(
+      Value.Check(tool.parameters, {
+        domain: "art",
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(tool.parameters, {
+        confidence: "high",
+        domain: "art",
+        id: "Bad_ID",
+        semantic: "组件间距 gap 不小于 12px",
+        source: "agent-derived",
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(tool.parameters, {
+        confidence: "high",
+        domain: "art",
+        id: "gap-width",
+        semantic: "组件间距 gap 不小于 12px",
+        source: "agent-derived",
+      }),
+    ).toBe(true);
+  });
+
+  it("end-to-end smoke: dna write tool output becomes the injected block", async () => {
+    const dataDir = createTemporaryDirectory();
+    const { tools } = loadExtension({
+      env: {
+        XDG_CONFIG_HOME: dataDir,
+        XPI_MEMO_DATA_DIR: dataDir,
+      },
+      isProjectTrusted: () => true,
+      resolveProjectIdentity: () => null,
+    });
+    const tool = tools.find(({ name }) => name === "xpi_memo_dna_write");
+    if (!tool) throw new Error("dna write tool not registered");
+    const result = await tool.execute(
+      "smoke-dna-write",
+      {
+        confidence: "high",
+        domain: "art",
+        id: "smoke-border",
+        semantic: "冒烟条目:卡片必须有 1px 边框",
+        source: "user-authored",
+      },
+      undefined,
+      undefined,
+      createToolContext({
+        cwd: dataDir,
+      }),
+    );
+    expect(result.details).toMatchObject({
+      status: "stored",
+    });
+    const content = await runHook({
+      cwd: dataDir,
+      trusted: true,
+    });
+    expect(content).toContain("冒烟条目:卡片必须有 1px 边框");
   });
 });
 

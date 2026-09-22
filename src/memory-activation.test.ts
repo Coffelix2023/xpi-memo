@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -347,5 +347,88 @@ describe("explicit memory activation", () => {
     expect(stored).toHaveLength(0);
     expect(runtime.candidates.list()).toHaveLength(0);
     expect(runtime.audit.list()).toHaveLength(0);
+  });
+});
+
+describe("DNA domain split in explicit activation (tasks 5.1/5.2)", () => {
+  const artStatement = "记住:我偏好卡片必须有 border 样式";
+
+  function dnaRuntime(options: { cwd: string; trusted: boolean }) {
+    const dataDir = temporaryDirectory();
+    const stored: T1MemoryOperation[] = [];
+    return {
+      runtime: {
+        ...activationRuntime(dataDir, stored),
+        dna: options,
+      },
+      stored,
+    };
+  }
+
+  it("routes a trusted in-domain statement to DNA and creates no T1 candidate", async () => {
+    const projectDir = temporaryDirectory();
+    const { runtime, stored } = dnaRuntime({
+      cwd: projectDir,
+      trusted: true,
+    });
+
+    const result = await activateExplicitMemoryIntent(artStatement, runtime);
+
+    expect(result.status).toBe("dna");
+    if (result.status !== "dna") throw new Error("expected a DNA outcome");
+    expect(result.domain).toBe("art");
+    expect(stored).toHaveLength(0);
+    expect(runtime.candidates.list()).toHaveLength(0);
+    const file = readFileSync(join(projectDir, ".pi", "DNA.yaml"), "utf8");
+    expect(file).toContain(artStatement);
+    expect(file).toContain("user-authored");
+  });
+
+  it("falls back to T1 in an untrusted project and never touches DNA", async () => {
+    const projectDir = temporaryDirectory();
+    const { runtime, stored } = dnaRuntime({
+      cwd: projectDir,
+      trusted: false,
+    });
+
+    const result = await activateExplicitMemoryIntent(artStatement, runtime);
+
+    expect(result.status).not.toBe("dna");
+    expect(stored).toHaveLength(1);
+    expect(existsSync(join(projectDir, ".pi", "DNA.yaml"))).toBe(false);
+  });
+
+  it("falls back to T1 for out-of-domain statements in a trusted project", async () => {
+    const projectDir = temporaryDirectory();
+    const { runtime, stored } = dnaRuntime({
+      cwd: projectDir,
+      trusted: true,
+    });
+
+    const result = await activateExplicitMemoryIntent(
+      "Please remember: prefer concise answers.",
+      runtime,
+    );
+
+    expect(result.status).not.toBe("dna");
+    expect(stored).toHaveLength(1);
+    expect(existsSync(join(projectDir, ".pi", "DNA.yaml"))).toBe(false);
+  });
+
+  it("falls back to T1 when both DNA domains match (never guesses a category)", async () => {
+    const projectDir = temporaryDirectory();
+    const { runtime, stored } = dnaRuntime({
+      cwd: projectDir,
+      trusted: true,
+    });
+
+    const result = await activateExplicitMemoryIntent(
+      "记住:我偏好这个页面布局的文案写法",
+      runtime,
+    );
+
+    expect(result.status).not.toBe("dna");
+    expect(stored).toHaveLength(1);
+    expect(existsSync(join(projectDir, ".pi", "DNA.yaml"))).toBe(false);
   });
 });
