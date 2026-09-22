@@ -73,6 +73,8 @@ Field rows are laid out as `label / note / value`. Putting the cursor on a field
 
 **In the Glimpse window** the layout is a sidebar instead of a tab bar, so the keys differ: click a sidebar entry to switch views, `↑` / `↓` to move through the pending list, `Tab` / `Shift+Tab` to step through the settings fields of the open group, and `Esc` to close.
 
+The **Pending** page applies a decision on the spot: clicking `Store`, `Reject`, or `Later` writes the change and redraws the list from the queue that comes back, so a stored or rejected candidate leaves the list immediately instead of waiting for the panel to be reopened. Store and reject both remove the row while `Later` removes nothing, so the action bar names the outcome (`Stored` / `Rejected` / `Kept for later`) and clears the label as soon as you move to another candidate.
+
 The **Settings** page groups its fields the way the TUI does, but as a top tab strip: one tab per group (Retrieval, Storage, Pipeline, Mental models, Admission, Display, Privacy). Click a tab — or put focus on the strip and use `←` / `→` — to bring its fields forward; only the selected panel scrolls, so the strip never scrolls out of reach. Whichever row is highlighted is explained in the detail pane at the bottom.
 
 The **header** carries the status badge and three controls: the theme principle picker (`Default` / `Atlas`), the dark/light toggle, and the language toggle. Both appearance choices are window preferences and live in `<data dir>/ui-prefs.json`, not in the config file. Switching either one re-skins the window in place — every palette is already loaded — and the choice survives the next launch.
