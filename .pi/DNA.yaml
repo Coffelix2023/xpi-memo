@@ -1,0 +1,10 @@
+art:
+  [
+    {
+        confidence: high,
+        id: page-spacing-rounded,
+        semantic: 我偏好页面使用 12px 间距和圆角,
+        source: user-authored
+      }
+  ]
+write: []

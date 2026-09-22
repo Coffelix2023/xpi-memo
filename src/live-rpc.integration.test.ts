@@ -143,7 +143,7 @@ describe.skipIf(!enabled)("task 7.7 live RPC probe", () => {
     ) => tool(name).execute(id, params, undefined, undefined, contextFor(cwd));
 
     const statusCommand = commands.find(({ name }) => name === "xpi-memo-status");
-    await statusCommand?.handler("", contextFor(projectA, "rpc"));
+    await statusCommand?.handler("--json", contextFor(projectA, "rpc"));
     const status = JSON.parse(
       notifications.find((message) => message.includes('"tiers"')) ?? "{}",
     ) as {

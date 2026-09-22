@@ -486,7 +486,7 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
     const actions = audit.entries.map((entry: { action: string }) => entry.action);
     expect(actions).toEqual(
       expect.arrayContaining([
-        "confirmation",
+        "candidate-auto-admitted",
         "deletion",
         "recall",
         "sleep-authorization",
