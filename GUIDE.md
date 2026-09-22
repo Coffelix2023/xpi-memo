@@ -239,6 +239,7 @@ User config lives at `~/.config/xpi-memo/config.json` (or set keys via the conso
 | — | `XPI_MEMO_AUTO_VERIFY` | `true` | Env-only kill switch. `false`/`0` disables repository-fact verification: every candidate queues for manual Store/Later/Reject, and auto-admission has nothing to act on |
 | `retrievalMode` | `XPI_MEMO_RETRIEVAL_MODE` | `hybrid` | `fts5` / `hybrid` |
 | `sleepMode` | `XPI_MEMO_SLEEP_MODE` | `disabled` | Sleep execution mode: `dedicated` / `session-model` / `mechanical` / `disabled`. Fail-closed: no explicit mode means `SLEEP_DISABLED`; a fallback is never labeled `dedicated` |
+| — | `XPI_MEMO_SLEEP_MODEL` | *(empty)* | Env-only. Dedicated sleep model (`provider/model-id`) for `sleepMode=dedicated`; every other mode ignores it |
 | `mentalModelDefinitions` | `XPI_MEMO_MENTAL_MODEL_DEFINITIONS` | `user-working-style,active-project-operating-model` | Which built-in mental-model ids are evaluated and refreshed, comma-separated. An unknown id makes the whole value invalid (fail-closed to the default); an empty value disables the layer entirely |
 | `mentalModelSynthesisEnabled` | `XPI_MEMO_MENTAL_MODEL_SYNTHESIS_ENABLED` | `false` | Opt in to generating mental-model projections at compaction/session end. Freshness detection and delivery stay local either way |
 | `profileInjection` | `XPI_MEMO_PROFILE_INJECTION` | `true` | Bounded derived preference-profile block in the recall context; `false` omits the block only — recall is unchanged |

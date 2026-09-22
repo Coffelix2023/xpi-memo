@@ -120,6 +120,7 @@ Environment variables:
 - `XPI_MEMO_EMBEDDING_MODEL` / `XPI_MEMO_EMBEDDING_API_URL` (empty keeps mnemosyne's own default; the API key stays in `MNEMOSYNE_EMBEDDING_API_KEY` / `OPENAI_API_KEY`, never in xpi-memo's config)
 - `XPI_MEMO_RETRIEVAL_MODE`
 - `XPI_MEMO_SLEEP_MODE` = `dedicated|session-model|mechanical|disabled` (default `disabled`; fail-closed)
+- `XPI_MEMO_SLEEP_MODEL` = `provider/model-id` for the dedicated sleep run (env-only, no config key; the other `sleepMode` values never read it)
 - `XPI_MEMO_MENTAL_MODEL_DEFINITIONS` = comma-separated built-in mental-model ids (default: both; empty disables the layer)
 - `XPI_MEMO_MENTAL_MODEL_SYNTHESIS_ENABLED` = `true|false` (default `false`; opt in to generating projections — see [GUIDE.md § Mental models](./GUIDE.md#mental-models-derived-standing-answers))
 - `XPI_MEMO_PROFILE_INJECTION` = `true|false` (default `true`; `false` omits the derived preference-profile block)

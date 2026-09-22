@@ -24,12 +24,12 @@
 ## 5. 文档与评估档案
 
 - [x] 5.1 移除该边界的文档：`README.md`（功能要点 + 两个配置条目）、`README.zh-CN.md`（同上，另加设置页标签条清单里的「决策接入」）、`GUIDE.md`（配置表 9 行 + 整个 `Decision connection (optional)` 章节）。验证：`grep -rn "TYPESAFE_API\|decisionRunnerEnabled\|Decision connection\|决策出口\|decision-connection-optional" README.md README.zh-CN.md GUIDE.md ARCHITECTURE.md TROUBLESHOOTING.md docs/*.md` 无命中；`ARCHITECTURE.md` / `TROUBLESHOOTING.md` / `docs/COMPATIBILITY.md` / `docs/README.md` 经核对本就没有该边界内容（其中的 `decision` 命中都是无关的 `project_decision` kind 与 `routing_decision` 审计动作）。
-- [x] 5.2 新建 `docs/references/jev/README.md` 作为移除说明：快照性质、四个移除理由（无可用端点 / 精排治不了落榜 / 已有量级更大的零外发杠杆 / 无实测收益）、`TYPESAFE_*` 不再被读取、以及重新引入需要什么。验证：该文件存在且含 `remove-typesafe-decision-boundary`（命中 2 处）；三份快照本身保持逐字未改。
+- [x] 5.2 移除说明落在两处：`docs/references/jev/README.md`（快照旁的就地说明：快照性质、四个移除理由、`TYPESAFE_*` 不再被读取、重新引入需要什么），以及 `docs/COMPATIBILITY.md`「Config compatibility」里的 **Removed config keys** 段落（指向本变更，随提交入库）。**实施发现**：`.gitignore:22` 的 `**/references` 把整个 `docs/references/` 排除在版本控制外，该目录下 0 个文件被跟踪，因此就地说明无法进仓库——仓库内的权威记录改为 `docs/COMPATIBILITY.md` 那一段，就地说明保留为本地伴读。验证：两个文件都存在且含 `remove-typesafe-decision-boundary`；三份快照逐字未改。
 - [x] 5.3 核对 `docs/README.md` 的「当前有效」表与两份 `.pi/prototype-design/*/semantic-ui-map.yaml`。验证：`grep -rn -i "decision-runner\|decisionRerank\|decisionCalibration" docs .pi/prototype-design` 无命中；该表只收录 `docs/` 顶层的五份文件，不含 `references/`，因此新增的 jev README 不需要登记。
 
 ## 6. 门禁与收口
 
 - [x] 6.1 三条门禁全绿：`pnpm typecheck` 通过；`pnpm -w run lint` 退出码 0（仅 2 条 info，为 HEAD 既有的 `useMaxParams` 提示）；`pnpm test` = 119 passed / 4 skipped，1259 tests passed。验证：三条命令退出码均为 0。
 - [x] 6.2 在 `src/config.test.ts` 新增用例 `treats leftover decision-boundary keys as inert unknown keys`：临时配置写入全部七个决策键，断言 `loadConfig` 不抛错、`ignoredKeys` 为空、结果对象不含任何该键，且其余配置等于 `DEFAULT_XPI_MEMO_CONFIG`。验证：该用例通过（测试总数 1258 → 1259）。
-- [ ] 6.3 核对删除未触碰治理规则：变更文件集合与 `src/auto-store-policy.ts`、`src/evidence.ts`、`src/kinds.ts` 无交集。验证：`git diff --name-only` 与上述三个路径求交集为空。
-- [ ] 6.4 以单一提交收口，提交信息写明移除理由与回滚方式（`git revert`）。验证：`git show --stat HEAD` 仅包含本变更涉及的文件。
+- [x] 6.3 核对删除未触碰治理规则：变更文件集合与 `src/auto-store-policy.ts`、`src/evidence.ts`、`src/kinds.ts` 无交集。验证：`{ git diff --name-only HEAD; git status --porcelain | awk '{print $NF}'; } | sort -u | grep -E "auto-store-policy|evidence\.ts|kinds\.ts"` 无命中。
+- [x] 6.4 单一提交 `bf937b4 refactor(decision): remove the optional TypeSafe decision boundary`（40 个文件，+269/−3449），提交信息含移除理由、五条改动摘要与 `git revert` 回滚说明。按 §5 精确暂存，**排除**开工前就存在的 `src/live-rpc.integration.test.ts` 与 `src/real-cli.integration.test.ts` 改动（与本变更无关，仍留在工作区）。验证：`git show --stat HEAD` 只含本变更涉及的文件；提交后 `git status --short` 仅剩那两个既有改动与未跟踪的 `.pi/DNA.yaml`。
