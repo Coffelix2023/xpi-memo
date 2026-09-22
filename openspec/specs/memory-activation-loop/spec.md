@@ -178,3 +178,53 @@ The system MUST expose counts and outcomes that allow an operator to distinguish
 - **WHEN** a recall backend was queried but returned no eligible memory
 - **THEN** the system MUST distinguish that outcome from a recall that did not execute
 - **AND THEN** it MUST report the queried scope or bank in the diagnostic evidence
+
+### Requirement: Recall 精排必须门控、有界且可完全旁路
+
+系统 MAY 在粗排之后应用可选的决策精排,但仅当头部结果相关性分差不高于配置阈值时才可发起精排调用;精排 MUST 只重排既有候选,MUST NOT 增删结果、MUST NOT 改变条目与字符预算。精排关闭、被门控跳过或调用失败时,recall 输出 MUST 与未启用精排时一致。
+
+#### Scenario: 头部分差明显时跳过精排
+
+- **WHEN** 粗排第一名与第二名的分差高于门控阈值
+- **THEN** 不发起精排调用,直接采用粗排顺序
+- **AND THEN** 门控跳过计数 +1
+
+#### Scenario: 分差接近时启用精排
+
+- **WHEN** 粗排头部结果分差不高于门控阈值且 runner 已启用
+- **THEN** 对既有头部候选发起一次精排判定并按得分重排
+- **AND THEN** 结果集成员与预算不变
+
+#### Scenario: 精排失败时输出不变
+
+- **WHEN** 精排调用失败、超时或回答被回筛丢弃
+- **THEN** recall 采用粗排原始顺序返回
+- **AND THEN** 用户可见结果与未启用精排时一致,失败计数 +1
+
+### Requirement: 重复 prompt 必须经确定性计数与稳定性判定才产生候选
+
+系统 MUST 从 L0 事件日志确定性统计同义重复的用户 prompt(不调用模型计数),仅在重复次数达到配置阈值(默认 3)后,才可请求一次稳定性判定;判定概率达到配置阈值时系统 MUST 生成**待审候选**并标注重复证据来源,MUST NOT 自动写入 T1;概率低于阈值或判定不可用时 MUST 丢弃本次提议并仅留有界计数。
+
+#### Scenario: 重复达阈值且判定通过
+
+- **WHEN** 同义 prompt 在会话/跨会话累计达到 3 次且稳定性判定概率不低于阈值
+- **THEN** 生成一条待审候选,证据类型为重复信号并带 L0 来源引用
+- **AND THEN** 该候选不自动写入 T1,等待既有候选治理裁决
+
+#### Scenario: 判定未达阈值
+
+- **WHEN** 稳定性判定概率低于配置阈值
+- **THEN** 不生成候选,丢弃提议
+- **AND THEN** 丢弃以有界计数记录,不含 prompt 正文
+
+#### Scenario: 重复计数但 runner 不可用
+
+- **WHEN** 重复次数已达阈值但决策 runner 关闭或失败
+- **THEN** 不生成候选也不放宽为自动入库
+- **AND THEN** 行为等同该规则不存在,会话不被阻塞
+
+#### Scenario: 挫败型重复不产生偏好
+
+- **WHEN** 重复的 prompt 属于同一故障的反复追问(如重复报错)
+- **THEN** 稳定性判定概率低于阈值,不生成偏好候选
+- **AND THEN** 现有显式意图捕获路径不受影响

@@ -45,6 +45,20 @@ export const DEFAULT_XPI_MEMO_CONFIG = {
   autoExport: true,
   confirmStore: false,
   dataDir: join(homedir(), ".pi", "agent", "xpi-memo"),
+  /** Marks a calibrated confidence; never an evidence type or a policy gate. */
+  decisionCalibrationEnabled: false,
+  /** Consumer switch: repeat-prompt stability judgment (default off). */
+  decisionRepeatJudgmentEnabled: false,
+  /** Deterministic repeat threshold before one stability judgment is allowed. */
+  decisionRepeatThreshold: 3,
+  /** Consumer switch: gated head rerank after coarse recall ranking. */
+  decisionRerankEnabled: false,
+  /** Coarse-rank head gap at or below which the rerank gate opens. */
+  decisionRerankGapThreshold: 0.05,
+  /** Master switch; false issues no decision call of any kind. */
+  decisionRunnerEnabled: false,
+  /** Calibrated probability a stability judgment must reach to propose. */
+  decisionStabilityThreshold: 0.9,
   embeddingApiUrl: "",
   embeddingMode: "off",
   embeddingModel: "",
@@ -120,6 +134,30 @@ export interface XpiMemoConfig {
   autoExport: boolean;
   confirmStore: boolean;
   dataDir: string;
+  /**
+   * Consumer switch for confidence calibration. Calibration only ever
+   * rewrites a candidate's `confidence` and marks its provenance; it never
+   * touches an evidence type or an admission rule.
+   */
+  decisionCalibrationEnabled: boolean;
+  /**
+   * Consumer switch for repeat-prompt stability judgment. Off means the rule
+   * does not exist: no counting-driven candidate is ever proposed.
+   */
+  decisionRepeatJudgmentEnabled: boolean;
+  /** Repeat count that opens the stability judgment (deterministic, free). */
+  decisionRepeatThreshold: number;
+  /** Consumer switch for the gated rerank of an automatic-injection head. */
+  decisionRerankEnabled: boolean;
+  /** Head gap at or below which the rerank gate opens (deterministic gate). */
+  decisionRerankGapThreshold: number;
+  /**
+   * Master switch for the whole decision boundary. `false` (the default) is a
+   * structural zero-network-call guarantee: no consumer can reach a runner.
+   */
+  decisionRunnerEnabled: boolean;
+  /** Calibrated probability below which a stability judgment is discarded. */
+  decisionStabilityThreshold: number;
   /** Endpoint the panel's `api` embedding mode calls; empty means mnemosyne's own. */
   embeddingApiUrl: string;
   /** `off` costs no embedding work; `local` and `api` mirror mnemosyne's switches. */
@@ -181,6 +219,13 @@ export interface UserConfig {
   autoExport?: unknown;
   confirmStore?: unknown;
   dataDir?: unknown;
+  decisionCalibrationEnabled?: unknown;
+  decisionRepeatJudgmentEnabled?: unknown;
+  decisionRepeatThreshold?: unknown;
+  decisionRerankEnabled?: unknown;
+  decisionRerankGapThreshold?: unknown;
+  decisionRunnerEnabled?: unknown;
+  decisionStabilityThreshold?: unknown;
   embeddingApiUrl?: unknown;
   embeddingMode?: unknown;
   embeddingModel?: unknown;
@@ -640,6 +685,40 @@ const MENTAL_MODEL_VALIDATORS: Record<string, (value: unknown) => boolean> = {
   mentalModelDefinitions: mentalModelDefinitionList,
   mentalModelSynthesisEnabled: boolean,
 };
+
+/** Gap/threshold values are finite and non-negative; a ratio also caps at 1. */
+function nonNegativeNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+/**
+ * Validators for the decision keys (change add-typesafe-decision-hooks, task
+ * 1.1). Same contract as the tables above: a typo is ignored and named in
+ * `ignoredKeys`, never fatal to the file — a bad threshold must not switch on
+ * anything.
+ */
+const DECISION_VALIDATORS: Record<string, (value: unknown) => boolean> = {
+  decisionCalibrationEnabled: boolean,
+  decisionRepeatJudgmentEnabled: boolean,
+  decisionRepeatThreshold: positiveInteger,
+  decisionRerankEnabled: boolean,
+  decisionRerankGapThreshold: nonNegativeNumber,
+  decisionRunnerEnabled: boolean,
+  decisionStabilityThreshold: confidence,
+};
+
+function resolveNonNegativeNumber(
+  environmentValue: string | undefined,
+  userValue: unknown,
+  fallback: number,
+): number {
+  if (environmentValue !== undefined) {
+    const parsed = Number(environmentValue);
+    if (nonNegativeNumber(parsed)) return parsed;
+  }
+  if (nonNegativeNumber(userValue)) return userValue;
+  return fallback;
+}
 /**
  * Free-text config values: a model id or an endpoint. Free text by design, so
  * it fails closed to the documented default when neither the environment nor
@@ -726,6 +805,7 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
   const invalidConfigKeys = [
     ...Object.entries(ADMISSION_PREFERENCE_VALIDATORS),
     ...Object.entries(MENTAL_MODEL_VALIDATORS),
+    ...Object.entries(DECISION_VALIDATORS),
   ]
     .filter(([key, isValid]) => {
       const value = (user.config as Record<string, unknown>)[key];
@@ -819,6 +899,50 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadConfigResult {
       (nonEmptyString(user.config.dataDir)
         ? user.config.dataDir.trim()
         : DEFAULT_XPI_MEMO_CONFIG.dataDir),
+    decisionCalibrationEnabled: envBool(
+      "XPI_MEMO_DECISION_CALIBRATION",
+      boolean(user.config.decisionCalibrationEnabled)
+        ? user.config.decisionCalibrationEnabled
+        : DEFAULT_XPI_MEMO_CONFIG.decisionCalibrationEnabled,
+    ),
+    decisionRepeatJudgmentEnabled: envBool(
+      "XPI_MEMO_DECISION_REPEAT_JUDGMENT",
+      boolean(user.config.decisionRepeatJudgmentEnabled)
+        ? user.config.decisionRepeatJudgmentEnabled
+        : DEFAULT_XPI_MEMO_CONFIG.decisionRepeatJudgmentEnabled,
+    ),
+    decisionRepeatThreshold:
+      envPositiveInteger(env, "XPI_MEMO_DECISION_REPEAT_THRESHOLD") ??
+      (positiveInteger(user.config.decisionRepeatThreshold)
+        ? user.config.decisionRepeatThreshold
+        : DEFAULT_XPI_MEMO_CONFIG.decisionRepeatThreshold),
+    decisionRerankEnabled: envBool(
+      "XPI_MEMO_DECISION_RERANK",
+      boolean(user.config.decisionRerankEnabled)
+        ? user.config.decisionRerankEnabled
+        : DEFAULT_XPI_MEMO_CONFIG.decisionRerankEnabled,
+    ),
+    decisionRerankGapThreshold: resolveNonNegativeNumber(
+      envString(env, "XPI_MEMO_DECISION_RERANK_GAP"),
+      user.config.decisionRerankGapThreshold,
+      DEFAULT_XPI_MEMO_CONFIG.decisionRerankGapThreshold,
+    ),
+    decisionRunnerEnabled: envBool(
+      "XPI_MEMO_DECISION_RUNNER",
+      boolean(user.config.decisionRunnerEnabled)
+        ? user.config.decisionRunnerEnabled
+        : DEFAULT_XPI_MEMO_CONFIG.decisionRunnerEnabled,
+    ),
+    decisionStabilityThreshold: (() => {
+      const environmentValue = envString(env, "XPI_MEMO_DECISION_STABILITY_THRESHOLD");
+      if (environmentValue !== undefined) {
+        const parsed = Number(environmentValue);
+        if (confidence(parsed)) return parsed;
+      }
+      if (confidence(user.config.decisionStabilityThreshold))
+        return user.config.decisionStabilityThreshold;
+      return DEFAULT_XPI_MEMO_CONFIG.decisionStabilityThreshold;
+    })(),
     embeddingApiUrl: resolveFreeText(
       envString(env, "XPI_MEMO_EMBEDDING_API_URL"),
       user.config.embeddingApiUrl,

@@ -3,6 +3,9 @@ import type { AuditLog } from "./audit.js";
 import type { RoutingContext } from "./banks.js";
 import type { CandidateStore } from "./candidate-lifecycle.js";
 import { classifyProhibitedContent } from "./content-policy.js";
+import { calibrateEvidenceConfidence } from "./decision/calibration.js";
+import type { DecisionLedger } from "./decision/observability.js";
+import type { DecisionRunner } from "./decision/types.js";
 import { upsertDnaEntry } from "./dna/ingest.ts";
 import { detectDnaDomains } from "./dna/inject.ts";
 import { DNA_DOMAINS, type DnaDomain } from "./dna/schema.ts";
@@ -69,6 +72,15 @@ export interface MemoryActivationRuntime {
     paused: boolean;
   };
   context: RoutingContext;
+  /**
+   * Optional confidence calibration (task 4.x). Absent or
+   * `calibrate: false` keeps the extracted confidence untouched.
+   */
+  decision?: {
+    calibrate?: boolean;
+    ledger?: DecisionLedger;
+    runner?: DecisionRunner;
+  };
   /** Project root + trust verdict for the DNA domain split; absent = T1 only. */
   dna?: {
     cwd: string;
@@ -312,13 +324,32 @@ export async function activateExplicitMemoryIntent(
     );
   }
 
-  const evidence = createEvidenceRecord({
-    confidence: operation.confidence,
-    provenance: operation.provenance,
-    source: operation.source.source,
-    timestamp: operation.source.timestamp,
-    type: operation.source.evidenceType,
-  });
+  // Task 4.x: calibration may replace only `confidence` and the provenance
+  // mark. When it is off or unavailable the record is returned unchanged, so
+  // this call cannot alter admission behaviour.
+  const evidence = await calibrateEvidenceConfidence(
+    createEvidenceRecord({
+      confidence: operation.confidence,
+      provenance: operation.provenance,
+      source: operation.source.source,
+      timestamp: operation.source.timestamp,
+      type: operation.source.evidenceType,
+    }),
+    operation.content,
+    {
+      enabled: runtime.decision?.calibrate === true,
+      ...(runtime.decision?.ledger
+        ? {
+            ledger: runtime.decision.ledger,
+          }
+        : {}),
+      ...(runtime.decision?.runner
+        ? {
+            runner: runtime.decision.runner,
+          }
+        : {}),
+    },
+  );
   const candidate = generatePendingCandidate({
     content: operation.content,
     context: runtime.context,

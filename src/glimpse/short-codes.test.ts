@@ -25,7 +25,7 @@ import { assembleParts } from "./views/index.js";
  * line), plus the status view's extraction line (one meta row), plus the
  * triggers view: one nav entry and four anchors inside it.
  */
-const EXPECTED_CODE_COUNT = 95;
+const EXPECTED_CODE_COUNT = 104;
 
 function renderFixtureDocument(): string {
   const model = modelFixture();
@@ -99,12 +99,12 @@ describe("rendered document carries every code as an id", () => {
   });
 
   it("renders the settings field count the config actually has", () => {
-    // 39 fields across 7 groups, per `SETTINGS_GROUPS`. The window must not
+    // 46 fields across 8 groups, per `SETTINGS_GROUPS`. The window must not
     // fall back to the prototype's twenty.
     const fieldCodes = Object.values(FIELD_SHORT);
     const html = renderFixtureDocument();
 
-    expect(fieldCodes).toHaveLength(39);
+    expect(fieldCodes).toHaveLength(46);
     for (const code of fieldCodes) {
       expect(html, code).toContain(`id="${code}"`);
     }

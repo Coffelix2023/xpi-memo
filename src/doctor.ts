@@ -96,8 +96,17 @@ export interface MemoryDoctorInput {
   }>;
   /** Audit statuses paired 1:1 with auditActions (same index). */
   auditStatuses: Array<string | undefined>;
-  /** Row counts per queried bank, null when stats were unavailable. */
   bankRows: Record<string, number | null>;
+  /** Row counts per queried bank, null when stats were unavailable. */
+  /**
+   * Body-free decision-boundary counters (change add-typesafe-decision-hooks,
+   * task 1.5). Counts only: no judged state, no answer, no key.
+   */
+  decision?: {
+    calls: number;
+    failures: number;
+    gateSkips: number;
+  };
   feedback?: FeedbackSummary;
   /** t1_memory_write event count from the L0 session trace. */
   l0T1WriteEvents: number;
@@ -132,7 +141,12 @@ export interface MemoryDoctorReport {
   evidence: {
     audit: Record<string, number>;
     bankRows: Record<string, number | null>;
-    /** Pre-candidate routing rejection count (task 3.3). */
+    /** Decision-boundary call / failure / gate-skip counters (task 1.5). */
+    decision: {
+      calls: number;
+      failures: number;
+      gateSkips: number;
+    };
     degraded: number;
     l0T1WriteEvents: number;
     pendingCandidates: number;
@@ -247,6 +261,11 @@ export function buildMemoryDoctorReport(
     evidence: {
       audit: audit.counts,
       bankRows: input.bankRows,
+      decision: input.decision ?? {
+        calls: 0,
+        failures: 0,
+        gateSkips: 0,
+      },
       degraded,
       feedback: input.feedback ?? {
         conflicts: 0,

@@ -273,6 +273,46 @@ describe("buildMemoryDoctorReport", () => {
     });
   });
 
+  it("carries the bounded decision counters and defaults them to zero", () => {
+    const withCounters = buildMemoryDoctorReport(
+      {
+        auditActions: [],
+        auditStatuses: [],
+        bankRows: {},
+        l0T1WriteEvents: 0,
+        pendingCandidates: 0,
+        decision: {
+          calls: 3,
+          failures: 1,
+          gateSkips: 2,
+        },
+      },
+      [],
+    );
+    expect(withCounters.evidence.decision).toEqual({
+      calls: 3,
+      failures: 1,
+      gateSkips: 2,
+    });
+    // Counts only: the report never carries a judged state or an answer.
+    expect(JSON.stringify(withCounters.evidence.decision)).not.toContain("state");
+    const withoutCounters = buildMemoryDoctorReport(
+      {
+        auditActions: [],
+        auditStatuses: [],
+        bankRows: {},
+        l0T1WriteEvents: 0,
+        pendingCandidates: 0,
+      },
+      [],
+    );
+    expect(withoutCounters.evidence.decision).toEqual({
+      calls: 0,
+      failures: 0,
+      gateSkips: 0,
+    });
+  });
+
   it("counts routing rejections and degraded storage failures from audit statuses (task 3.3)", () => {
     const report = buildMemoryDoctorReport(
       {

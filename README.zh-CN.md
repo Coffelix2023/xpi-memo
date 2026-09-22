@@ -10,11 +10,13 @@
 
 - **T1 受治理记忆** — 路由（全局/项目/会话）、带候选确认的写入治理、策略驱动的召回
 - **记忆激活回路** — 显式用户意图（偏好、工作流、项目决策、坑点、会话上下文）从提示中确定性捕获，按 L0 事件位置 + 内容指纹幂等；会话结束时还有一条门控的离线提取路径（默认关闭），TUI 下运行时在输入框上方显示进度提示
+- **可选决策出口** — 三类窄判断（门控式召回头部精排、重复提示的稳定性判定、置信度校准）可以经由一个 provider-neutral 边界转交 TypeSafe System One 模型，**默认关闭**；总开关关闭时不构造任何 runner，任何失败都回退到既有行为，密钥只放在 `TYPESAFE_API_KEY` —— 详见 [GUIDE.md § Decision connection](./GUIDE.md#decision-connection-optional)
 - **人类可读的可观测性** — 固定的 7 类分类法（偏好、工作流、仓库事实、约束、决策、坑点、会话上下文），其角色、作用域与信任状态在控制台、状态与导出中一致
 - **L0 会话轨迹** — 每会话一份无损追加式 JSONL 日志（10 MB 轮转）；状态如何变化的事件真相（日志与记忆溯源都由它派生，bank 保存的是当前状态）
 - **派生的心智模型投影** — 两个由代码拥有、带版本的固定问题（全局工作风格、当前项目运行模型），只从**已确认**的 T1 条目派生答案，仅在会话边界刷新、合成**默认关闭**；注入文本被标记为不可信的派生数据，不会变成新的记忆 kind，源状态一变就不再参与召回
 - **Markdown 导出** — 人类可读的 `MEMORY.md`（由 bank 当前状态投影，带 L0 注释）+ 由 L0 折叠出的日志；增量、隐私脱敏、对 Git 友好
 - **可插拔检索** — 召回走回退链：mnemosyne（向量 + FTS5）→ ripgrep（全文）→ qmd（语义）；装了任意子集都能工作
+- **项目域记忆** — `.pi/DNA.yaml` 保存两个可手改、由 Agent 写入的域（`art` 视觉品味、`write` 写作习惯）；schema fail-closed，用户亲手写的条目对 Agent 不可变，整域注入（不走召回），仅限受信项目——人的品味进文件，工程事实进 bank
 - **双轨控制台** — `/xpi-memo` 在 Glimpse 可用时打开原生窗口（启动尺寸 800×600），不可用时落回 TUI 面板；两者从同一份视图模型渲染同样的四个视图（待审 / 最近 / 设置 / 状态），因此任一方都不会漏掉另一方展示的字段。窗口里的设置也能改：点字段，或聚焦后按 `Space`；窗口本身可缩放，布局会跟着铺满
 - **两套主题原则** — 窗口可以穿 `default` 配色，也可以切成 **Atlas**（图鉴 / 复古印刷：奶油纸、普鲁士蓝、直角、中文衬线），每套各带明暗两个变体；标题栏上是明暗开关 + 主题原则下拉，所有颜色只有一处出处（[THEMES.md](./THEMES.md)）
 
@@ -75,7 +77,7 @@ pi install npm:glimpseui
 
 **待审页**点下决策立刻生效：点「存入」「拒绝」或「稍后」会写完改动，并用回传的队列重绘列表，所以被存入或被拒绝的候选当场就从列表消失，不必等重开面板。存入和拒绝都会让那一行消失，「稍后」则一行都不动，所以按钮栏会给出结果标签（`已存入` / `已拒绝` / `已跳过`），一旦你切到别的候选就收起。
 
-**设置页**的分组和 TUI 一样，但排成顶部标签条：一组一个标签（召回与检索 / 存储与提取 / 记忆管道 / 心智模型 / 自动准入 / 界面与反馈 / 隐私与维护）。点标签即可把那组字段提到前面，也可以先聚焦标签条再按 `←` / `→`；只有选中的面板滚动，标签条不会被滚走。当前高亮的那一行由底部详情面板负责解释。
+**设置页**的分组和 TUI 一样，但排成顶部标签条：一组一个标签（召回与检索 / 存储与提取 / 记忆管道 / 心智模型 / 自动准入 / 决策接入 / 界面与反馈 / 隐私与维护）。点标签即可把那组字段提到前面，也可以先聚焦标签条再按 `←` / `→`；只有选中的面板滚动，标签条不会被滚走。当前高亮的那一行由底部详情面板负责解释。
 
 **标题栏**上是状态徽标加三个控件：主题原则下拉（`Default` / `Atlas`）、明暗开关、语言开关。两个外观选项都是窗口偏好，存在 `<数据目录>/ui-prefs.json`，不进 config 文件；切换时窗口原地换肤（四套配色都已在页面里），下次打开仍然生效。
 
@@ -88,7 +90,7 @@ pi install npm:glimpseui
 - `xpi_memo_forget` — 删除记忆
 - `xpi_memo_sleep` — 整理记忆（需要显式授权）
 
-**自动捕获。** 当你在提示里显式声明一条长期有效的偏好、工作流、项目决策、坑点或有边界的会话上下文时，激活回路会把它走一遍与 `xpi_memo_remember` 相同的治理路径——不需要额外调用工具。全局偏好/工作流直接落库；项目决策、约束与坑点会变成待审候选（见 [GUIDE.md § Activation loop](./GUIDE.md#activation-loop)）。
+**自动捕获。** 当你在提示里显式声明一条长期有效的偏好、工作流、项目决策、坑点或有边界的会话上下文时，激活回路会把它走一遍与 `xpi_memo_remember` 相同的治理路径——不需要额外调用工具。全局偏好/工作流直接落库；项目决策、约束与坑点会变成待审候选（见 [GUIDE.md § Activation loop](./GUIDE.md#activation-loop)）。受信项目里的美术/写作域规则改走 DNA 文件路径，不产生 T1 候选；其余路径不变。
 
 **自动准入。** 记忆默认直接入库：候选只有命中硬底线（禁止性内容、未解冲突、或记忆处于暂停状态）或被你自己收紧的偏好挡住时才不进 T1。偏好是一组开关——每类记忆一个，外加最低置信度、证据下限、来源范围与候选时效窗口；可以在 `/xpi-memo` 的设置标签里改，也能通过配置文件和 `XPI_MEMO_ADMISSION_*` 环境变量设置。仓库事实校验不再决定准入：校验通过会把证据升级为 `verified-repository-fact`，无论通过与否都留下记录。想整体关掉准入，用 `autoAdmit: false` 或 `XPI_MEMO_AUTO_ADMIT=false`，候选会回到待审队列。用 `/xpi-memo-rescan` 按当前偏好重扫存量候选：仍被偏好挡住的不再堆积，而是进入保留 30 天的归档。
 
@@ -125,6 +127,8 @@ pi install npm:glimpseui
 - `XPI_MEMO_PROFILE_INJECTION` = `true|false`（默认 `true`；`false` 时不注入派生的偏好画像块）
 - `XPI_MEMO_EVENT_PRESENTATION` = `true|false`（默认 `true`；`false` 时静默页脚/状态生命周期事件）
 - `XPI_MEMO_PASSIVE_FEEDBACK` = `true|false`（默认 `true`；`false` 时停止被动使用反馈写入）
+- `decisionRunnerEnabled` / `decisionRerankEnabled` / `decisionRepeatJudgmentEnabled` / `decisionCalibrationEnabled` = 决策出口开关（环境变量：`XPI_MEMO_DECISION_RUNNER` / `XPI_MEMO_DECISION_RERANK` / `XPI_MEMO_DECISION_REPEAT_JUDGMENT` / `XPI_MEMO_DECISION_CALIBRATION`，全部默认 `false`），另有 `decisionRerankGapThreshold`（`XPI_MEMO_DECISION_RERANK_GAP`，默认 `0.05`）、`decisionRepeatThreshold`（`XPI_MEMO_DECISION_REPEAT_THRESHOLD`，默认 `3`）与 `decisionStabilityThreshold`（`XPI_MEMO_DECISION_STABILITY_THRESHOLD`，默认 `0.9`）—— 详见 [GUIDE.md § Decision connection](./GUIDE.md#decision-connection-optional)
+- `TYPESAFE_API_KEY` / `TYPESAFE_API_URL` = 可选决策 runner 的凭据与接口地址（仅环境变量，永远不写进 xpi-memo 配置）。接口地址**必须显式配置**——没有内置默认 host，未配置时该边界没有 runner，所有消费方都停留在接入前的行为
 
 完整的配置表（含默认值与影响）见 [GUIDE.md](./GUIDE.md)。
 

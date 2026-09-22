@@ -420,6 +420,58 @@ const SETTINGS_FIELD_SPECS: Record<SettingsFieldId, SettingsFieldSpec> = {
     environment: "XPI_MEMO_DATA_DIR",
     values: [],
   },
+  decisionCalibrationEnabled: {
+    environment: "XPI_MEMO_DECISION_CALIBRATION",
+    values: [
+      "off",
+      "on",
+    ],
+  },
+  decisionRepeatJudgmentEnabled: {
+    environment: "XPI_MEMO_DECISION_REPEAT_JUDGMENT",
+    values: [
+      "off",
+      "on",
+    ],
+  },
+  decisionRepeatThreshold: {
+    environment: "XPI_MEMO_DECISION_REPEAT_THRESHOLD",
+    values: [
+      "3",
+      "5",
+      "10",
+    ],
+  },
+  decisionRerankEnabled: {
+    environment: "XPI_MEMO_DECISION_RERANK",
+    values: [
+      "off",
+      "on",
+    ],
+  },
+  decisionRerankGapThreshold: {
+    environment: "XPI_MEMO_DECISION_RERANK_GAP",
+    values: [
+      "0.02",
+      "0.05",
+      "0.1",
+    ],
+  },
+  decisionRunnerEnabled: {
+    environment: "XPI_MEMO_DECISION_RUNNER",
+    values: [
+      "off",
+      "on",
+    ],
+  },
+  decisionStabilityThreshold: {
+    environment: "XPI_MEMO_DECISION_STABILITY_THRESHOLD",
+    values: [
+      "0.8",
+      "0.9",
+      "0.95",
+    ],
+  },
   embeddingApiUrl: {
     environment: "XPI_MEMO_EMBEDDING_API_URL",
     text: true,

@@ -45,6 +45,20 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "choice.confirmStore":
       "Recommend: off · off=store silently · on=ask before every write",
     "choice.dataDir": "Read-only · change it in the config file or XPI_MEMO_DATA_DIR",
+    "choice.decisionCalibrationEnabled":
+      "Recommend: off · off=keep extracted confidence · on=ask for a calibrated one",
+    "choice.decisionRepeatJudgmentEnabled":
+      "Recommend: off · off=never propose from repeats · on=judge a repeated prompt",
+    "choice.decisionRepeatThreshold":
+      "Recommend: 3 · 3/5/10 repeats before one judgment",
+    "choice.decisionRerankEnabled":
+      "Recommend: off · off=keep coarse order · on=rerank a close head",
+    "choice.decisionRerankGapThreshold":
+      "Recommend: 0.05 · 0.02/0.05/0.1 head gap that opens the gate",
+    "choice.decisionRunnerEnabled":
+      "Recommend: off · off=no decision call at all · on=allow the boundary",
+    "choice.decisionStabilityThreshold":
+      "Recommend: 0.9 · 0.8/0.9/0.95 probability needed to propose",
     "choice.embeddingApiUrl":
       "Used by api mode only · empty keeps mnemosyne's own endpoint",
     "choice.embeddingMode":
@@ -121,6 +135,20 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
       "Ask you before the Agent stores a memory · Space toggles on/off, Enter saves",
     "detail.dataDir":
       "Where memories live on disk · human-only · read-only, edit the config file",
+    "detail.decisionCalibrationEnabled":
+      "Rewrite a candidate's confidence from a decision call · Space toggles",
+    "detail.decisionRepeatJudgmentEnabled":
+      "Count repeats locally, then ask once if they are a stable preference",
+    "detail.decisionRepeatThreshold":
+      "Same-meaning repeats before the judge is asked · Space cycles, Enter saves",
+    "detail.decisionRerankEnabled":
+      "Rerank a close recall head through the decision boundary · Space toggles",
+    "detail.decisionRerankGapThreshold":
+      "Head score gap at or below this opens the rerank gate · Space cycles, Enter saves",
+    "detail.decisionRunnerEnabled":
+      "Master switch for the optional decision boundary · off issues no call",
+    "detail.decisionStabilityThreshold":
+      "Judged probability needed to propose a candidate · Space cycles, Enter saves",
     "detail.embeddingApiUrl":
       "Endpoint for api mode · Space edits it inline, Esc cancels",
     "detail.embeddingMode":
@@ -182,6 +210,13 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.autoExport": "Auto export",
     "field.confirmStore": "Confirm store",
     "field.dataDir": "Data dir",
+    "field.decisionCalibrationEnabled": "Decision: calibration",
+    "field.decisionRepeatJudgmentEnabled": "Decision: repeat judgment",
+    "field.decisionRepeatThreshold": "Decision: repeat threshold",
+    "field.decisionRerankEnabled": "Decision: rerank",
+    "field.decisionRerankGapThreshold": "Decision: rerank gap",
+    "field.decisionRunnerEnabled": "Decision runner",
+    "field.decisionStabilityThreshold": "Decision: stability bar",
     "field.embeddingApiUrl": "Embedding API URL",
     "field.embeddingMode": "Embedding mode",
     "field.embeddingModel": "Embedding model",
@@ -206,6 +241,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.sleep": "Run sleep now",
     "field.sleepMode": "Sleep mode",
     "group.admission": "Admission",
+    "group.decision": "Decision",
     "group.display": "Display",
     "group.mentalModels": "Mental models",
     "group.pipeline": "Pipeline",
@@ -245,6 +281,13 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "note.autoExport": "Periodic export backup",
     "note.confirmStore": "Ask before writing",
     "note.dataDir": "Read-only, edit config file",
+    "note.decisionCalibrationEnabled": "Needs the runner on",
+    "note.decisionRepeatJudgmentEnabled": "Counting is free; judging is not",
+    "note.decisionRepeatThreshold": "Deterministic, no model",
+    "note.decisionRerankEnabled": "Only a close head is judged",
+    "note.decisionRerankGapThreshold": "Smaller asks more often",
+    "note.decisionRunnerEnabled": "Off = no network call",
+    "note.decisionStabilityThreshold": "Lower proposes more",
     "note.embeddingApiUrl": "api mode only",
     "note.embeddingMode": "Off saves 73% CPU",
     "note.embeddingModel": "Empty = mnemosyne default",
@@ -305,6 +348,16 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "choice.autoExport": "推荐: on · off=不备份 · on=定期导出 Markdown",
     "choice.confirmStore": "推荐: off · off=直接写入 · on=每次写入前问你",
     "choice.dataDir": "只读 · 改配置文件或 XPI_MEMO_DATA_DIR",
+    "choice.decisionCalibrationEnabled":
+      "推荐: off · off=保留原置信度 · on=询问校准后的置信度",
+    "choice.decisionRepeatJudgmentEnabled":
+      "推荐: off · off=重复不产生候选 · on=对重复提问判定一次",
+    "choice.decisionRepeatThreshold": "推荐: 3 · 3/5/10 次重复后才判定一次",
+    "choice.decisionRerankEnabled":
+      "推荐: off · off=保留粗排顺序 · on=对接近的头部精排",
+    "choice.decisionRerankGapThreshold": "推荐: 0.05 · 0.02/0.05/0.1 的分差才打开门控",
+    "choice.decisionRunnerEnabled": "推荐: off · off=完全不发决策调用 · on=允许该出口",
+    "choice.decisionStabilityThreshold": "推荐: 0.9 · 0.8/0.9/0.95 概率才提议候选",
     "choice.embeddingApiUrl": "仅 api 用于外部接口 · 留空沿用 mnemosyne 自己的",
     "choice.embeddingMode":
       "推荐: off · off=不做向量化 · local=本机模型 · api=外部接口",
@@ -364,6 +417,17 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
       "定期把记忆库导出成 Markdown 备份 · 只与你有关 · 空格切换 on/off, Enter 保存",
     "detail.confirmStore": "Agent 写记忆前先问你 · 空格切换 on/off, Enter 保存",
     "detail.dataDir": "记忆在磁盘上的位置 · 只读, 改配置文件或环境变量",
+    "detail.decisionCalibrationEnabled":
+      "用决策结果改写候选置信度 · 空格切换, Enter 保存",
+    "detail.decisionRepeatJudgmentEnabled": "本地计数重复, 达阈值才问一次是否稳定偏好",
+    "detail.decisionRepeatThreshold": "同义重复多少次才允许判定 · 空格切换, Enter 保存",
+    "detail.decisionRerankEnabled":
+      "对接近的召回头部精排 · 只改顺序不改成员 · 空格切换",
+    "detail.decisionRerankGapThreshold":
+      "分差不高于此值才开门控 · 空格切换, Enter 保存",
+    "detail.decisionRunnerEnabled": "可选决策出口的总开关 · off 时零网络调用",
+    "detail.decisionStabilityThreshold":
+      "判定概率达到此值才生成待审候选 · 空格切换, Enter 保存",
     "detail.embeddingApiUrl": "api 模式的外部接口 · 空格进入行内编辑, Esc 取消",
     "detail.embeddingMode": "召回是否走向量检索 · 空格循环 off/local/api, Enter 保存",
     "detail.embeddingModel": "嵌入模型 id · 空格进入行内编辑, Esc 取消",
@@ -410,6 +474,13 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.autoExport": "自动导出",
     "field.confirmStore": "存储前确认",
     "field.dataDir": "数据目录",
+    "field.decisionCalibrationEnabled": "决策: 置信度校准",
+    "field.decisionRepeatJudgmentEnabled": "决策: 重复判定",
+    "field.decisionRepeatThreshold": "决策: 重复阈值",
+    "field.decisionRerankEnabled": "决策: 精排",
+    "field.decisionRerankGapThreshold": "决策: 精排分差",
+    "field.decisionRunnerEnabled": "决策出口",
+    "field.decisionStabilityThreshold": "决策: 稳定性门槛",
     "field.embeddingApiUrl": "嵌入接口地址",
     "field.embeddingMode": "嵌入模式",
     "field.embeddingModel": "嵌入模型",
@@ -434,6 +505,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "field.sleep": "立即整理一次",
     "field.sleepMode": "记忆整理方式",
     "group.admission": "自动准入",
+    "group.decision": "决策接入",
     "group.display": "界面与反馈",
     "group.mentalModels": "心智模型",
     "group.pipeline": "记忆管道",
@@ -473,6 +545,13 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "note.autoExport": "定期导出备份",
     "note.confirmStore": "写入前先问你",
     "note.dataDir": "只读, 改它要编辑配置",
+    "note.decisionCalibrationEnabled": "需要总开关打开",
+    "note.decisionRepeatJudgmentEnabled": "计数免费, 判定收费",
+    "note.decisionRepeatThreshold": "纯确定性, 不调模型",
+    "note.decisionRerankEnabled": "只判接近的头部",
+    "note.decisionRerankGapThreshold": "越小触发越频繁",
+    "note.decisionRunnerEnabled": "off 即零网络调用",
+    "note.decisionStabilityThreshold": "越低越容易提议",
     "note.embeddingApiUrl": "仅 api 用",
     "note.embeddingMode": "off 省 73% CPU",
     "note.embeddingModel": "留空即 mnemosyne 默认",

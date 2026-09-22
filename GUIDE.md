@@ -244,6 +244,15 @@ User config lives at `~/.config/xpi-memo/config.json` (or set keys via the conso
 | `profileInjection` | `XPI_MEMO_PROFILE_INJECTION` | `true` | Bounded derived preference-profile block in the recall context; `false` omits the block only — recall is unchanged |
 | `eventPresentation` | `XPI_MEMO_EVENT_PRESENTATION` | `true` | Footer lifecycle-event line and `/xpi-memo-status` event summaries; `false` keeps L0/audit writes and `trace` reads |
 | `passiveFeedback` | `XPI_MEMO_PASSIVE_FEEDBACK` | `true` | Rate-limited `used` feedback on recall/injection; `false` keeps explicit feedback and corrections |
+| `decisionRunnerEnabled` | `XPI_MEMO_DECISION_RUNNER` | `false` | Master switch for the optional TypeSafe System One decision boundary. `false` is a structural guarantee: no runner is built and no consumer can reach one |
+| `decisionRerankEnabled` | `XPI_MEMO_DECISION_RERANK` | `false` | Rerank a recall head the coarse rank left too close to call (gap at or below `decisionRerankGapThreshold`). It only reorders the rows already selected |
+| `decisionRerankGapThreshold` | `XPI_MEMO_DECISION_RERANK_GAP` | `0.05` | Coarse-rank head gap at or below which the rerank gate opens. Smaller asks the model more often |
+| `decisionRepeatJudgmentEnabled` | `XPI_MEMO_DECISION_REPEAT_JUDGMENT` | `false` | Count same-meaning prompt repeats deterministically, then ask once whether the repeat is a durable preference. A passing judgment produces a pending candidate only |
+| `decisionRepeatThreshold` | `XPI_MEMO_DECISION_REPEAT_THRESHOLD` | `3` | Repeats needed before that one judgment is allowed |
+| `decisionCalibrationEnabled` | `XPI_MEMO_DECISION_CALIBRATION` | `false` | Replace a candidate's `confidence` with a calibrated value and mark the provenance `+calibrated`. Never changes an evidence type or an admission rule |
+| `decisionStabilityThreshold` | `XPI_MEMO_DECISION_STABILITY_THRESHOLD` | `0.9` | Calibrated probability a stability judgment must reach before a candidate is proposed. Below it the proposal is dropped |
+| — | `TYPESAFE_API_KEY` | — | Env-only credential for the default HTTP runner. Never written to `config.json`, logs, or diagnostics |
+| — | `TYPESAFE_API_URL` | — (**required**) | Env-only endpoint for the default HTTP runner. There is no built-in default host: an enabled boundary with no endpoint reaches no runner at all |
 
 ### Disabling runtime surfaces (rollback)
 
@@ -254,6 +263,36 @@ The `evolve-memory-runtime` surfaces can be disabled independently. Turning all 
 | Preference profile injection | `profileInjection: false` | Recall still injects governed memories; projection stays available for status/diagnostics |
 | Lifecycle event presentation | `eventPresentation: false` | L0/audit records keep being written; `/xpi-memo-status` keeps backend, counts and doctor evidence |
 | Passive usage feedback | `passiveFeedback: false` | Explicit `helpful`/`wrong`/`irrelevant` feedback and corrections keep working |
+
+## Decision connection (optional)
+
+xpi-memo can route three narrow judgments to an optional [TypeSafe](https://typesafe.dev) System One model instead of a chat model. It ships **off**, and off is a structural guarantee: no runner is built and no consumer can reach one, so a stopped or unavailable provider is not a malfunction — it is the default state.
+
+| Consumer | Switch | What it changes |
+| --- | --- | --- |
+| Gated recall rerank | `decisionRerankEnabled` | Reorders an already budgeted recall head, and only when the coarse top-two gap is at or below `decisionRerankGapThreshold`. The selected rows, the item budget and the character budget are unchanged by construction — the judge returns a permutation of the ids it was given |
+| Repeat-prompt stability | `decisionRepeatJudgmentEnabled` | Counts same-meaning repeats deterministically from the L0 trace (no model call), then asks once whether the repeat is a durable preference. A passing judgment produces a **pending candidate** with a repeat-signal source and an L0 reference; it never writes T1 |
+| Confidence calibration | `decisionCalibrationEnabled` | Replaces a candidate's `confidence` with the calibrated value and marks the provenance `+calibrated`. The evidence `type` is untouched, so a calibrated number can never appear as `explicit-user-statement`, and no admission rule changes |
+
+### Credentials and egress
+
+The key is read from `TYPESAFE_API_KEY` at call time and sent only in the `Authorization` header. It is never written to `config.json`, logs, or diagnostics. The endpoint must be configured explicitly with `TYPESAFE_API_URL` — the evaluation snapshot in `docs/references/jev/` documents `POST /v1/systemone` but no host, and this extension does not invent one. Without an endpoint there is no runner, every consumer reports `runner-unavailable`, and behaviour stays at the pre-feature baseline.
+
+Outbound content passes the same boundary as every other external call: a credential is redacted before it leaves the process, and content that cannot be confirmed safe (an unterminated private key) refuses the call instead of sending it. An inbound answer is validated into a closed shape and re-screened for prompt injection and persistability; anything that fails is dropped and the caller falls back to local behaviour.
+
+### Fail-open semantics
+
+Every failure — no key, timeout, rate limit, provider outage, malformed or unsafe answer — falls back to the behaviour that existed before this feature:
+
+- rerank: the coarse order is returned unchanged,
+- repeat judgment: no candidate is proposed, and nothing is relaxed into an automatic write,
+- calibration: the original `confidence` and provenance are kept, with no `calibrated` mark.
+
+The session is never blocked and the feature is never required. Status (and doctor) report the switches plus per-consumer call counts, fail-open counts and gate-skip counts — counts only, never the state that was sent out or the answer that came back.
+
+### Turning it off
+
+Set `decisionRunnerEnabled: false` (`XPI_MEMO_DECISION_RUNNER=false`, or the Decision group in `/xpi-memo` → Settings) and leave the consumer switches wherever they are. That is the whole rollback: nothing is migrated, no stored data changes, and re-enabling restores the previous behaviour.
 
 ## Data roots and CLI cross-checks
 

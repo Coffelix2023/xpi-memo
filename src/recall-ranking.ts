@@ -36,6 +36,13 @@ export interface RankedRecallOutput {
   diagnostics: {
     deduplicated: number;
     items: number;
+    /**
+     * Coarse-rank gap between the top two eligible rows; null when fewer
+     * than two survived filtering. The rerank gate (change
+     * add-typesafe-decision-hooks, task 2.1) reads this, so the gate and the
+     * ranking it gates can never disagree about what "close" means.
+     */
+    headGap: number | null;
     roles: Array<{
       role: "contextual" | "standing";
       items: number;
@@ -200,6 +207,25 @@ function dedupeKey(item: RecallItem): string {
 }
 
 /**
+ * Coarse-rank gap between the top two remaining rows.
+ *
+ * Null when fewer than two rows survived, or when neither is separable —
+ * both cases mean "no rerank opportunity", which is a skip, not a failure.
+ */
+function headGapOf(
+  ranked: readonly RecallItem[],
+  intents: Partial<Record<MemoryKind, number>>,
+  boost: number,
+  now: Date,
+): number | null {
+  const [first, second] = ranked;
+  if (!first || !second) return null;
+  return Math.abs(
+    scoreOf(first, intents, boost, now) - scoreOf(second, intents, boost, now),
+  );
+}
+
+/**
  * Rank, filter, dedupe, and budget the automatic-injection selection.
  * Returns null when nothing survives, so callers omit the memory block
  * instead of injecting an empty or raw trace block (task 5.4).
@@ -269,6 +295,7 @@ export function rankRecallResults(
     contextual,
     standing,
     diagnostics: {
+      headGap: headGapOf(ranked, intents, boost, now),
       deduplicated,
       items: eligible.length,
       roles: [

@@ -317,7 +317,7 @@ describe("settings view", () => {
 
   it("renders one row per configured field", () => {
     expect(countClass(html, "field-row")).toBe(rows.length);
-    expect(rows).toHaveLength(39);
+    expect(rows).toHaveLength(46);
   });
 
   it("renders an editable control for every writable shape", () => {
@@ -353,7 +353,7 @@ describe("settings view", () => {
     expect(countClass(html, "tabs-trigger")).toBe(SETTINGS_GROUPS.length);
     expect(countText(html, 'role="tab"')).toBe(SETTINGS_GROUPS.length);
     expect(countText(html, 'role="tabpanel"')).toBe(SETTINGS_GROUPS.length);
-    expect(SETTINGS_GROUPS).toHaveLength(7);
+    expect(SETTINGS_GROUPS).toHaveLength(8);
   });
 
   it("wires each tab to its own panel", () => {

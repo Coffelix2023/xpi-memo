@@ -741,6 +741,13 @@ describe("4.6 Settings tab", () => {
       "admissionMinConfidence",
       "admissionSourceScope",
       "archiveRetentionDays",
+      "decisionRunnerEnabled",
+      "decisionRerankEnabled",
+      "decisionRerankGapThreshold",
+      "decisionRepeatJudgmentEnabled",
+      "decisionRepeatThreshold",
+      "decisionCalibrationEnabled",
+      "decisionStabilityThreshold",
       "language",
       "eventPresentation",
       "passiveFeedback",
@@ -1358,6 +1365,7 @@ describe("4.6 Settings tab", () => {
       "display",
       "mentalModels",
       "privacy",
+      "decision",
     ]);
     const firstOpen = settingsRows(items, collapsedElsewhere);
     // The first group's last field row sits just before its neighbour's header.
@@ -1371,10 +1379,10 @@ describe("4.6 Settings tab", () => {
         "retrieval",
       ]),
     );
-    expect(allCollapsed).toHaveLength(7);
+    expect(allCollapsed).toHaveLength(8);
     // An index past the end does not exist; clamping keeps the cursor renderable.
     const moved = clampCursor(9, allCollapsed.length);
-    expect(moved).toBe(6);
+    expect(moved).toBe(7);
     expect(allCollapsed[moved]).toBeDefined();
     // Reopening lands on the group header, which is a real row.
     expect(groupHeaderIndex(firstOpen, "retrieval")).toBe(0);
@@ -1572,7 +1580,7 @@ describe("4.6 Settings tab", () => {
     });
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
-    // Row 0 is the first group header; the default view holds 13 rows.
+    // Row 0 is the first group header; the default view holds 14 rows.
     expect(panel.getSettingsCursor()).toBe(0);
     panel.handleInput("\u001b[B");
     expect(panel.getSettingsCursor()).toBe(1);
@@ -1583,14 +1591,14 @@ describe("4.6 Settings tab", () => {
     for (let i = 0; i < 4; i += 1) panel.handleInput("\u001b[A");
     expect(panel.getSettingsCursor()).toBe(3);
     // Down wraps from the last row back to the first.
-    for (let i = 0; i < 10; i += 1) panel.handleInput("\u001b[B");
+    for (let i = 0; i < 11; i += 1) panel.handleInput("\u001b[B");
     expect(panel.getSettingsCursor()).toBe(0);
   });
 
   it("the window follows the cursor when the sequence outgrows the body", () => {
     const accented: string[] = [];
     const panel = component({
-      // body = 2 rows, but the default view is 13 rows long.
+      // body = 2 rows, but the default view is 14 rows long.
       terminalRows: 10,
       theme: {
         bold: (text: string) => text,
@@ -1607,7 +1615,7 @@ describe("4.6 Settings tab", () => {
     expect(accentedRows(accented)).toHaveLength(1);
     expect(accentedRows(accented)[0] ?? "").toContain("Retrieval");
     // Walking to the last row must drag the window with it.
-    for (let i = 0; i < 12; i += 1) panel.handleInput("\u001b[B");
+    for (let i = 0; i < 13; i += 1) panel.handleInput("\u001b[B");
     accented.length = 0;
     panel.render(78);
     expect(accentedRows(accented)).toHaveLength(1);
@@ -1695,7 +1703,7 @@ describe("4.6 Settings tab", () => {
 
     // Action row: walk back to the header and wrap up to the last group.
     for (let i = 0; i < 3; i += 1) panel.handleInput("\u001b[A");
-    expect(panel.getSettingsCursor()).toBe(12);
+    expect(panel.getSettingsCursor()).toBe(13);
     panel.handleInput(" "); // unfold Privacy & maintenance
     for (let i = 0; i < 3; i += 1) panel.handleInput("\t"); // → One-shot sleep
     panel.handleInput(" ");
@@ -1758,10 +1766,10 @@ describe("4.6 Settings tab", () => {
     panel.handleInput("\u001b[C");
     panel.handleInput("\u001b[C"); // → Settings
     expect(panel.render(PANEL_WIDTH).join("\n")).toContain("Retrieval");
-    // Display is the sixth header: retrieval, storage, pipeline, mental models
-    // and admission come first.
-    for (let i = 0; i < 11; i += 1) panel.handleInput("\u001b[B");
-    expect(panel.getSettingsCursor()).toBe(11);
+    // Display is the seventh header: retrieval, storage, pipeline, mental
+    // models, admission and decision come first.
+    for (let i = 0; i < 12; i += 1) panel.handleInput("\u001b[B");
+    expect(panel.getSettingsCursor()).toBe(12);
     panel.handleInput(" "); // fold Display open, cursor stays on the header
     panel.handleInput("\t"); // → Language, its first field
     panel.handleInput(" "); // en → zh
