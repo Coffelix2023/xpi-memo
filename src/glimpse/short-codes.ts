@@ -25,6 +25,7 @@ export const SHELL_SHORT = {
   navRecent: "P0-1-N2",
   navSettings: "P0-1-N3",
   navStatus: "P0-1-N4",
+  navTriggers: "P0-1-N5",
   principle: "P0-1-W3",
   sidebar: "P0-1-A3",
   theme: "P0-1-W1",
@@ -62,9 +63,22 @@ export const STATUS_SHORT = {
   cardRecords: "P4-1-C2",
   cards: "P4-1-A1",
   cardToday: "P4-1-C4",
+  extraction: "P4-1-U3",
   snapshot: "P4-1-A2",
   sparkline: "P4-1-U2",
   usageBar: "P4-1-U1",
+} as const;
+
+/**
+ * The triggers view's anchors. Four codes, not one per rule: the rules are
+ * data, and a code per row would mean renumbering the table whenever a phrase
+ * list is reordered.
+ */
+export const TRIGGERS_SHORT = {
+  admission: "P5-1-L3",
+  capture: "P5-1-L1",
+  hint: "P5-1-T1",
+  recall: "P5-1-L2",
 } as const;
 
 /** Group short codes, keyed by the group id in `SETTINGS_GROUPS`. */
@@ -148,5 +162,6 @@ export function allShortCodes(): string[] {
     ...Object.values(SETTINGS_PANEL_SHORT),
     ...Object.values(FIELD_SHORT),
     ...Object.values(STATUS_SHORT),
+    ...Object.values(TRIGGERS_SHORT),
   ];
 }

@@ -39,6 +39,8 @@ import { createEvidenceRecord } from "./evidence.ts";
 import {
   createExtractionBudgetLedger,
   type ExtractionBudgetLimits,
+  extractionBudgetPath,
+  readExtractionLastOutcome,
 } from "./extraction-budget.ts";
 import {
   applyFeedbackToRecall,
@@ -178,6 +180,7 @@ import { executeSleep } from "./sleep-execution.ts";
 import { formatSourceTrace, traceCandidate, traceMemoryEvent } from "./source-trace.ts";
 import {
   formatStatusJson,
+  formatStatusText,
   type MemoryStatus,
   renderStatus,
   todayStored,
@@ -690,6 +693,30 @@ function createRuntime(
  * runner is undefined whenever that resolves to nothing, which keeps "no model"
  * a bounded `unavailable` diagnostic instead of a failed model call.
  */
+/**
+ * The model offline extraction will use, as `provider/id`, or undefined when
+ * no registry entry matches.
+ *
+ * Separate from `sessionModelRunnerFor` because it answers a different
+ * question: that one builds a runner, this one names the choice so the status
+ * surface can show it. Both go through `matchOfflineExtractionModel` so the
+ * name cannot describe a model the runner would not pick.
+ */
+function extractionModelName(
+  ctx: ExtensionContext,
+  env: NodeJS.ProcessEnv | undefined,
+): string | undefined {
+  if (!ctx.modelRegistry) return undefined;
+  const model = matchOfflineExtractionModel(
+    loadConfig({
+      env,
+    }).config.offlineExtractionModel,
+    ctx.model,
+    () => ctx.modelRegistry?.getAll() ?? [],
+  );
+  return model ? `${model.provider}/${model.id}` : undefined;
+}
+
 function sessionModelRunnerFor(
   ctx: ExtensionContext,
   config: ReturnType<typeof loadConfig>["config"],
@@ -915,7 +942,7 @@ async function extractOfflineMemories(
 
   const ledger = createExtractionBudgetLedger({
     sessionId,
-    statePath: join(config.dataDir, "extraction-budget.json"),
+    statePath: extractionBudgetPath(config.dataDir),
   });
   const limits: ExtractionBudgetLimits = {
     maxCharsPerSession: DEFAULT_OFFLINE_EXTRACTION_MAX_CHARS_PER_SESSION,
@@ -923,6 +950,12 @@ async function extractOfflineMemories(
     maxProposalsPerSession: DEFAULT_OFFLINE_EXTRACTION_MAX_PROPOSALS_PER_SESSION,
   };
   if (!ledger.executionAllowed(limits)) {
+    // A terminal path like any other: record before the audit write, because
+    // the ledger is the copy that outlives the audit window.
+    ledger.recordOutcome(
+      offlineExtractionOutcome("budget-exhausted", 0),
+      "budget-exhausted",
+    );
     audit.record("extraction", {
       budgetRejectedCount: 1,
       candidateCount: 0,
@@ -1008,6 +1041,11 @@ async function extractOfflineMemories(
   }
   const lastEvent = events.at(-1);
   if (lastEvent) ledger.recordConsumedThrough(lastEvent.position);
+  const outcome = offlineExtractionOutcome(
+    result.status,
+    extractionCounts.validProposals,
+  );
+  ledger.recordOutcome(outcome, result.status);
   audit.record("extraction", {
     ...extractionCounts,
     ...(result.status === "budget-exhausted"
@@ -1017,7 +1055,7 @@ async function extractOfflineMemories(
       : {}),
     // Task 3.3: the outcome names the three states the diagnosis needs, so
     // "no usable runner" is never read as "ran and found nothing".
-    outcome: offlineExtractionOutcome(result.status, extractionCounts.validProposals),
+    outcome,
     reason: result.status,
     status: result.status,
     trigger,
@@ -2191,6 +2229,11 @@ async function statusForContext(
   cwd: string,
   dependencies: XpiMemoDependencies = {},
   trusted = false,
+  /**
+   * The model offline extraction resolves to. Resolved by the caller because
+   * only it holds the model registry; absent when there is none.
+   */
+  extractionModel?: string,
 ): Promise<MemoryStatus> {
   const config = loadConfig({
     env: dependencies.env,
@@ -2272,6 +2315,18 @@ async function statusForContext(
   const lastExtraction = [
     ...auditEntries.filter((entry) => entry.action === "extraction"),
   ].at(-1);
+  // The audit window rotates at 200 entries, so the last extraction entry can
+  // already be gone by the time anyone asks how it went. The budget ledger
+  // carries the same two codes and is rewritten at the end of every attempt,
+  // so it wins where the two disagree; the audit tail stays the fallback for a
+  // ledger written before the codes existed.
+  const persistedExtraction = readExtractionLastOutcome(
+    extractionBudgetPath(config.dataDir),
+  );
+  const lastExtractionOutcome =
+    persistedExtraction?.lastOutcome ?? lastExtraction?.metadata.outcome;
+  const lastExtractionStatus =
+    persistedExtraction?.lastStatus ?? lastExtraction?.metadata.status;
   const lastRecall = [
     ...auditEntries.filter((entry) => entry.action === "recall"),
   ].at(-1);
@@ -2403,14 +2458,19 @@ async function statusForContext(
     observability: buildObservabilitySnapshot(auditEntries),
     offlineExtraction: {
       enabled: config.offlineExtractionEnabled,
-      ...(lastExtraction?.metadata.outcome
+      ...(extractionModel
         ? {
-            lastOutcome: lastExtraction.metadata.outcome,
+            model: extractionModel,
           }
         : {}),
-      ...(lastExtraction?.metadata.status
+      ...(lastExtractionOutcome
         ? {
-            lastStatus: lastExtraction.metadata.status,
+            lastOutcome: lastExtractionOutcome,
+          }
+        : {}),
+      ...(lastExtractionStatus
+        ? {
+            lastStatus: lastExtractionStatus,
           }
         : {}),
     },
@@ -2851,6 +2911,12 @@ function consoleActionsFor(
   ctx: ExtensionContext,
   runtime: ReturnType<typeof createRuntime>,
   dependencies: XpiMemoDependencies,
+  /**
+   * The session's one TUI surface, injected rather than created here.
+   * `surface.ts` keys its widget by a module constant, so a second instance
+   * would overwrite the extraction progress line instead of coexisting with it.
+   */
+  getSurface: (ctx: ExtensionContext) => ReturnType<typeof createMemorySurface>,
 ): ConsoleActions {
   const applyCandidateDecision = async (
     candidate: PendingCandidate,
@@ -2900,11 +2966,38 @@ function consoleActionsFor(
     return runtime.candidates.list();
   };
 
+  /**
+   * Run a decision with the store shimmer around it.
+   *
+   * Only `store` waits on a T1 write — it spawns mnemosyne — so only that
+   * decision gets the widget. `reject` writes one JSON file and `later` writes
+   * nothing; a spinner that lives for a few milliseconds reads as a flicker
+   * rather than as progress.
+   */
+  const decideWithSurface = async (
+    candidate: PendingCandidate,
+    decision: CandidateDecision,
+  ): Promise<readonly PendingCandidate[]> => {
+    if (decision !== "store") return applyCandidateDecision(candidate, decision);
+    const surface = getSurface(ctx);
+    surface.begin("store");
+    try {
+      const pending = await applyCandidateDecision(candidate, decision);
+      surface.complete("store");
+      return pending;
+    } catch (error) {
+      // A failed write must not leave the widget behind; the caller still
+      // sees the throw.
+      surface.fail();
+      throw error;
+    }
+  };
+
   return {
     confirm: ctx.ui.confirm.bind(ctx.ui),
-    reviewDecision: applyCandidateDecision,
+    reviewDecision: decideWithSurface,
     async reviewCandidate(candidate) {
-      await applyCandidateDecision(
+      await decideWithSurface(
         candidate,
         await chooseCandidateAction(ctx, candidate, runtime.config, true),
       );
@@ -3019,6 +3112,7 @@ export default function xpiMemo(
         ctx.cwd,
         dependencies,
         trustFor(ctx, dependencies),
+        extractionModelName(ctx, dependencies.env),
       );
       const runtime = createRuntime(ctx.cwd, dependencies, trustFor(ctx, dependencies));
       await openConsole(
@@ -3028,19 +3122,21 @@ export default function xpiMemo(
         dependencies.env ?? process.env,
         runtime.candidates.list(),
         {
-          actions: consoleActionsFor(ctx, runtime, dependencies),
+          actions: consoleActionsFor(ctx, runtime, dependencies, getSurface),
         },
       );
     },
   });
 
   pi.registerCommand("xpi-memo-status", {
-    description: "Print the XpiMemo T1 status as JSON (scripts and non-TUI sessions)",
-    handler: async (_args, ctx) => {
+    description:
+      "Print a concise status; --json for the full payload (scripts and non-TUI sessions)",
+    handler: async (args, ctx) => {
       const status = await statusForContext(
         ctx.cwd,
         dependencies,
         trustFor(ctx, dependencies),
+        extractionModelName(ctx, dependencies.env),
       );
       // One surface only: a machine-readable status line, identical in both
       // modes. The scrollable panel this command used to open was a subset of
@@ -3048,7 +3144,30 @@ export default function xpiMemo(
       // would drift; `/xpi-memo` is now the single place to look at status.
       //
       // This stays the only programmatic status read: there is no
+      // Two shapes, one source. The JSON stays authoritative for scripts — the
+      // reason this command exists — but the payload runs to hundreds of lines,
+      // so printing it into a conversation cost the reader the context they
+      // wanted it for. The concise shape is therefore the default, and
+      // `--json` opts back in.
+      //
+      // This stays the only programmatic status read: there is no
       // `xpi_memo_status` tool, and `/xpi-memo` delegates here outside the TUI.
+      //
+      // The scrollable panel this command used to open stays deleted: it was a
+      // subset of `/xpi-memo`'s status view, and two status surfaces meant one
+      // of them would drift.
+      if (!(args ?? "").split(WS_SPLIT).includes("--json")) {
+        ctx.ui.notify(
+          formatStatusText(
+            status,
+            loadConfig({
+              env: dependencies.env,
+            }).config.language,
+          ),
+          "info",
+        );
+        return;
+      }
       ctx.ui.notify(
         formatStatusJson(
           status,

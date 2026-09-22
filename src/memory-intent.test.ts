@@ -1,9 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { extractExplicitMemoryIntent } from "./memory-intent.js";
+import { extractExplicitMemoryIntent, MEMORY_INTENT_RULES } from "./memory-intent.js";
 
 const project = {
   projectBank: "project-demo",
 };
+
+describe("the exported rule list", () => {
+  // The panel's read-only trigger view reads this table, so a rule listed
+  // here that the matcher cannot fire is a description that lies.
+  it("fires its own rule for every phrase it lists", () => {
+    for (const rule of MEMORY_INTENT_RULES) {
+      for (const phrase of rule.phrases) {
+        // A constraint needs project wording; the global rules are suppressed
+        // by it, so the wrapper goes only where the rule depends on it.
+        const text = rule.requiresProject ? `本项目 ${phrase}` : phrase;
+        const result = extractExplicitMemoryIntent(text, project);
+        const where = `${rule.id}:${phrase}`;
+        if (rule.kind === undefined) {
+          // Wording-only rules capture nothing on their own.
+          expect(result.type, where).toBe("skip");
+          continue;
+        }
+        expect(result.type, where).toBe("memory");
+        if (result.type === "memory") {
+          expect(result.kind, where).toBe(rule.kind);
+        }
+      }
+    }
+  });
+
+  it("leaves no rule without a phrase to trip it", () => {
+    for (const rule of MEMORY_INTENT_RULES) {
+      expect(rule.phrases.length, rule.id).toBeGreaterThan(0);
+    }
+  });
+});
 
 describe("explicit memory intent extraction", () => {
   it.each([

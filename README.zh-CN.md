@@ -52,8 +52,8 @@ pi install npm:glimpseui
 
 ### 命令
 
-- `/xpi-memo` — 打开控制台：Glimpse 可用时是原生窗口（启动尺寸 800×600，可缩放，布局会铺满），否则是 TUI 面板（两者都是待审 / 最近 / 设置 / 状态）
-- `/xpi-memo-status` — 在任意模式下把完整状态打成 JSON：这是唯一的程序化状态读取途径（库、后端可用性、配置、可观测性、`doctor`）。要看状态的**界面**，用 `/xpi-memo`
+- `/xpi-memo` — 打开控制台：Glimpse 可用时是原生窗口（启动尺寸 800×600，可缩放，布局会铺满），否则是 TUI 面板（两者都是待审 / 最近 / 设置 / 状态；窗口另多一个「触发」页）
+- `/xpi-memo-status` — 打印精简状态（库、计数、暂停、召回档位、离线提取的开关与结果、以及提取实际解析到的模型）。加 `--json` 取完整负载：这是唯一的程序化状态读取途径（库、后端可用性、配置、可观测性、`doctor`）。JSON 本身没变，只是改成显式索取——约 250 行会挤掉它本来要服务的对话。要看状态的**界面**，用 `/xpi-memo`
 - `/xpi-memo-init` — 初始化非 Git 项目身份（写入 `.pi/xpi-memo/project.json`；不会在仓库里放 SQLite）
 - `/xpi-memo-export [--session <id>] [--force] [--validate]` — 把 L0 事件导出为 Markdown
 - `/xpi-memo-export --repo [--reimport]` — 把受治理的项目记忆导出到 `.pi/memory/<kind>.md` / 把发现的条目重新导入为受治理候选

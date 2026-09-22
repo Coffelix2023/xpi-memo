@@ -9,6 +9,7 @@ import { type PendingNotice, renderPendingView } from "./pending.js";
 import { renderRecentView } from "./recent.js";
 import { renderSettingsView, type SettingsRowLike } from "./settings.js";
 import { renderStatusView } from "./status.js";
+import { renderTriggersView } from "./triggers.js";
 
 /**
  * Assembles the window's parts from one model.
@@ -86,6 +87,10 @@ export function assembleParts(
         now,
         status,
         statusJson,
+      }),
+      triggers: renderTriggersView({
+        language,
+        rows,
       }),
     },
   };

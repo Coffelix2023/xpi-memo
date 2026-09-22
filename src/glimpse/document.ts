@@ -7,6 +7,7 @@ import { PENDING_VIEW_STYLES } from "./styles/views/pending.js";
 import { RECENT_VIEW_STYLES } from "./styles/views/recent.js";
 import { SETTINGS_VIEW_STYLES } from "./styles/views/settings.js";
 import { STATUS_VIEW_STYLES } from "./styles/views/status.js";
+import { TRIGGERS_VIEW_STYLES } from "./styles/views/triggers.js";
 import {
   ATLAS_DARK_TOKENS,
   ATLAS_LIGHT_TOKENS,
@@ -19,13 +20,14 @@ import {
 } from "./tokens.js";
 
 /** The four views, in sidebar order. */
-export type ViewId = "pending" | "recent" | "settings" | "status";
+export type ViewId = "pending" | "recent" | "settings" | "status" | "triggers";
 
 export const VIEW_IDS: readonly ViewId[] = [
   "pending",
   "recent",
   "settings",
   "status",
+  "triggers",
 ];
 
 /** Hash route per view; the in-page client matches on these. */
@@ -34,6 +36,7 @@ export const VIEW_ROUTES: Record<ViewId, string> = {
   recent: "#/recent",
   settings: "#/settings",
   status: "#/status",
+  triggers: "#/triggers",
 };
 
 export type PanelTheme = "dark" | "light";
@@ -73,6 +76,7 @@ const STYLE_MODULES = [
   SETTINGS_VIEW_STYLES,
   RECENT_VIEW_STYLES,
   PENDING_VIEW_STYLES,
+  TRIGGERS_VIEW_STYLES,
 ];
 
 function viewSection(view: ViewId, initialView: ViewId, body: string): string {

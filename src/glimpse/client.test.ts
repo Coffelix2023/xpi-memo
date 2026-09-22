@@ -65,6 +65,18 @@ describe("glimpse in-page client", () => {
     expect(CLIENT_SCRIPT).toContain("decision.dataset.decision");
   });
 
+  it("marks the action bar busy while a decision is in flight", () => {
+    // A decision awaits a T1 write (store spawns mnemosyne), so the bar has to
+    // say it is working rather than look frozen. `aria-busy` is the state the
+    // stylesheet spins on; the disabled buttons stop a second click from
+    // queueing a duplicate decision.
+    expect(CLIENT_SCRIPT).toContain('bar.setAttribute("aria-busy", "true")');
+    expect(CLIENT_SCRIPT).toContain("button.disabled = true");
+    // Nothing unsets it here: the next redraw replaces the document, and the
+    // Node side redraws on failure too, so a stale busy state cannot survive.
+    expect(CLIENT_SCRIPT).not.toContain('setAttribute("aria-busy", "false")');
+  });
+
   it("does not persist preferences in the page", () => {
     // Storage in a webview is not a documented guarantee; preferences go to
     // Node so they survive a window close and stay testable.

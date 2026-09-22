@@ -214,6 +214,9 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "group.storage": "Storage",
     "info.bank": "bank",
     "info.disk": "disk",
+    // 字面配置值, 不是文案: 两种语言同形。窗口字典有同名键，值一致。
+    "info.off": "off",
+    "info.on": "on",
     "info.pause": "pause",
     "info.pending": "pending",
     "info.tier": "L0 session trace → T1 xpi-memo → T2 deferred → T3 deferred",
@@ -276,6 +279,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "tab.recent": "Recent",
     "tab.settings": "Settings",
     "tab.status": "Status",
+    "tab.triggers": "Triggers",
   },
   zh: {
     "choice.admissionAllowGlobalPreference":
@@ -438,6 +442,8 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "group.storage": "存储与提取",
     "info.bank": "库",
     "info.disk": "占用",
+    "info.off": "off",
+    "info.on": "on",
     "info.pause": "暂停",
     "info.pending": "待审",
     "info.tier": "L0 会话轨迹 → T1 xpi-memo → T2 延后 → T3 延后",
@@ -498,6 +504,7 @@ const PANEL_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "tab.recent": "最近",
     "tab.settings": "设置",
     "tab.status": "状态",
+    "tab.triggers": "触发",
   },
 };
 

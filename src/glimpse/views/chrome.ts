@@ -47,6 +47,10 @@ const NAV: ReadonlyArray<{
     id: "status",
     short: SHELL_SHORT.navStatus,
   },
+  {
+    id: "triggers",
+    short: SHELL_SHORT.navTriggers,
+  },
 ];
 
 export function renderHeader(input: ChromeInput): string {

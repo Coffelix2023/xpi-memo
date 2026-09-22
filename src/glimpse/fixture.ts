@@ -37,6 +37,14 @@ export function statusFixture(overrides: Partial<MemoryStatus> = {}): MemoryStat
       mode: "off",
       model: null,
     },
+    // The one field the status view reads to answer "is extraction working?".
+    // A run that found nothing is the interesting case: it is what a silent
+    // failure looks like from the outside.
+    offlineExtraction: {
+      enabled: true,
+      lastOutcome: "executed-without-proposals",
+      lastStatus: "completed",
+    },
     recall: {
       scope: "current-project-plus-global",
       queriedBanks: [

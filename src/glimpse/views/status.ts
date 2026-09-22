@@ -10,7 +10,7 @@ import {
 } from "../charts.js";
 import { el, esc, textEl } from "../html.js";
 import { STATUS_SHORT } from "../short-codes.js";
-import { glimpseText, recallLine } from "../text.js";
+import { extractionLine, glimpseText, recallLine } from "../text.js";
 
 /**
  * The status view: four KPI cards, an occupancy bar, a seven-day sparkline, and
@@ -213,6 +213,18 @@ export function renderStatusView(input: StatusViewInput): string {
     ),
   );
 
+  // The gate and the last attempt's outcome. Without this line the only record
+  // of how an extraction ended was the audit tail, which rotates at 200
+  // entries — so a silent failure looked exactly like a quiet install.
+  const extraction = textEl(
+    "p",
+    {
+      class: "status-meta",
+      id: STATUS_SHORT.extraction,
+    },
+    extractionLine(status.offlineExtraction, language),
+  );
+
   const snapshotHead = textEl(
     "div",
     {
@@ -233,5 +245,5 @@ export function renderStatusView(input: StatusViewInput): string {
     esc(statusJson),
   );
 
-  return cards + usageRow + trendRow + meta + snapshotHead + snapshot;
+  return cards + usageRow + trendRow + meta + extraction + snapshotHead + snapshot;
 }

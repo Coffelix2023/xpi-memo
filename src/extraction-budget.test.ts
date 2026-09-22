@@ -4,7 +4,10 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createExtractionBudgetLedger } from "./extraction-budget.js";
+import {
+  createExtractionBudgetLedger,
+  readExtractionLastOutcome,
+} from "./extraction-budget.js";
 
 const directories: string[] = [];
 
@@ -126,5 +129,49 @@ describe("extraction budget ledger (task 3.3)", () => {
     expect(raw).toContain('"proposals": 2');
     expect(raw).toContain('"chars": 55');
     expect(raw).not.toContain("body");
+  });
+
+  it("reads the last outcome without the session-scoped reset", () => {
+    const dataDir = temporaryDirectory();
+    const statePath = join(dataDir, "extraction-budget.json");
+    const ledger = createExtractionBudgetLedger({
+      sessionId: "session-1",
+      statePath,
+    });
+    ledger.recordExecution();
+    ledger.recordOutcome("executed-without-proposals", "completed");
+
+    // The budget resets for another session — that is the isolation guarantee —
+    // but the recorded result must not, or the next session would answer "no
+    // run yet" about a run that actually happened.
+    expect(
+      createExtractionBudgetLedger({
+        sessionId: "session-2",
+        statePath,
+      }).consumption(),
+    ).toEqual({
+      chars: 0,
+      executions: 0,
+      proposals: 0,
+    });
+    expect(readExtractionLastOutcome(statePath)).toEqual({
+      lastOutcome: "executed-without-proposals",
+      lastStatus: "completed",
+      sessionId: "session-1",
+    });
+  });
+
+  it("reports no outcome for a missing or unknown-version ledger", () => {
+    const dataDir = temporaryDirectory();
+    const statePath = join(dataDir, "extraction-budget.json");
+    expect(readExtractionLastOutcome(statePath)).toBeUndefined();
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        version: 2,
+      }),
+      "utf8",
+    );
+    expect(readExtractionLastOutcome(statePath)).toBeUndefined();
   });
 });

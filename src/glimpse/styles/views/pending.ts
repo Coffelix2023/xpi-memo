@@ -141,4 +141,40 @@ export const PENDING_VIEW_STYLES = `
   font-size: 12px;
   color: var(--muted-foreground);
 }
+
+/*
+  决策进行中：store 要等一次 T1 写入（spawn mnemosyne），期间必须让用户
+  看见「在处理」。aria-busy 是这里唯一的状态写入 —— 它同时驱动这个转圈和
+  客户端的按钮禁用；重绘会换掉整份文档，所以没有任何还原逻辑。
+*/
+.action-bar[aria-busy="true"] .btn {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.action-bar[aria-busy="true"]::after {
+  align-self: center;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--muted-foreground);
+  border-top-color: transparent;
+  border-radius: 999px;
+  animation: spin 800ms linear infinite;
+  content: "";
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 前庭敏感用户：保留静态指示，去掉旋转。 */
+@media (prefers-reduced-motion: reduce) {
+  .action-bar[aria-busy="true"]::after {
+    animation: none;
+    border-top-color: var(--muted-foreground);
+    opacity: 0.5;
+  }
+}
 `;

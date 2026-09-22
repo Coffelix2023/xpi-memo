@@ -6,7 +6,7 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 /**
  * Per-session budget ledger for gated offline extraction (task 3.3).
@@ -35,6 +35,12 @@ export interface ExtractionBudgetLedger {
   executionAllowed(limits: ExtractionBudgetLimits): boolean;
   recordConsumedThrough(position: number): void;
   recordExecution(): void;
+  /**
+   * Record the lifecycle outcome of one attempt (the task 3.3 codes), so the
+   * result outlives the audit window. Written on every terminal path,
+   * including the budget-exhausted early return.
+   */
+  recordOutcome(outcome: string, status: string): void;
   recordProposals(count: number, chars: number): void;
 }
 
@@ -42,6 +48,13 @@ interface ExtractionBudgetState {
   chars: number;
   consumedThrough: number;
   executions: number;
+  /**
+   * Codes of the last recorded attempt. Kept here rather than only in the
+   * audit so the status surface can still answer "was the last extraction
+   * healthy?" after the 200-entry audit window has rotated it away.
+   */
+  lastOutcome?: string;
+  lastStatus?: string;
   proposals: number;
   sessionId: string;
   version: 1;
@@ -86,6 +99,16 @@ function loadState(path: string, sessionId: string): ExtractionBudgetState {
       proposals: parsed.proposals,
       sessionId,
       version: 1,
+      ...(typeof parsed.lastOutcome === "string"
+        ? {
+            lastOutcome: parsed.lastOutcome,
+          }
+        : {}),
+      ...(typeof parsed.lastStatus === "string"
+        ? {
+            lastStatus: parsed.lastStatus,
+          }
+        : {}),
     };
   } catch {
     return emptyState(sessionId);
@@ -138,6 +161,12 @@ export function createExtractionBudgetLedger({
     saveState(statePath, state);
   }
 
+  function recordOutcome(outcome: string, status: string): void {
+    state.lastOutcome = outcome;
+    state.lastStatus = status;
+    saveState(statePath, state);
+  }
+
   function consumedThrough(): number {
     return state.consumedThrough;
   }
@@ -155,5 +184,60 @@ export function createExtractionBudgetLedger({
     recordConsumedThrough,
     recordExecution,
     recordProposals,
+    recordOutcome,
   };
+}
+
+/** File name of the single ledger, relative to the data dir. */
+export const EXTRACTION_BUDGET_FILE = "extraction-budget.json";
+
+/** The ledger's path under a data dir; one file, session-scoped inside it. */
+export function extractionBudgetPath(dataDir: string): string {
+  return join(dataDir, EXTRACTION_BUDGET_FILE);
+}
+
+/**
+ * The last recorded outcome, read *without* the session-scoped reset that
+ * `loadState` applies.
+ *
+ * The budget itself must not leak across sessions — see this module's header —
+ * which is exactly why `loadState` discards a foreign file. The *result* of the
+ * last run is a different question: a session that has not extracted yet should
+ * still see how the previous one ended, and the reset would hide that. Reading
+ * the file raw answers "was the last extraction healthy?" without weakening the
+ * budget, because only reads bypass the reset.
+ */
+export function readExtractionLastOutcome(statePath: string):
+  | {
+      lastOutcome?: string;
+      lastStatus?: string;
+      sessionId?: string;
+    }
+  | undefined {
+  if (!existsSync(statePath)) return undefined;
+  try {
+    const parsed = JSON.parse(
+      readFileSync(statePath, "utf8"),
+    ) as Partial<ExtractionBudgetState>;
+    if (parsed.version !== 1) return undefined;
+    return {
+      ...(typeof parsed.lastOutcome === "string"
+        ? {
+            lastOutcome: parsed.lastOutcome,
+          }
+        : {}),
+      ...(typeof parsed.lastStatus === "string"
+        ? {
+            lastStatus: parsed.lastStatus,
+          }
+        : {}),
+      ...(typeof parsed.sessionId === "string"
+        ? {
+            sessionId: parsed.sessionId,
+          }
+        : {}),
+    };
+  } catch {
+    return undefined;
+  }
 }

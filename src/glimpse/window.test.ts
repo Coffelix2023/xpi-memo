@@ -422,6 +422,48 @@ describe("glimpse window (5.1)", () => {
     await panel;
   });
 
+  it("resets the action bar when a decision fails", async () => {
+    const opened = fakeWindow();
+    // A failed T1 write throws out of the action. Without a redraw the window
+    // would stay on the busy state the click set and never come back, so the
+    // failure path has to redraw even though it has no fresh queue to show.
+    const reviewDecision = vi.fn(async () => {
+      throw new Error("mnemosyne failed");
+    });
+    const panel = openGlimpsePanel({
+      actions: stubActions({
+        reviewDecision,
+      }),
+      config: TEST_CONFIG,
+      initialView: "pending",
+      language: "zh",
+      model: modelWithoutLanguage(),
+      prefsPath: prefsPath(),
+      resolveModule: async () => ({
+        open: () => opened.win,
+      }),
+    });
+
+    const framesBefore = opened.html.length;
+    await opened.emit("message", {
+      decision: "store",
+      index: 0,
+      type: "review",
+    });
+    await vi.waitFor(() => expect(opened.html.length).toBe(framesBefore + 1));
+
+    // The marker string also lives in the in-page script every document embeds,
+    // so this slices out the bar element rather than scanning the whole frame.
+    const frame = opened.html.at(-1) ?? "";
+    expect(frame, "fresh frame rendered").toContain('class="action-bar"');
+    const barStart = frame.indexOf('class="action-bar"');
+    const barTag = frame.slice(barStart, frame.indexOf(">", barStart) + 1);
+    expect(barTag).not.toContain("aria-busy");
+
+    await opened.emit("closed");
+    await panel;
+  });
+
   it("reports a kept-for-later decision, which removes no row", async () => {
     const opened = fakeWindow();
     // `later` writes nothing, so the queue comes back unchanged: the notice is

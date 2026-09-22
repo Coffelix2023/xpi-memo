@@ -15,7 +15,7 @@ A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension
 - **Derived Mental-Model Projections** — two code-owned, versioned questions (a global working style, the current project's operating model) answered only from already-confirmed T1 rows, refreshed at session boundaries with synthesis **off by default**; the injected text is labelled as untrusted derived data, never becomes a memory kind, and is dropped once its sources move on
 - **Markdown Export** — human-readable `MEMORY.md` (projected from the bank's current state, L0-annotated) + daily logs folded from L0; incremental, privacy redaction, Git-friendly
 - **Pluggable Search** — recall through a fallback chain: mnemosyne (vector+FTS5) → ripgrep (full-text) → qmd (semantic); any subset installed works
-- **Dual-Track Console** — `/xpi-memo` opens a native Glimpse window (launched at 800×600) when Glimpse is available, and falls back to the TUI panel otherwise; both render the same four views (Pending / Recent / Settings / Status) from the same view model, so neither surface can omit a field the other shows. Settings are editable in the window too — click a field or focus it and press `Space` — and the window's layout fills whatever size you resize it to
+- **Dual-Track Console** — `/xpi-memo` opens a native Glimpse window (launched at 800×600) when Glimpse is available, and falls back to the TUI panel otherwise; both render the same views (the TUI panel: Pending / Recent / Settings / Status; the window adds Triggers, a read-only list of every rule that can make the extension write or retrieve a memory) from the same view model, so neither surface can omit a field the other shows. Settings are editable in the window too — click a field or focus it and press `Space` — and the window's layout fills whatever size you resize it to
 - **Two Theme Principles** — the window wears either the `default` palette or **Atlas** (vintage print: cream paper, Prussian blue, square corners, CJK serifs), each with its own light and dark variant; the header carries the dark/light toggle and a principle picker, and every colour lives in one place ([THEMES.md](./THEMES.md))
 
 Details: [GUIDE.md](./GUIDE.md) (usage) · [ARCHITECTURE.md](./ARCHITECTURE.md) (L0/T1/projection layers) · [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) · [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md) (versions) · [MARKDOWN-FORMAT.md](./MARKDOWN-FORMAT.md) (export format)
@@ -52,8 +52,8 @@ pi install npm:glimpseui
 
 ### Commands
 
-- `/xpi-memo` — Open the console: a native Glimpse window (launched at 800×600, resizable — the layout fills it) when available, otherwise the TUI panel (Pending / Recent / Settings / Status in both)
-- `/xpi-memo-status` — Print the full status as JSON, in every mode: the only programmatic status read (banks, backend availability, config, observability, `doctor`). For the status *view*, use `/xpi-memo`.
+- `/xpi-memo` — Open the console: a native Glimpse window (launched at 800×600, resizable — the layout fills it) when available, otherwise the TUI panel (Pending / Recent / Settings / Status; the window adds Triggers)
+- `/xpi-memo-status` — Print a concise status (banks, counts, pause, recall mode, offline-extraction gate and outcome, and the model extraction resolves to). Add `--json` for the full payload: the only programmatic status read (banks, backend availability, config, observability, `doctor`). The JSON is unchanged; it is now opt-in because ~250 lines hurt the conversation it was asked in. For the status *view*, use `/xpi-memo`.
 - `/xpi-memo-init` — Initialize a non-Git project identity (writes `.pi/xpi-memo/project.json`; no SQLite in the repo)
 - `/xpi-memo-export [--session <id>] [--force] [--validate]` — Export L0 events to Markdown
 - `/xpi-memo-export --repo [--reimport]` — Export governed project memory to `.pi/memory/<kind>.md` / re-import discovered entries as governed candidates

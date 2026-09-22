@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { EXACT_ID_READ_UNAVAILABLE } from "./banks.ts";
 import {
+  formatStatusText,
   type MemoryStatus,
   renderStatus,
   todayStored,
@@ -374,5 +375,39 @@ describe("XpiMemo status", () => {
       count: 2,
     });
     expect(JSON.stringify(rendered)).not.toContain("keep the adapter");
+  });
+
+  it("renders the concise status without the payload", () => {
+    // The concise shape exists because the payload runs to hundreds of lines;
+    // a payload that leaked back into the default would defeat it silently.
+    const text = formatStatusText(status, "zh");
+
+    expect(text).toContain("库: fx-pi-extensions");
+    expect(text).toContain("总数: 7");
+    expect(text).toContain("待审: 2");
+    expect(text).toContain("123 B");
+    expect(text).toContain("状态");
+    expect(text).not.toContain("{");
+    expect(text).not.toContain("recentEntries");
+  });
+
+  it("reports the extraction outcome verbatim in the concise status", () => {
+    const withExtraction: MemoryStatus = {
+      ...status,
+      offlineExtraction: {
+        enabled: true,
+        lastOutcome: "executed-without-proposals",
+        lastStatus: "completed",
+        model: "CMD-PRO/minimaxai/minimax-m3",
+      },
+    };
+
+    const text = formatStatusText(withExtraction, "en");
+    expect(text).toContain("Offline extraction: on");
+    // Verbatim: the same code the audit carries.
+    expect(text).toContain("executed-without-proposals");
+    // The resolved model, which used to be invisible: a configured id that
+    // matched nothing fell back to the session model with no signal at all.
+    expect(text).toContain("CMD-PRO/minimaxai/minimax-m3");
   });
 });

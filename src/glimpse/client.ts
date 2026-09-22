@@ -45,7 +45,7 @@ export const CLIENT_SCRIPT = `
   "use strict";
 
   var root = document.documentElement;
-  var VIEWS = ["pending", "recent", "settings", "status"];
+  var VIEWS = ["pending", "recent", "settings", "status", "triggers"];
 
   function send(message) {
     if (window.glimpse && typeof window.glimpse.send === "function") {
@@ -262,6 +262,18 @@ export const CLIENT_SCRIPT = `
 
     var decision = target.closest("#P1-1-A2 button[data-decision]");
     if (decision) {
+      // A decision waits on a T1 write — store spawns mnemosyne — so the bar
+      // has to say it is working instead of looking frozen. aria-busy is the
+      // only state written: it drives the stylesheet's spinner and disables the
+      // buttons. Nothing here unsets it — the next redraw replaces the whole
+      // document, and the Node side redraws on failure too.
+      var bar = decision.closest("#P1-1-A2");
+      if (bar) {
+        bar.setAttribute("aria-busy", "true");
+        all("#P1-1-A2 button[data-decision]").forEach(function (button) {
+          button.disabled = true;
+        });
+      }
       send({
         type: "review",
         index: selectedIndex(),

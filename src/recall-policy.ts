@@ -27,12 +27,12 @@ export interface RecallDecision {
   trigger: RecallTrigger | null;
 }
 
-interface TriggerDefinition {
+export interface TriggerDefinition {
   id: RecallTrigger;
   phrases: readonly string[];
 }
 
-const HIGH_VALUE_TRIGGERS: readonly TriggerDefinition[] = [
+export const HIGH_VALUE_TRIGGERS: readonly TriggerDefinition[] = [
   {
     id: "continuity-zh",
     phrases: [

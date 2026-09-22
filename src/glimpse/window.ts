@@ -89,6 +89,7 @@ const VIEWS: readonly string[] = [
   "recent",
   "settings",
   "status",
+  "triggers",
 ];
 const THEMES: readonly string[] = [
   "dark",
@@ -266,7 +267,16 @@ export async function openGlimpsePanel(options: GlimpsePanelOptions): Promise<bo
       win.on("message", (data) => {
         // An action that throws must not tear down the message loop; the
         // window stays usable and the failure stays out of the caller.
-        void handle(parseMessage(data)).catch(() => {});
+        void handle(parseMessage(data)).catch(() => {
+          // A failed action must leave the bar usable rather than stuck busy:
+          // the redraw on success never ran, so this is the only reset path.
+          // `setHTML` can itself throw once the window is gone.
+          try {
+            win.setHTML(buildHtml(options, state));
+          } catch {
+            // Nothing left to draw on.
+          }
+        });
       });
 
       async function handle(message: PanelMessage | null): Promise<void> {

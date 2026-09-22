@@ -90,6 +90,10 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "status.disk": "disk",
     "status.embeddingAvailable": "available",
     "status.embeddingUnavailable": "unavailable",
+    "status.extraction": "extraction {gate} · {outcome}",
+    "status.extractionNoRun": "no run yet",
+    "status.extractionOff": "off",
+    "status.extractionOn": "on",
     // Slot order lives here, not in the view, so a language can reorder it.
     "status.recall": "recall {mode} · backend {backend} · embedding {embedding}",
     "status.records": "records",
@@ -100,6 +104,20 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "toggle.lang": "Toggle language",
     "toggle.principle": "Theme principle",
     "toggle.theme": "Toggle theme",
+    "triggers.admission": "admission",
+    "triggers.capture": "capture triggers",
+    "triggers.hint":
+      "Read-only. These rules live in code; change the recall mode and admission preferences in Settings.",
+    "triggers.mode": "recall mode",
+    "triggers.recall": "recall triggers",
+    "triggers.rule.constraint": "Constraint",
+    "triggers.rule.decision": "Decision",
+    "triggers.rule.gotcha": "Gotcha",
+    "triggers.rule.preference": "Preference",
+    "triggers.rule.project": "Project wording",
+    "triggers.rule.project-fact": "Repository fact",
+    "triggers.rule.session": "Session wording",
+    "triggers.rule.workflow": "Workflow",
   },
   zh: {
     "app.name": "XpiMemo T1 Console",
@@ -176,6 +194,10 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "status.disk": "磁盘",
     "status.embeddingAvailable": "可用",
     "status.embeddingUnavailable": "不可用",
+    "status.extraction": "提取 {gate} · {outcome}",
+    "status.extractionNoRun": "未运行",
+    "status.extractionOff": "关",
+    "status.extractionOn": "开",
     "status.recall": "召回 {mode} · 后端 {backend} · 嵌入 {embedding}",
     "status.records": "记录",
     "status.snapshot": "原始快照",
@@ -185,6 +207,19 @@ const WINDOW_TEXT: Record<PanelLanguage, Record<string, string>> = {
     "toggle.lang": "切换语言",
     "toggle.principle": "主题原则",
     "toggle.theme": "切换主题",
+    "triggers.admission": "准入裁决",
+    "triggers.capture": "自动捕获",
+    "triggers.hint": "只读。这些规则写在代码里；召回档位与准入偏好在「设置」页修改。",
+    "triggers.mode": "召回档位",
+    "triggers.recall": "自动召回",
+    "triggers.rule.constraint": "约束",
+    "triggers.rule.decision": "决策",
+    "triggers.rule.gotcha": "坑点",
+    "triggers.rule.preference": "偏好",
+    "triggers.rule.project": "项目措辞",
+    "triggers.rule.project-fact": "仓库事实",
+    "triggers.rule.session": "会话措辞",
+    "triggers.rule.workflow": "工作流",
   },
 };
 
@@ -218,5 +253,46 @@ export function recallLine(
       language,
     ),
     mode,
+  });
+}
+
+/**
+ * The offline-extraction line: whether the gate is open and how the last
+ * attempt ended.
+ *
+ * The outcome code is printed verbatim. It is the same bounded diagnostic the
+ * audit carries, and `executed-without-proposals` and `runner-unavailable` mean
+ * very different things to whoever is debugging; a translated label would cost
+ * the reader the ability to match it against a log or a bug report. Only the
+ * gate half, which mirrors a setting, is localized.
+ *
+ * Takes the shape it needs rather than `MemoryStatus`, so this module keeps
+ * owning copy and nothing else.
+ */
+export function extractionLine(
+  extraction:
+    | {
+        enabled: boolean;
+        lastOutcome?: string;
+        model?: string;
+      }
+    | undefined,
+  language: PanelLanguage,
+): string {
+  return fillTemplate(glimpseText("status.extraction", language), {
+    gate: glimpseText(
+      extraction?.enabled === true ? "status.extractionOn" : "status.extractionOff",
+      language,
+    ),
+    outcome: [
+      extraction?.lastOutcome ?? glimpseText("status.extractionNoRun", language),
+      // The model it resolved to, when there is one: the silent fallback to
+      // the session model is the thing this line exists to make visible.
+      ...(extraction?.model
+        ? [
+            `→ ${extraction.model}`,
+          ]
+        : []),
+    ].join(" "),
   });
 }

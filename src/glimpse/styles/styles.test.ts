@@ -108,6 +108,15 @@ describe("glimpse style modules", () => {
     expect(ALL_STYLES).not.toMatch(DEMO_TOOLBAR_PATTERN);
   });
 
+  it("wires the pending action bar's busy state", () => {
+    // The in-page client sets `aria-busy` on the bar and the stylesheet is the
+    // only thing that reads it. A renamed attribute on either side leaves a
+    // silently frozen-looking decision, so the pair is asserted here.
+    expect(PENDING_VIEW_STYLES).toContain('.action-bar[aria-busy="true"]');
+    expect(PENDING_VIEW_STYLES).toContain("animation: spin");
+    expect(PENDING_VIEW_STYLES).toContain("@keyframes spin");
+  });
+
   it("keeps the three-state styles the window needs", () => {
     expect(ALL_STYLES).toContain(".empty-state");
     expect(ALL_STYLES).toContain(".skeleton");

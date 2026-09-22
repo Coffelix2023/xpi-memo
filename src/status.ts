@@ -12,6 +12,7 @@ import { describeMemoryKindOrNull } from "./kinds.js";
 import type { MentalModelStateCounts } from "./mental-model/evaluate.js";
 import type { MentalModelRefreshOutcome } from "./mental-model/types.js";
 import type { ObservabilitySnapshot } from "./observability.js";
+import { type PanelLanguage, panelText } from "./panel-text.js";
 
 export interface MemoryStatus {
   /** Body-free cross-layer consistency diagnostics. */
@@ -97,6 +98,13 @@ export interface MemoryStatus {
     /** Body-free lifecycle outcome code (task 3.3), never proposal text. */
     lastOutcome?: string;
     lastStatus?: string;
+    /**
+     * The model extraction actually resolves to, as `provider/id`.
+     * `matchOfflineExtractionModel` falls back to the session model when the
+     * configured id matches nothing, and that fallback is silent — without
+     * this a typo looked exactly like a working setting.
+     */
+    model?: string;
   };
   /** Read-only orphan project banks (task 6.4); never deleted automatically. */
   orphans?: Array<{
@@ -443,6 +451,11 @@ export function renderStatus(status: MemoryStatus): MemoryStatus {
       ? {
           offlineExtraction: {
             enabled: status.offlineExtraction.enabled,
+            ...(status.offlineExtraction.model
+              ? {
+                  model: status.offlineExtraction.model,
+                }
+              : {}),
             ...(status.offlineExtraction.lastOutcome
               ? {
                   lastOutcome: status.offlineExtraction.lastOutcome,
@@ -511,4 +524,69 @@ export function formatStatusJson(status: MemoryStatus, l0: L0Status): string {
     null,
     2,
   );
+}
+
+/**
+ * The concise status: the fields a reader actually asks about, in the shape
+ * the console's info bar already uses.
+ *
+ * The payload above runs to hundreds of lines — ten audit entries alone are
+ * about 140 — so printing it into a conversation costs the reader the context
+ * they wanted it for. `--json` keeps that payload one flag away, because
+ * scripts were the original reason for this command; a person reading the TUI
+ * was not, and this is the shape for them.
+ *
+ * Takes no `L0Status`: computing the summary walks the session directory, and
+ * the caller only needs it for the JSON shape.
+ */
+export function formatStatusText(
+  status: MemoryStatus,
+  language: PanelLanguage,
+): string {
+  const label = (key: string) => panelText(key, language);
+  const onOff = (value: boolean) => panelText(value ? "info.on" : "info.off", language);
+  const extraction = status.offlineExtraction;
+
+  return [
+    `XpiMemo T1 · ${label("tab.status")}`,
+    [
+      `${label("info.bank")}: ${status.currentProject?.label ?? "global"}`,
+      `${label("info.total")}: ${status.counts.project ?? status.counts.global ?? "—"}`,
+      `${label("info.today")}: +${status.todayStored}`,
+      `${label("info.pending")}: ${status.pendingCandidates}`,
+      `${label("info.disk")}: ${bytesText(status.diskBytes)}`,
+    ].join(" · "),
+    `${label("info.pause")}: ${onOff(status.paused)}`,
+    [
+      `${label("field.retrievalMode")}: ${status.retrieval.mode}`,
+      `${label("field.searchBackend")}: ${status.search?.active ?? "auto"}`,
+      `${label("field.embeddingMode")}: ${status.embedding.mode}`,
+    ].join(" · "),
+    [
+      `${label("field.offlineExtractionEnabled")}: ${onOff(extraction?.enabled === true)}`,
+      // Verbatim, like the panel and the audit: the outcome code is a diagnostic.
+      ...(extraction?.lastOutcome
+        ? [
+            extraction.lastOutcome,
+          ]
+        : []),
+      ...(extraction?.model
+        ? [
+            `→ ${extraction.model}`,
+          ]
+        : []),
+    ].join(" · "),
+    label("info.tier"),
+  ].join("\n");
+}
+
+/**
+ * Bytes in the unit a reader expects. Local rather than imported: `console.ts`
+ * already imports this module, so sharing its helper would close a cycle.
+ */
+function bytesText(bytes: number | null): string {
+  if (bytes === null) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MEMORY_INTENT_RULES } from "../../memory-intent.js";
 import { SETTINGS_GROUPS } from "../../settings-groups.js";
 import { summarize } from "../../status-summary.js";
 import { METER_SEGMENTS, TREND_DAYS } from "../charts.js";
@@ -14,6 +15,7 @@ import { renderPendingView } from "./pending.js";
 import { renderRecentView } from "./recent.js";
 import { renderSettingsView } from "./settings.js";
 import { renderStatusView } from "./status.js";
+import { renderTriggersView } from "./triggers.js";
 
 /**
  * Count elements carrying a class *token*.
@@ -402,6 +404,35 @@ describe("settings view", () => {
   });
 });
 
+describe("triggers view", () => {
+  const html = renderTriggersView({
+    language: "zh",
+    rows: settingsRowsFixture(),
+  });
+
+  it("lists every capture rule with the words that trip it", () => {
+    // The page exists so a reader can see what the system watches for; a rule
+    // missing here is a rule nobody can discover.
+    for (const rule of MEMORY_INTENT_RULES) {
+      expect(html, rule.id).toContain(`data-rule="${rule.id}"`);
+      expect(html, rule.id).toContain(rule.phrases[0] ?? "");
+    }
+  });
+
+  it("prints the captured kind verbatim rather than translating it", () => {
+    expect(html).toContain("global_preference");
+    expect(html).toContain("project_constraint");
+  });
+
+  it("shows the live recall mode and the admission values", () => {
+    // The mode decides whether the phrase table below is reachable at all, and
+    // the admission rows are the only part of this page that is not a constant.
+    expect(html).toContain('data-rule="mode"');
+    expect(html).toContain('data-rule="admissionMinConfidence"');
+    expect(html).toContain('id="P5-1-T1"');
+  });
+});
+
 describe("status view", () => {
   const status = statusFixture();
   const html = renderStatusView({
@@ -411,7 +442,7 @@ describe("status view", () => {
     statusJson: modelFixture().statusJson,
   });
 
-  it("carries its eight semantic anchors", () => {
+  it("carries its nine semantic anchors", () => {
     for (const code of [
       "P4-1-A1",
       "P4-1-C1",
@@ -421,6 +452,7 @@ describe("status view", () => {
       "P4-1-U1",
       "P4-1-U2",
       "P4-1-A2",
+      "P4-1-U3",
     ]) {
       expect(html, code).toContain(`id="${code}"`);
     }
@@ -428,6 +460,15 @@ describe("status view", () => {
 
   it("renders four cards", () => {
     expect(countClass(html, "kpi-card")).toBe(4);
+  });
+
+  it("reports the extraction gate and the last outcome", () => {
+    // `executed-without-proposals` is the case that used to be invisible: the
+    // audit tail rotated it away, so a run that found nothing looked exactly
+    // like a model that never ran.
+    expect(html).toContain('id="P4-1-U3"');
+    expect(html).toContain("executed-without-proposals");
+    expect(html).toContain("提取 开");
   });
 
   it("renders the meter at a fixed segment count", () => {
@@ -512,13 +553,20 @@ describe("window chrome", () => {
     expect(atlas).not.toContain('<option selected value="default">');
   });
 
-  it("sidebar lists four views and marks the active one", () => {
+  it("sidebar lists five views and marks the active one", () => {
     const html = renderSidebar(input);
 
-    expect(countClass(html, "nav-item")).toBe(4);
+    expect(countClass(html, "nav-item")).toBe(5);
     expect(countClass(html, "is-active")).toBe(1);
     expect(html).toContain('data-tab="settings"');
     expect(html).toContain('aria-current="page"');
+  });
+
+  it("sidebar carries the triggers entry", () => {
+    const html = renderSidebar(input);
+    expect(html).toContain('data-tab="triggers"');
+    expect(html).toContain('id="P0-1-N5"');
+    expect(html).toContain("触发");
   });
 
   it("sidebar shows the pending count", () => {

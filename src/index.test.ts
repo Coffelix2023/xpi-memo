@@ -3314,7 +3314,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const notifications: string[] = [];
     const command = commands.find(({ name }) => name === "xpi-memo-status");
     if (!command) throw new Error("status command was not registered");
-    await command.options.handler("", {
+    await command.options.handler("--json", {
       cwd: "/tmp",
       ui: {
         confirm: async () => false,
@@ -3359,7 +3359,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const notifications: string[] = [];
     const command = commands.find(({ name }) => name === "xpi-memo-status");
     if (!command) throw new Error("status command was not registered");
-    await command.options.handler("", {
+    await command.options.handler("--json", {
       cwd: "/tmp",
       ui: {
         confirm: async () => false,
@@ -3431,7 +3431,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const notifications: string[] = [];
     const statusCommand = commands.find(({ name }) => name === "xpi-memo-status");
     if (!statusCommand) throw new Error("status command was not registered");
-    await statusCommand.options.handler("", {
+    await statusCommand.options.handler("--json", {
       cwd: "/tmp",
       ui: {
         confirm: async () => false,
@@ -3485,7 +3485,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const command = commands.find(({ name }) => name === "xpi-memo-status");
     if (!command) throw new Error("status command was not registered");
     const notifications: string[] = [];
-    await command.options.handler("", {
+    await command.options.handler("--json", {
       cwd: "/tmp",
       ui: {
         confirm: async () => false,
@@ -3524,7 +3524,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       const command = commands.find(({ name }) => name === "xpi-memo-status");
       if (!command) throw new Error("status command was not registered");
       const notifications: string[] = [];
-      await command.options.handler("", {
+      await command.options.handler("--json", {
         cwd: "/tmp",
         ui: {
           confirm: async () => false,
@@ -3582,7 +3582,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const command = commands.find(({ name }) => name === "xpi-memo-status");
     if (!command) throw new Error("status command was not registered");
     const notifications: string[] = [];
-    await command.options.handler("", {
+    await command.options.handler("--json", {
       cwd: "/tmp",
       ui: {
         confirm: async () => false,
@@ -3619,7 +3619,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const command = commands.find(({ name }) => name === "xpi-memo-status");
     if (!command) throw new Error("status command was not registered");
     const notifications: string[] = [];
-    await command.options.handler("", {
+    await command.options.handler("--json", {
       cwd: "/tmp",
       ui: {
         confirm: async () => false,
@@ -3656,7 +3656,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const command = commands.find(({ name }) => name === "xpi-memo-status");
     if (!command) throw new Error("status command was not registered");
     const notifications: string[] = [];
-    await command.options.handler("", {
+    await command.options.handler("--json", {
       cwd: "/tmp",
       ui: {
         confirm: async () => false,
@@ -3779,7 +3779,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     if (!command) throw new Error("status command was not registered");
     const notifications: string[] = [];
 
-    await command.options.handler("", {
+    await command.options.handler("--json", {
       cwd: "/tmp",
       ui: {
         confirm: async () => false,
@@ -3966,7 +3966,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     if (!command) throw new Error("status command was not registered");
     const notifications: string[] = [];
 
-    await command.options.handler("", {
+    await command.options.handler("--json", {
       cwd: "/tmp",
       ui: {
         confirm: async () => false,
@@ -4987,7 +4987,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const command = commands.find(({ name }) => name === "xpi-memo-status");
     if (!command) throw new Error("status command was not registered");
     const notifications: string[] = [];
-    await command.options.handler("", {
+    await command.options.handler("--json", {
       cwd: "/tmp",
       mode: "rpc",
       ui: {
