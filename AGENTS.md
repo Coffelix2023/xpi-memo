@@ -63,7 +63,3 @@ pnpm test             # vitest run
 
 - 只要任务碰到 git / GitHub / 远端仓库 / release，先读 `docs/GIT-WORKFLOW.md`，再读 `docs/GITHUB-GUARD.md`。
 - 默认不设分支, 以git安全流程提交检查点.
-
-## 7. 计划与任务执行规范
-
-- 每当完成一项子任务(`task.md`中以`##`符号开头的任务,不是`1.1`这类次级子任务), 必须以通俗易懂的方式表述该任务的`目的/作用/特点/边界`,并作为 report保存到`docs/task-report/dev-<编号>/repo-task<编号>.md`.
