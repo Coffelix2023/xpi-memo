@@ -21,9 +21,10 @@ import { assembleParts } from "./views/index.js";
  * plus the three added by the mental-model group (one group, two fields),
  * plus the seven tab panels the settings view gained when its accordion became
  * a tab strip (one panel id per group), plus the header's theme-principle
- * picker (one control).
+ * picker (one control), plus the pending view's decision notice (one status
+ * line).
  */
-const EXPECTED_CODE_COUNT = 88;
+const EXPECTED_CODE_COUNT = 89;
 
 function renderFixtureDocument(): string {
   const model = modelFixture();

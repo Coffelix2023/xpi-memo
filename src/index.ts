@@ -2855,8 +2855,12 @@ function consoleActionsFor(
   const applyCandidateDecision = async (
     candidate: PendingCandidate,
     decision: CandidateDecision,
-  ): Promise<void> => {
-    if (decision === "later") return;
+  ): Promise<readonly PendingCandidate[]> => {
+    // The Glimpse window renders from a snapshot taken when it opened, so every
+    // exit hands back the queue as it stands now; that is what lets a rejected
+    // row leave the screen without reopening the panel. `later` writes nothing
+    // and still returns, because the list is what carries the "kept" label.
+    if (decision === "later") return runtime.candidates.list();
     if (decision === "reject") {
       const rejected = await runtime.candidates.reject(candidate.id);
       runtime.l0.recordSafe("candidate_rejected", {
@@ -2873,7 +2877,7 @@ function consoleActionsFor(
         scope: candidate.targetScope,
         status: rejected.status,
       });
-      return;
+      return runtime.candidates.list();
     }
     const stored = await runtime.candidates.confirm(candidate.id);
     // Success confirmation event only; unresolved/rejected outcomes are
@@ -2893,6 +2897,7 @@ function consoleActionsFor(
       status: stored.status,
     });
     if (stored.status === "stored") setFooterStatus(ctx, runtime.config.paused, true);
+    return runtime.candidates.list();
   };
 
   return {

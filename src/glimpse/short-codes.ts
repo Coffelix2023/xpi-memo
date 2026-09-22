@@ -37,6 +37,8 @@ export const PENDING_SHORT = {
   empty: "P1-1-T1",
   later: "P1-1-B3",
   list: "P1-1-L1",
+  // T = the view's non-normal states, like `empty`.
+  notice: "P1-1-T2",
   reject: "P1-1-B2",
   store: "P1-1-B1",
 } as const;

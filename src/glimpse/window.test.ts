@@ -378,10 +378,11 @@ describe("glimpse window (5.1)", () => {
     await panel;
   });
 
-  it("applies a review decision without re-prompting when a direct path exists", async () => {
+  it("applies a review decision and redraws from the queue it returns", async () => {
     const opened = fakeWindow();
-    const reviewDecision = vi.fn(
-      async (_candidate: unknown, _decision: unknown) => undefined,
+    // Rejecting candidate-2 leaves the other two rows in the queue.
+    const reviewDecision = vi.fn(async (_candidate: unknown, _decision: unknown) =>
+      modelFixture().pending.filter((entry) => entry.id !== "candidate-2"),
     );
     const reviewCandidate = vi.fn(async () => undefined);
     const panel = openGlimpsePanel({
@@ -399,6 +400,8 @@ describe("glimpse window (5.1)", () => {
       }),
     });
 
+    // `open` renders the first document; only a redraw calls `setHTML`.
+    const framesBefore = opened.html.length;
     await opened.emit("message", {
       decision: "reject",
       index: 1,
@@ -408,6 +411,46 @@ describe("glimpse window (5.1)", () => {
 
     expect(reviewDecision.mock.calls[0][1]).toBe("reject");
     expect(reviewCandidate).not.toHaveBeenCalled();
+    // One extra document, drawn from the returned queue. Without this redraw
+    // the rejected row stays on screen until the panel is reopened.
+    expect(opened.html.length).toBe(framesBefore + 1);
+    const frame = opened.html.at(-1) ?? "";
+    expect(frame.match(/class="candidate-item/g)).toHaveLength(2);
+    expect(frame).toContain("已拒绝");
+
+    await opened.emit("closed");
+    await panel;
+  });
+
+  it("reports a kept-for-later decision, which removes no row", async () => {
+    const opened = fakeWindow();
+    // `later` writes nothing, so the queue comes back unchanged: the notice is
+    // the only thing that can tell the user the click was received at all.
+    const reviewDecision = vi.fn(async () => modelFixture().pending);
+    const panel = openGlimpsePanel({
+      actions: stubActions({
+        reviewDecision,
+      }),
+      config: TEST_CONFIG,
+      initialView: "pending",
+      language: "zh",
+      model: modelWithoutLanguage(),
+      prefsPath: prefsPath(),
+      resolveModule: async () => ({
+        open: () => opened.win,
+      }),
+    });
+
+    await opened.emit("message", {
+      decision: "later",
+      index: 0,
+      type: "review",
+    });
+    await vi.waitFor(() => expect(reviewDecision).toHaveBeenCalledOnce());
+
+    const frame = opened.html.at(-1) ?? "";
+    expect(frame.match(/class="candidate-item/g)).toHaveLength(3);
+    expect(frame).toContain("已跳过");
 
     await opened.emit("closed");
     await panel;
@@ -466,7 +509,7 @@ describe("glimpse window (5.1)", () => {
 
   it("ignores a message that does not match the protocol", async () => {
     const opened = fakeWindow();
-    const reviewDecision = vi.fn(async () => undefined);
+    const reviewDecision = vi.fn(async () => [] as const);
     const save = vi.fn();
     const panel = openGlimpsePanel({
       actions: stubActions({

@@ -5,6 +5,9 @@ import { el, esc, textEl } from "../html.js";
 import { PENDING_SHORT } from "../short-codes.js";
 import { fillTemplate, glimpseText } from "../text.js";
 
+/** Which action the last decision took; the action bar renders its label. */
+export type PendingNotice = "later" | "rejected" | "stored";
+
 /**
  * The pending view: a 240px candidate list beside a 316px detail pane.
  *
@@ -17,6 +20,12 @@ import { fillTemplate, glimpseText } from "../text.js";
 export interface PendingViewInput {
   candidates: readonly PendingCandidate[];
   language: PanelLanguage;
+  /**
+   * The decision the window just applied, or absent before the first one.
+   * Rendered beside the buttons so a click has a visible result even when the
+   * queue itself does not shrink ("later" writes nothing).
+   */
+  notice?: PendingNotice;
   /** Injected so the view is deterministic in tests. */
   now: number;
   selectedIndex: number;
@@ -25,6 +34,7 @@ export interface PendingViewInput {
 /** Everything the per-row helpers need; threaded instead of passed one by one. */
 interface PendingContext {
   language: PanelLanguage;
+  notice?: PendingNotice;
   now: number;
 }
 
@@ -157,6 +167,31 @@ function candidateRow(
   );
 }
 
+/**
+ * The last decision's label, or nothing before the first one.
+ *
+ * A rejected or stored candidate leaves the queue, so the shrinking list already
+ * says something happened — but it cannot say *what*: both outcomes remove the
+ * row. `later` removes nothing at all. This is the only place that distinction
+ * is visible, which is why it is rendered rather than inferred.
+ */
+function noticeLabel(ctx: PendingContext): string {
+  // Always rendered, hidden until a decision lands, so the element's id is in
+  // every document — the same shape the settings view's error banner uses.
+  return textEl(
+    "span",
+    {
+      class: "action-notice",
+      hidden: ctx.notice === undefined,
+      id: PENDING_SHORT.notice,
+      role: "status",
+    },
+    ctx.notice === undefined
+      ? ""
+      : glimpseText(`pending.notice.${ctx.notice}`, ctx.language),
+  );
+}
+
 function detailPane(
   candidates: readonly PendingCandidate[],
   selectedIndex: number,
@@ -212,7 +247,8 @@ function detailPane(
           type: "button",
         },
         glimpseText("pending.later", language),
-      ),
+      ) +
+      noticeLabel(ctx),
   );
 
   return el(
@@ -241,6 +277,11 @@ export function renderPendingView(input: PendingViewInput): string {
   const ctx: PendingContext = {
     language,
     now,
+    ...(input.notice === undefined
+      ? {}
+      : {
+          notice: input.notice,
+        }),
   };
 
   const list = el(

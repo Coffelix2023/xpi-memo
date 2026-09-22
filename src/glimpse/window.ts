@@ -12,6 +12,7 @@ import {
 } from "./prefs.js";
 import { THEME_PRINCIPLES, type ThemePrinciple } from "./tokens.js";
 import { assembleParts, type GlimpseModel } from "./views/index.js";
+import type { PendingNotice } from "./views/pending.js";
 
 /**
  * Opens the `/xpi-memo` window and drives it until it closes.
@@ -105,6 +106,13 @@ const DECISIONS: readonly string[] = [
   "later",
 ];
 
+/** The label each decision leaves in the pending action bar. */
+const NOTICE_FOR: Readonly<Record<CandidateDecision, PendingNotice>> = {
+  later: "later",
+  reject: "rejected",
+  store: "stored",
+};
+
 function isView(value: unknown): value is ViewId {
   return typeof value === "string" && VIEWS.includes(value);
 }
@@ -185,6 +193,8 @@ function buildHtml(
   options: GlimpsePanelOptions,
   state: {
     language: PanelLanguage;
+    /** The last decision, shown beside the pending buttons until the next one. */
+    notice?: PendingNotice;
     principle: ThemePrinciple;
     selectedIndex: number;
     theme: PanelTheme;
@@ -198,6 +208,11 @@ function buildHtml(
   return renderDocument({
     ...assembleParts(model, {
       initialView: state.view,
+      ...(state.notice === undefined
+        ? {}
+        : {
+            notice: state.notice,
+          }),
       principle: state.principle,
       selectedIndex: state.selectedIndex,
       theme: state.theme,
@@ -224,7 +239,14 @@ export async function openGlimpsePanel(options: GlimpsePanelOptions): Promise<bo
   let prefs: PanelPreferences = {
     ...loadPanelPreferences(options.prefsPath),
   };
-  const state = {
+  const state: {
+    language: PanelLanguage;
+    notice?: PendingNotice;
+    principle: ThemePrinciple;
+    selectedIndex: number;
+    theme: PanelTheme;
+    view: ViewId;
+  } = {
     language: options.language,
     principle: prefs.principle,
     selectedIndex: 0,
@@ -285,18 +307,45 @@ export async function openGlimpsePanel(options: GlimpsePanelOptions): Promise<bo
             return;
           }
           case "review": {
-            const candidate = options.model.pending[message.index];
-            if (!candidate) return;
-            state.selectedIndex = message.index;
-
-            // The window already asked with three buttons; only fall back to
-            // the terminal chooser when the caller has no direct path.
-            const decide = options.actions.reviewDecision?.bind(options.actions);
-            if (decide) await decide(candidate, message.decision);
-            else await options.actions.reviewCandidate(candidate);
+            await applyReview(message);
             return;
           }
         }
+      }
+
+      /**
+       * Apply one decision and redraw the window.
+       *
+       * The list on screen came from a snapshot of the queue taken when the
+       * window opened, so a decision has to hand the fresh queue back: without
+       * that a rejected row stays visible until the panel is reopened. Redrawing
+       * is also what makes the decision legible, because store and reject both
+       * remove the row and only the notice tells them apart.
+       */
+      async function applyReview(message: {
+        decision: CandidateDecision;
+        index: number;
+      }): Promise<void> {
+        const candidate = options.model.pending[message.index];
+        if (!candidate) return;
+        state.notice = NOTICE_FOR[message.decision];
+
+        // The window already asked with three buttons; only fall back to the
+        // terminal chooser when the caller has no direct path. That fallback
+        // returns no queue, so the list keeps its snapshot.
+        const decide = options.actions.reviewDecision?.bind(options.actions);
+        if (!decide) {
+          await options.actions.reviewCandidate(candidate);
+          win.setHTML(buildHtml(options, state));
+          return;
+        }
+
+        const pending = await decide(candidate, message.decision);
+        options.model.pending = pending;
+        // The queue shrank: an index past the end would leave the detail pane
+        // pointing at a candidate that no longer exists.
+        state.selectedIndex = Math.max(0, Math.min(message.index, pending.length - 1));
+        win.setHTML(buildHtml(options, state));
       }
 
       /**

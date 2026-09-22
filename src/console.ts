@@ -55,11 +55,15 @@ export interface ConsoleActions {
    * shows store / reject / later as three buttons. Falling back to
    * `reviewCandidate` keeps the window working against an older action set, at
    * the cost of asking twice.
+   *
+   * Returns the queue after the decision, because the window holds a snapshot
+   * taken when it opened: without the fresh list a rejected row would stay on
+   * screen until the panel was reopened.
    */
   reviewDecision?(
     candidate: PendingCandidate,
     decision: CandidateDecision,
-  ): Promise<void>;
+  ): Promise<readonly PendingCandidate[]>;
   save(values: ConsoleSettings): void;
   sleep(): Promise<void>;
 }

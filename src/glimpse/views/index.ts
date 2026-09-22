@@ -5,7 +5,7 @@ import { summarize } from "../../status-summary.js";
 import type { GlimpseDocumentParts, PanelTheme, ViewId } from "../document.js";
 import type { ThemePrinciple } from "../tokens.js";
 import { renderFooter, renderHeader, renderSidebar } from "./chrome.js";
-import { renderPendingView } from "./pending.js";
+import { type PendingNotice, renderPendingView } from "./pending.js";
 import { renderRecentView } from "./recent.js";
 import { renderSettingsView, type SettingsRowLike } from "./settings.js";
 import { renderStatusView } from "./status.js";
@@ -35,6 +35,8 @@ export interface GlimpseModel {
 
 export interface AssembleOptions {
   initialView: ViewId;
+  /** The decision the window just applied; the pending view renders its label. */
+  notice?: PendingNotice;
   principle: ThemePrinciple;
   /** Which pending candidate starts selected. */
   selectedIndex?: number;
@@ -63,6 +65,11 @@ export function assembleParts(
       pending: renderPendingView({
         candidates: pending,
         language,
+        ...(options.notice === undefined
+          ? {}
+          : {
+              notice: options.notice,
+            }),
         now,
         selectedIndex: options.selectedIndex ?? 0,
       }),

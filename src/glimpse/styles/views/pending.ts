@@ -131,4 +131,14 @@ export const PENDING_VIEW_STYLES = `
   display: flex;
   gap: var(--space-2);
 }
+
+/*
+  决策回执：列表缩短只说明“发生了事”，拒绝和存入都让行消失，
+  「稍后」更是一行都不动 —— 只有这行字能区分三者。
+*/
+.action-notice {
+  align-self: center;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
 `;

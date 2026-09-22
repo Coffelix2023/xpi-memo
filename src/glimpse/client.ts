@@ -28,6 +28,8 @@
  *                                               `data-selected`
  *   #P1-1-A1 .detail-block[data-index]          one detail block per candidate
  *   #P1-1-A2 button[data-decision]              store / reject / later
+ *   #P1-1-T2                                    the last decision's label,
+ *                                               hidden until one lands
  *   #P3-1-L1 .tabs-trigger[data-group]         settings tab strip, one trigger
  *                                               per group; `aria-selected` marks
  *                                               the open one
@@ -122,6 +124,10 @@ export const CLIENT_SCRIPT = `
     });
     var list = document.getElementById("P1-1-L1");
     if (list) list.dataset.selected = String(next);
+    // The receipt names what the last decision did to the last candidate; once
+    // the user moves the cursor it would be describing someone else's row.
+    var notice = document.getElementById("P1-1-T2");
+    if (notice) notice.setAttribute("hidden", "");
   }
 
   function selectedIndex() {
