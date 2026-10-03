@@ -4,7 +4,7 @@
 
 结合 [mnemosyne](https://github.com/topics/vector-database) 向量检索与 pi-memory 架构的超级记忆工具：L0 会话轨迹、T1 受治理记忆、派生的心智模型投影、Markdown 导出、可插拔检索。
 
-一个 [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) 扩展。
+一个 [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) 扩展。在 Pi `1.0.1` + Node 24 上验证；Pi 1.0 起 TUI 默认全屏，想要 1.0 之前的布局请加 `--tui-mode regular`（见 [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)）。
 
 ## 功能
 

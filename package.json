@@ -1,6 +1,6 @@
 {
   "name": "xpi-memo",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "type": "module",
   "description": "Super memory tool combining mnemosyne + pi-memory architectures: L0 session-trace, T1 governance, Markdown export, pluggable search",
@@ -8,14 +8,8 @@
     "type": "git",
     "url": "git+https://github.com/Coffelix2023/xpi-memo.git"
   },
-  "packageManager": "pnpm@12.9.0",
-  "keywords": [
-    "pi-package",
-    "pi-extension",
-    "memory",
-    "mnemosyne",
-    "xpi-memo"
-  ],
+  "packageManager": "pnpm@12.4.2",
+  "keywords": ["pi-package", "pi-extension", "memory", "mnemosyne", "xpi-memo"],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
@@ -42,12 +36,8 @@
     "vitest": "^5.0.1"
   },
   "pi": {
-    "extensions": [
-      "./src/index.ts"
-    ],
-    "skills": [
-      "./skills"
-    ],
+    "extensions": ["./src/index.ts"],
+    "skills": ["./skills"],
     "searchBackends": {
       "default": "auto",
       "optional": {

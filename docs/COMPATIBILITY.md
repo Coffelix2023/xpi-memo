@@ -2,18 +2,20 @@
 
 Tested configurations for xpi-memo releases. "Tested" = the project's own development environment plus its integration test suites (`real-cli.integration.test.ts`, `isolated-pi.integration.test.ts`).
 
-## xpi-memo v1.0.0
+## xpi-memo v2.0.1 (current)
 
 | Component | Tested | Notes |
 | --- | --- | --- |
-| Pi Coding Agent | 0.84.x | Loads `src/index.ts` directly; no build step |
-| Node.js | 24.12+ | LTS required by Pi |
-| pnpm | 11.x | Development only (tests, lint); runtime needs none |
-| TypeScript | 5.9 strict | Typecheck via `pnpm typecheck` |
+| Pi Coding Agent | 1.0.1 | Loads `src/index.ts` directly; no build step. Pi 1.0 defaults to the fullscreen TUI (`--tui-mode fullscreen`); `--tui-mode regular` restores the pre-1.0 layout |
+| Node.js | 24.20+ | LTS required by Pi |
+| pnpm | 12.x | Development only (tests, lint); runtime needs none |
+| TypeScript | 6.0 strict | Typecheck via `pnpm typecheck` |
 | mnemosyne (optional) | 3.15.x (`uv tool install mnemosyne-memory`) | Vector + FTS5 search backend; absence degrades to ripgrep |
 | ripgrep (optional) | 15.x (`brew install ripgrep` / `dnf install ripgrep`) | Full-text backend over Markdown + JSONL |
 | qmd (optional) | not tested (not installed locally) | Semantic backend; skipped by the fallback chain when absent |
 | OS | macOS 26 (arm64), Fedora Linux 42 | File permissions (0600/0700) follow POSIX |
+
+**Pi 1.0 runtime upgrade (change `upgrade-pi-1-0-1`).** The Pi runtime family moves to `1.0.1` as one set, and `@earendil-works/pi-tui` becomes an explicit dev dependency instead of an implicit optional peer, so the installed tree holds exactly one physical copy of `pi-tui` and one of `typebox` (`1.3.27`, the version Pi 1.0.1 declares). **No data, config, or storage migration**: banks, `candidates.json`, `audit.json`, L0 JSONL and exported Markdown are untouched. Two host-level changes are visible to users and neither is an xpi-memo behavior change: Pi 1.0 defaults the TUI to fullscreen, and registered tools now receive the stricter `ExtensionToolContext` (an added `tools` list plus `executeTool`), which only the extension's own integration-test fixtures supply. Custom surfaces — the `/xpi-memo` TUI panel, its keyboard handling and focus restoration, and the Glimpse-unavailable terminal fallback — were verified by hand in both TUI modes; the evidence and the rollback checklist live in the archived change at `openspec/changes/archive/2026-10-04-upgrade-pi-1-0-1/`. **Rollback:** `git revert` the two upgrade commits (`chore(deps): upgrade Pi runtime to 1.0.1` and `test(pi): adapt tool fixtures to Pi 1.0.1 ExtensionToolContext`); no data is involved.
 
 ## Data compatibility
 

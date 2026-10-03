@@ -4,7 +4,7 @@
 
 Super memory tool combining [mnemosyne](https://github.com/topics/vector-database) vector search with pi-memory architecture: L0 session-trace, T1 governed memory, derived mental-model projections, Markdown export, pluggable search.
 
-A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension.
+A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension. Tested against Pi `1.0.1` on Node 24; Pi 1.0 defaults the TUI to fullscreen, so pass `--tui-mode regular` if you want the pre-1.0 layout (see [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)).
 
 ## Features
 
