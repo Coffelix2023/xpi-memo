@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type {
   ExtensionAPI,
   ExtensionContext,
+  ExtensionToolContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
@@ -116,6 +117,18 @@ describe.skipIf(!enabled)("task 7.7 live RPC probe", () => {
           setWidget: () => undefined,
         },
       }) as unknown as ExtensionContext;
+    // Registered tools receive the stricter tool context; this probe never
+    // nests calls, so the stub only has to be present and honest.
+    const toolContextFor = (
+      cwd: string,
+      mode: "rpc" | "tui" = "tui",
+    ): ExtensionToolContext => ({
+      ...contextFor(cwd, mode),
+      tools: [],
+      executeTool: async () => {
+        throw new Error("executeTool is not available in this probe context");
+      },
+    });
 
     const tool = (name: string): ToolDefinition => {
       const found = tools.find((candidate) => candidate.name === name);
@@ -140,7 +153,7 @@ describe.skipIf(!enabled)("task 7.7 live RPC probe", () => {
       id: string,
       params: Record<string, unknown>,
       cwd: string,
-    ) => tool(name).execute(id, params, undefined, undefined, contextFor(cwd));
+    ) => tool(name).execute(id, params, undefined, undefined, toolContextFor(cwd));
 
     const statusCommand = commands.find(({ name }) => name === "xpi-memo-status");
     await statusCommand?.handler("--json", contextFor(projectA, "rpc"));

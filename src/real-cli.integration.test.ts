@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import type {
   ExtensionAPI,
-  ExtensionContext,
+  ExtensionToolContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
@@ -264,6 +264,12 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
     const ctx = {
       cwd: dataDir,
       mode: "tui",
+      // This suite only calls registered tools, so the context carries the
+      // tool-boundary fields. Nested calls are never exercised.
+      tools: [],
+      executeTool: async () => {
+        throw new Error("executeTool is not available in this test context");
+      },
       ui: {
         confirm: async () => true,
         notify: () => undefined,
@@ -271,7 +277,7 @@ describe.skipIf(!enabled)("real Mnemosyne CLI integration", () => {
         setStatus: () => undefined,
         setWidget: () => undefined,
       },
-    } as unknown as ExtensionContext;
+    } as unknown as ExtensionToolContext;
     const tool = (name: string): ToolDefinition => {
       const found = tools.find((candidate) => candidate.name === name);
       if (!found) throw new Error(`tool not registered: ${name}`);
