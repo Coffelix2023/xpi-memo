@@ -4,7 +4,7 @@
 
 结合 [mnemosyne](https://github.com/topics/vector-database) 向量检索与 pi-memory 架构的超级记忆工具：L0 会话轨迹、T1 受治理记忆、派生的心智模型投影、Markdown 导出、可插拔检索。
 
-一个 [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) 扩展。在 Pi `1.0.1` + Node 24 上验证；Pi 1.0 起 TUI 默认全屏，想要 1.0 之前的布局请加 `--tui-mode regular`（见 [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)）。
+一个 [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) 扩展。在 Pi `1.0.2` + Node 24 上验证；Pi 1.0 起 TUI 默认全屏，想要 1.0 之前的布局请加 `--tui-mode regular`（见 [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)）。
 
 ## 功能
 
@@ -55,6 +55,7 @@ pi install npm:glimpseui
 
 - `/xpi-memo` — 打开控制台：Glimpse 可用时是原生窗口（启动尺寸 800×600，可缩放，布局会铺满），否则是 TUI 面板（两者都是待审 / 最近 / 设置 / 状态；窗口另多一个「触发」页）
 - `/xpi-memo-status` — 打印精简状态（库、计数、暂停、召回档位、离线提取的开关与结果、以及提取实际解析到的模型）。加 `--json` 取完整负载：这是唯一的程序化状态读取途径（库、后端可用性、配置、可观测性、`doctor`）。JSON 本身没变，只是改成显式索取——约 250 行会挤掉它本来要服务的对话。要看状态的**界面**，用 `/xpi-memo`
+- `/xpi-memo-tools` — 激活本会话的全部 XpiMemo 工具。幂等：已激活的会话不改动原工具集。下一轮对话生效
 - `/xpi-memo-init` — 初始化非 Git 项目身份（写入 `.pi/xpi-memo/project.json`；不会在仓库里放 SQLite）
 - `/xpi-memo-export [--session <id>] [--force] [--validate]` — 把 L0 事件导出为 Markdown
 - `/xpi-memo-export --repo [--reimport]` — 把受治理的项目记忆导出到 `.pi/memory/<kind>.md` / 把发现的条目重新导入为受治理候选
@@ -84,10 +85,16 @@ pi install npm:glimpseui
 
 ### 工具
 
+八个工具中有五个是常驻的——每个会话都会声明：`xpi_memo_remember`、`xpi_memo_recall`、`xpi_memo_feedback`。其余注册即休眠（`defaultActive: false`），让低频治理工具不占用每个会话的系统提示；运行 `/xpi-memo-tools` 激活（激活后本会话内一直可用）：
+
 - `xpi_memo_remember` — 存储记忆
 - `xpi_memo_recall` — 召回记忆
+- `xpi_memo_feedback` — 为记忆记录 helpful / wrong / irrelevant 反馈
 - `xpi_memo_forget` — 删除记忆
 - `xpi_memo_sleep` — 整理记忆（需要显式授权）
+- `xpi_memo_dna_write` — 向 `.pi/DNA.yaml` 写入一条项目域记忆
+- `xpi_memo_show_injected` — 显示本会话注入过的记忆
+- `xpi_memo_init` — 初始化或撤销非 Git 项目身份
 
 **自动捕获。** 当你在提示里显式声明一条长期有效的偏好、工作流、项目决策、坑点或有边界的会话上下文时，激活回路会把它走一遍与 `xpi_memo_remember` 相同的治理路径——不需要额外调用工具。全局偏好/工作流直接落库；项目决策、约束与坑点会变成待审候选（见 [GUIDE.md § Activation loop](./GUIDE.md#activation-loop)）。受信项目里的美术/写作域规则改走 DNA 文件路径，不产生 T1 候选；其余路径不变。
 

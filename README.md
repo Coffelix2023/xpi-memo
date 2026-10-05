@@ -4,7 +4,7 @@
 
 Super memory tool combining [mnemosyne](https://github.com/topics/vector-database) vector search with pi-memory architecture: L0 session-trace, T1 governed memory, derived mental-model projections, Markdown export, pluggable search.
 
-A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension. Tested against Pi `1.0.1` on Node 24; Pi 1.0 defaults the TUI to fullscreen, so pass `--tui-mode regular` if you want the pre-1.0 layout (see [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)).
+A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension. Tested against Pi `1.0.2` on Node 24; Pi 1.0 defaults the TUI to fullscreen, so pass `--tui-mode regular` if you want the pre-1.0 layout (see [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)).
 
 ## Features
 
@@ -55,6 +55,7 @@ pi install npm:glimpseui
 
 - `/xpi-memo` — Open the console: a native Glimpse window (launched at 800×600, resizable — the layout fills it) when available, otherwise the TUI panel (Pending / Recent / Settings / Status; the window adds Triggers)
 - `/xpi-memo-status` — Print a concise status (banks, counts, pause, recall mode, offline-extraction gate and outcome, and the model extraction resolves to). Add `--json` for the full payload: the only programmatic status read (banks, backend availability, config, observability, `doctor`). The JSON is unchanged; it is now opt-in because ~250 lines hurt the conversation it was asked in. For the status *view*, use `/xpi-memo`.
+- `/xpi-memo-tools` — Activate all XpiMemo tools in this session. Idempotent: an already-active session keeps its tool set untouched. Takes effect on the next turn
 - `/xpi-memo-init` — Initialize a non-Git project identity (writes `.pi/xpi-memo/project.json`; no SQLite in the repo)
 - `/xpi-memo-export [--session <id>] [--force] [--validate]` — Export L0 events to Markdown
 - `/xpi-memo-export --repo [--reimport]` — Export governed project memory to `.pi/memory/<kind>.md` / re-import discovered entries as governed candidates
@@ -83,10 +84,16 @@ Settings fields carry their own control: an enumerated field is a dropdown (clic
 
 ### Tools
 
+Five of the eight tools are resident — declared to every session: `xpi_memo_remember`, `xpi_memo_recall`, `xpi_memo_feedback`. The rest register dormant (`defaultActive: false`) so rarely used governance tools stay out of each session's system prompt; run `/xpi-memo-tools` to activate them (they stay active for the rest of the session):
+
 - `xpi_memo_remember` — Store memory
 - `xpi_memo_recall` — Recall memory
+- `xpi_memo_feedback` — Record helpful / wrong / irrelevant feedback for a memory
 - `xpi_memo_forget` — Delete memory
 - `xpi_memo_sleep` — Consolidate memory (explicit authorization required)
+- `xpi_memo_dna_write` — Write one project domain-memory entry into `.pi/DNA.yaml`
+- `xpi_memo_show_injected` — Show memories injected during the current session
+- `xpi_memo_init` — Initialize or revoke a non-Git project identity
 
 **Automatic capture.** When you explicitly state a durable preference, workflow, project decision, gotcha, or bounded session context in a prompt, the activation loop routes it through the same governance path as `xpi_memo_remember` — no extra tool call needed. Global preferences/workflows store directly; project decisions, constraints, and gotchas become review candidates (see [GUIDE.md § Activation loop](./GUIDE.md#activation-loop)). An art/write-domain rule in a trusted project takes the DNA file path instead of creating a T1 candidate; everything else is unchanged.
 
