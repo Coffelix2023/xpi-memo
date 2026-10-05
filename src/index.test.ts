@@ -535,11 +535,26 @@ describe("xpi-memo bootstrap entrypoint", () => {
     expect(commands.map(({ name }) => name)).toEqual([
       "xpi-memo-rescan",
       "xpi-memo",
+      "xpi-memo-tools",
       "xpi-memo-status",
       "xpi-memo-trace",
       "xpi-memo-export",
       "xpi-memo-init",
     ]);
+    const defaultActiveByName = new Map(
+      tools.map((tool) => [
+        tool.name,
+        tool.defaultActive,
+      ]),
+    );
+    expect(defaultActiveByName.get("xpi_memo_remember")).toBe(true);
+    expect(defaultActiveByName.get("xpi_memo_recall")).toBe(true);
+    expect(defaultActiveByName.get("xpi_memo_feedback")).toBe(true);
+    expect(defaultActiveByName.get("xpi_memo_forget")).toBe(false);
+    expect(defaultActiveByName.get("xpi_memo_dna_write")).toBe(false);
+    expect(defaultActiveByName.get("xpi_memo_show_injected")).toBe(false);
+    expect(defaultActiveByName.get("xpi_memo_sleep")).toBe(false);
+    expect(defaultActiveByName.get("xpi_memo_init")).toBe(false);
     expect(tools.map(({ name }) => name)).toEqual([
       "xpi_memo_feedback",
       "xpi_memo_remember",

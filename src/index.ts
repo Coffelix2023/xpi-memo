@@ -631,6 +631,39 @@ async function executeDnaWrite(
     `DNA write rejected (${result.reason})${result.detail ? `: ${result.detail}` : ""}${issues ? ` — ${issues}` : ""}`,
   );
 }
+/**
+ * Every XpiMemo tool name. Single source of truth for /xpi-memo-tools.
+ */
+const MEMO_TOOL_NAMES = [
+  "xpi_memo_dna_write",
+  "xpi_memo_feedback",
+  "xpi_memo_forget",
+  "xpi_memo_init",
+  "xpi_memo_remember",
+  "xpi_memo_recall",
+  "xpi_memo_show_injected",
+  "xpi_memo_sleep",
+] as const;
+
+/**
+ * Tools declared to every session. The rest stay dormant on registration
+ * (`defaultActive: false`) and are activated per session with /xpi-memo-tools,
+ * keeping rarely used governance tools out of each session's system prompt.
+ * Passive memory (L0 injection, shutdown extraction, compact refresh) runs in
+ * hooks and needs no activation.
+ */
+const RESIDENT_TOOLS = new Set([
+  "xpi_memo_remember",
+  "xpi_memo_recall",
+  "xpi_memo_feedback",
+]);
+
+/** Memo tool names missing from the active set; empty when already activated. */
+export function missingMemoTools(activeToolNames: readonly string[]): string[] {
+  const active = new Set(activeToolNames);
+  return MEMO_TOOL_NAMES.filter((name) => !active.has(name));
+}
+
 function realTool<TParams extends TSchema>(
   name: string,
   label: string,
@@ -647,6 +680,7 @@ function realTool<TParams extends TSchema>(
     label,
     description,
     parameters,
+    defaultActive: RESIDENT_TOOLS.has(name),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const surface = createMemorySurface(ctx);
       let action: "store" | "recall" | undefined;
@@ -3243,6 +3277,30 @@ export default function xpiMemo(
     },
   });
 
+  pi.registerCommand("xpi-memo-tools", {
+    description:
+      "Activate all XpiMemo tools in this session; idempotent, takes effect next turn",
+    handler: async (_args, ctx) => {
+      const missing = missingMemoTools(pi.getActiveTools());
+      if (missing.length === 0) {
+        ctx.ui.notify(
+          "XpiMemo tools are already active; the tool set is unchanged.",
+          "info",
+        );
+        return;
+      }
+      // setActiveTools replaces the whole active set, so merge with the
+      // current names instead of passing only memo tools.
+      pi.setActiveTools([
+        ...pi.getActiveTools(),
+        ...missing,
+      ]);
+      ctx.ui.notify(
+        `Activated ${missing.length} XpiMemo tool(s): ${missing.join(", ")}. Takes effect on the next turn.`,
+        "info",
+      );
+    },
+  });
   pi.registerCommand("xpi-memo-status", {
     description:
       "Print a concise status; --json for the full payload (scripts and non-TUI sessions)",
