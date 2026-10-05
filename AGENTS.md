@@ -12,7 +12,7 @@
 - **核心栈**:TypeScript (strict) + Node.js + Pi 原生 UI(`ctx.ui.*` / `@earendil-works/pi-tui`)+ Biome + pnpm + Vitest + typebox。
 - **无构建步骤**:Pi 直接加载 `src/index.ts` TypeScript 源码。禁止引入 tsup/esbuild/dist 产物。
 - **类型真相**:Pi 的 API 签名以 `node_modules/@earendil-works/*` 的 `.d.ts` 为准。**动手前先读类型,不凭记忆猜 API**。
-- 任何代码修改后,必须分别保证 `pnpm typecheck`、`pnpm -w run lint`、`pnpm test` 全部通过,否则视为未完成。
+- 任何代码修改后按 **§5 收尾规则**验证:`pnpm typecheck` + 改动路径 `biome check` + 命中的单测。全量 test / 全量 lint / 实机调试只在 §5 触发条件命中时才跑,不因「更保险」而跑。
 
 ## 1. 运行时契约
 
@@ -48,16 +48,45 @@ Node.js + pnpm(版本见 `mise.toml`)、TypeScript strict、Biome(lint+format)�
 
 ## 5. 命令与开发回路
 
+> 本仓库无 build、无 dev server、无 e2e。全量 test / lint 都是十秒级,真正慢的只有「实机调试」(走网络 + clean+reinstall)。
+
 ```bash
-pnpm typecheck        # tsc --noEmit
-pnpm -w run lint      # workspace root: biome check .
-pnpm test             # vitest run
+# 日常（秒级，默认收尾只用这三条）
+pnpm typecheck                    # tsc --noEmit，全量类型兜底（~3.5s）
+pnpm exec biome check <改动路径>   # 只查改动文件/目录（~10ms/文件）
+pnpm test <path|文件名>            # 只跑改动相关的 test（~0.2s/文件）
+
+# 全量（触发条件命中才跑）
+pnpm test                         # vitest run --dir src：123 文件 / 1259 用例（~6.5s）
+pnpm -w run lint                  # workspace root：biome check .，255 文件（~0.1s）
+
+# 实机（真装进 Pi 才验得到；走网络 + clean+reinstall）
+pi -e git:github.com/Coffelix2023/xpi-memo                    # 冒烟，临时装不落 settings
+pi update --extension git:github.com/Coffelix2023/xpi-memo     # 拉取已发布版本
 ```
 
-- 提交前三条全绿。
-- 若 lint 输出意外出现 ESLint,先确认 `scripts.lint` 仍为 `biome check .`,再运行 `pnpm exec biome check .` 诊断;禁止安装 ESLint。
-- **实机调试**:git 源安装 `pi install git:github.com/Coffelix2023/xpi-memo`(免 pin ref);发布/改代码后 `pi update --extension git:github.com/Coffelix2023/xpi-memo` 拉取并自动 clean+reinstall,单包更新不影响其他扩展。不用本地软链/路径安装——避免正式安装后遗漏清理。
-- **冒烟**:`pi -e git:github.com/Coffelix2023/xpi-memo`(临时装,不落 settings)。
+### 5.1 收尾规则
+
+1. 默认收尾（改 `.ts`）：`pnpm typecheck` + `pnpm exec biome check <改动路径>` 全绿即算完成。
+2. 追加单测：改到已有测试的模块才跑，测试与源码同目录同名，`src/**/<name>.ts` → `pnpm test <name>`，改哪跑哪。
+3. 只改 `.md` / 注释 / 文案：Biome 不覆盖 `.md`（`biome check` 会以「No files were processed」exit 1,属正常），无 lint 可跑,直接完成。
+4. 全量 test / 全量 lint 触发条件（命中其一才跑）：改了被多方引用的公共模块（`src/types.ts`、`config.ts`、`auto-store-policy.ts`、`event-stream.ts`、`banks.ts` 等）;一次改动跨 3 个以上领域目录;合并主干 / 发版 / 用户要验收。
+5. 实机调试触发条件（命中其一才跑）：改了扩展注册、Tool/Command 签名、`ctx.ui.*` 交互、加载路径或 pi manifest;用户要求真机确认。
+6. 禁止：
+   - 不因「任务做完」「更保险」「顺手确认」跑全量 test / 全量 lint / `pi update`。
+   - 无新改动不重跑;一轮只在最后一次改动后收尾一次。
+   - 失败只重跑失败那条（`pnpm test <路径>`），不重跑整套。
+   - 不为绕过慢命令而改 `package.json` 脚本。
+7. 判不准是否里程碑：按默认收尾处理。
+8. 汇报：列出已跑的命令与结果;未跑的全量 / 实机命令写一行，例如「未跑全量 test / 实机（非里程碑），需要验收请说」。不把「未跑」写成「已通过」。
+
+### 5.2 已知坑
+
+- 若 lint 输出意外出现 ESLint，先确认 `scripts.lint` 仍为 `biome check .`，再运行 `pnpm exec biome check .` 诊断;禁止安装 ESLint。
+- `pnpm test -t <名称>` 仍会加载全部 123 个文件（~2.5s），比按路径过滤慢,优先路径过滤。
+- 首次实机安装：`pi install git:github.com/Coffelix2023/xpi-memo`（免 pin ref）。
+- `pi update --extension` 走网络且 clean+reinstall,单包更新不影响其他扩展,只在有已发布改动或用户要求时跑。
+- 不用本地软链/路径安装——避免正式安装后遗漏清理。
 
 ## 6. Git 与回滚纪律
 
