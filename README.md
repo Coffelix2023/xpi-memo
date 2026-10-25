@@ -4,7 +4,7 @@
 
 Super memory tool combining [mnemosyne](https://github.com/topics/vector-database) vector search with pi-memory architecture: L0 session-trace, T1 governed memory, derived mental-model projections, Markdown export, pluggable search.
 
-A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension. Tested against Pi `1.0.2` on Node 24; Pi 1.0 defaults the TUI to fullscreen, so pass `--tui-mode regular` if you want the pre-1.0 layout (see [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)).
+A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension. Tested against Pi `1.4.0` on Node 24.22; Pi 1.0 defaults the TUI to fullscreen, so pass `--tui-mode regular` if you want the pre-1.0 layout (see [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)).
 
 ## Features
 
@@ -155,6 +155,17 @@ pnpm -w run lint
 pnpm test
 npx tsx scripts/bench.ts   # hot-path micro-benchmarks
 ```
+
+## Version history
+
+Tags follow `v<version>`. Entries below cover the releases that changed compatibility or behavior; the full list is in [Releases](https://github.com/Coffelix2023/xpi-memo/releases) and the per-release compatibility notes are in [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md).
+
+| Version | Changes |
+| --- | --- |
+| 2.2.0 | Pi `1.4.0` sync. `before_agent_start` became a union on `messageType` in Pi 1.2, so the hook now returns early for `messageType !== "user"` — runs started by `pi.sendMessage(..., { triggerTurn: true })` no longer consume the startup recall or trigger prompt recall. Tool rows show the execution duration Pi 1.1 began reporting (`recalled 3 · 120ms`). Toolchain: TypeScript 7, Biome 2.6.3, vitest 5.0.5. `typebox` stays `1.3.27` because Pi 1.4.0 pins it exactly. No data or config migration. |
+| 2.1.0 | Pi `1.0.2` sync. Five of the eight `xpi_memo_*` tools (`forget`, `dna_write`, `show_injected`, `sleep`, `init`) register dormant (`defaultActive: false`); activate them per session with `/xpi-memo-tools`. |
+| 2.0.1 | Pi `1.0.1` sync; `@earendil-works/pi-tui` became an explicit dev dependency so the tree holds one copy of `pi-tui` and `typebox`. |
+| 2.0.0 | Retired the optional TypeSafe System One decision boundary and its seven config keys. Leftover keys are inert, not errors. |
 
 ## Attributions
 
