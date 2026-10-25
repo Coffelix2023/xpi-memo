@@ -154,24 +154,10 @@
         "noNodejsModules": "off"
       },
       "nursery": {
-        "useSortedClasses": {
-          //针对 tailwindcss的实例类排序
+        "useTailwindSortedClasses": {
+          //针对 tailwindcss的实例类排序;Biome 2.6 移除了该规则的 options,只能按默认行为启用
           "fix": "safe",
-          "level": "on",
-          "options": {
-            "attributes": [
-              "className",
-              "class"
-            ],
-            "functions": [
-              "cva",
-              "cx",
-              "clsx",
-              "cn",
-              "tw",
-              "tw.*"
-            ]
-          }
+          "level": "on"
         }
       },
       //安全防御

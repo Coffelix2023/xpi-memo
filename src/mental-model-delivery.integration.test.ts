@@ -199,6 +199,7 @@ async function beforeAgentStart(
   const result = (await hook.handler(
     {
       prompt,
+      messageType: "user",
       type: "before_agent_start",
     },
     context,

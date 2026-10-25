@@ -36,4 +36,35 @@ describe("XpiMemo tool rows", () => {
       }),
     ).toBe("sleep completed");
   });
+
+  it("appends a rendered execution duration when Pi reports one", () => {
+    expect(
+      toolLine(
+        {
+          resultCount: 3,
+          status: "recalled",
+        },
+        120,
+      ),
+    ).toBe("recalled 3 · 120ms");
+    expect(
+      toolLine(
+        {
+          resultCount: 3,
+          status: "recalled",
+        },
+        1200,
+      ),
+    ).toBe("recalled 3 · 1.2s");
+    // Absent while the tool runs and for results stored before durations existed.
+    expect(
+      toolLine(
+        {
+          resultCount: 3,
+          status: "recalled",
+        },
+        undefined,
+      ),
+    ).toBe("recalled 3");
+  });
 });

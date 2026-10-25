@@ -246,6 +246,7 @@ async function prompt(
 }> {
   const started = performance.now();
   const result = (await fire(events, "before_agent_start", context, {
+    messageType: "user",
     prompt: text,
     type: "before_agent_start",
   })) as {

@@ -1737,6 +1737,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     await beforeAgentStart.handler(
       {
         prompt,
+        messageType: "user",
         type: "before_agent_start",
       },
       context,
@@ -1797,6 +1798,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     await beforeAgentStart.handler(
       {
         prompt,
+        messageType: "user",
         type: "before_agent_start",
       },
       context,
@@ -2069,6 +2071,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const context = createToolContext();
     const result = await beforeAgentStart.handler(
       {
+        messageType: "user",
         prompt: "what do you prefer?",
         type: "before_agent_start",
       },
@@ -2120,6 +2123,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     if (!beforeAgentStart) throw new Error("before_agent_start hook not registered");
     const result = await beforeAgentStart.handler(
       {
+        messageType: "user",
         prompt: "continue",
         type: "before_agent_start",
       },
@@ -2169,6 +2173,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     const context = createToolContext();
     const result = await beforeAgentStart.handler(
       {
+        messageType: "user",
         prompt: "continue the task",
         type: "before_agent_start",
       },
@@ -2235,6 +2240,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     await start.handler({}, context);
     const result = await beforeAgentStart.handler(
       {
+        messageType: "user",
         prompt: "继续",
         type: "before_agent_start",
       },
@@ -2299,6 +2305,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     await start.handler({}, startContext);
     const result = await beforeAgentStart.handler(
       {
+        messageType: "user",
         prompt: "继续",
         type: "before_agent_start",
       },
@@ -2366,6 +2373,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
     // Waiting on the pending startup recall re-throws anything it rejected with.
     const result = await beforeAgentStart.handler(
       {
+        messageType: "user",
         prompt: "继续",
         type: "before_agent_start",
       },
@@ -3790,6 +3798,8 @@ describe("xpi-memo bootstrap entrypoint", () => {
     ).candidates;
     expect(Object.keys(candidates)).toHaveLength(1);
   });
+  // Runs the real status command against the live data dir (~4s, grows with the
+  // bank), so the 5s default times out under full-suite load.
   it("reports fixed tier ownership without triggering memory operations", async () => {
     const { commands } = loadExtension();
     const command = commands.find(({ name }) => name === "xpi-memo-status");
@@ -3819,7 +3829,7 @@ describe("xpi-memo bootstrap entrypoint", () => {
       enabled: false,
     });
     expect(status.recall.scope).toBe("global-only");
-  });
+  }, 15_000);
 
   it("traces a stored memory to its L0 session event (task 6.2)", async () => {
     const dataDir = createTemporaryDirectory();
@@ -5182,6 +5192,7 @@ describe("DNA prompt injection wiring (tasks 3.2-3.4)", () => {
     if (!beforeAgentStart) throw new Error("before_agent_start hook not registered");
     const result = await beforeAgentStart.handler(
       {
+        messageType: "user",
         prompt: "帮我调整这个页面的布局",
         type: "before_agent_start",
       },

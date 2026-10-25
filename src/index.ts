@@ -709,8 +709,8 @@ function realTool<TParams extends TSchema>(
     renderCall(_args, theme) {
       return renderCallLine(name, theme);
     },
-    renderResult(result, _options, theme) {
-      return renderToolLine(result.details as ToolDetails, theme);
+    renderResult(result, _options, theme, context) {
+      return renderToolLine(result.details as ToolDetails, theme, context.durationMs);
     },
   };
 }
@@ -3857,6 +3857,10 @@ export default function xpiMemo(
     );
   });
   pi.on("before_agent_start", async (event, ctx) => {
+    // Pi 1.2 also fires this for pi.sendMessage(..., { triggerTurn: true }) runs,
+    // which carry no prompt; recall is defined over a user prompt only. Keep this
+    // above the pendingStartup handoff so a custom run cannot consume it.
+    if (event.messageType !== "user") return;
     const startup = pendingStartup;
     pendingStartup = undefined;
     const startupOutcome = startup ? await startup : null;

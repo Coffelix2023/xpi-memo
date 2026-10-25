@@ -212,6 +212,7 @@ async function sessionTurn(
   const outcome = (await beforeAgentStart.handler(
     {
       prompt,
+      messageType: "user",
       type: "before_agent_start",
     },
     ctx,

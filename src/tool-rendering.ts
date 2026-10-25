@@ -8,7 +8,20 @@ export interface ToolLineDetails {
   status?: string;
 }
 
-export function toolLine(details: ToolLineDetails | undefined): string {
+/** `durationMs` comes from Pi 1.1+'s render context; absent while running or for old results. */
+export function toolLine(
+  details: ToolLineDetails | undefined,
+  durationMs?: number,
+): string {
+  const line = toolLineText(details);
+  return durationMs === undefined ? line : `${line} · ${formatDuration(durationMs)}`;
+}
+
+function formatDuration(ms: number): string {
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+function toolLineText(details: ToolLineDetails | undefined): string {
   if (!details) return "xpi-memo";
   const status = typeof details.status === "string" ? details.status : "unknown";
   if (status === "recalled")
@@ -29,8 +42,9 @@ export function renderToolLine(
   theme: {
     fg(color: string, text: string): string;
   },
+  durationMs?: number,
 ): Text {
-  return new Text(theme.fg("muted", toolLine(details)), 0, 0);
+  return new Text(theme.fg("muted", toolLine(details, durationMs)), 0, 0);
 }
 
 export function renderCallLine(

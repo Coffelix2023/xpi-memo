@@ -397,6 +397,7 @@ describe("mental-model compatibility (tasks 6.1 and 6.4)", () => {
       type: "input",
     });
     await fire(events, "before_agent_start", ctx, {
+      messageType: "user",
       prompt: "hello",
       type: "before_agent_start",
     });
@@ -461,6 +462,7 @@ describe("mental-model identity isolation (task 6.2)", () => {
 
     // Routing identity observed by the existing recall path.
     await fire(events, "before_agent_start", ctx, {
+      messageType: "user",
       prompt: "restore project context decisions constraints",
       type: "before_agent_start",
     });
@@ -555,6 +557,7 @@ describe("mental-model identity isolation (task 6.2)", () => {
       type: "input",
     });
     const betaContent = (await fire(beta.events, "before_agent_start", betaCtx, {
+      messageType: "user",
       prompt: "restore project context decisions constraints",
       type: "before_agent_start",
     })) as {
