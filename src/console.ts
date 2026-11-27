@@ -155,7 +155,7 @@ export function listMaxVisible(count: number, rows: number): number {
 }
 
 /** Hard guard on the body region: never more, never fewer than `rows`. */
-export function fit(rows: string[], count: number): string[] {
+export function fit(rows: readonly string[], count: number): string[] {
   const sliced = rows.slice(0, count);
   while (sliced.length < count) sliced.push("");
   return sliced;
@@ -1185,7 +1185,7 @@ export function createConsoleComponent(options: ConsoleComponentOptions) {
     ];
   }
 
-  function bodyRowsFor(width: number): string[] {
+  function bodyRowsFor(width: number): readonly string[] {
     if (tab === RECENT_TAB) {
       recentText.setText(
         recentWindow(model.status, recentRow, body)

@@ -4,7 +4,7 @@
 
 Super memory tool combining [mnemosyne](https://github.com/topics/vector-database) vector search with pi-memory architecture: L0 session-trace, T1 governed memory, derived mental-model projections, Markdown export, pluggable search.
 
-A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension. Tested against Pi `1.4.0` on Node 24.22; Pi 1.0 defaults the TUI to fullscreen, so pass `--tui-mode regular` if you want the pre-1.0 layout (see [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)).
+A [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) extension. Tested against Pi `1.7.0` on Node 24.22; Pi 1.0 defaults the TUI to fullscreen, so pass `--tui-mode regular` if you want the pre-1.0 layout (see [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)).
 
 ## Features
 
@@ -162,6 +162,7 @@ Tags follow `v<version>`. Entries below cover the releases that changed compatib
 
 | Version | Changes |
 | --- | --- |
+| 2.3.0 | Pi `1.7.0` sync. Pi 1.6.0 made `render()` return `readonly string[]` (Container caches the same array while children are unchanged), so console.ts render helpers (`fit`, `bodyRowsFor`) now take/return `readonly string[]`. Toolchain: Biome 2.6.9, `@earendil-works/pi-coding-agent`/`pi-tui` 1.7.0, vitest 5.1.2, `@types/node` 24.19.4, pnpm 12.21.0. `typebox` stays `1.3.27` (Pi 1.7.0 still pins it exactly). No data or config migration. |
 | 2.2.0 | Pi `1.4.0` sync. `before_agent_start` became a union on `messageType` in Pi 1.2, so the hook now returns early for `messageType !== "user"` — runs started by `pi.sendMessage(..., { triggerTurn: true })` no longer consume the startup recall or trigger prompt recall. Tool rows show the execution duration Pi 1.1 began reporting (`recalled 3 · 120ms`). Toolchain: TypeScript 7, Biome 2.6.3, vitest 5.0.5. `typebox` stays `1.3.27` because Pi 1.4.0 pins it exactly. No data or config migration. |
 | 2.1.0 | Pi `1.0.2` sync. Five of the eight `xpi_memo_*` tools (`forget`, `dna_write`, `show_injected`, `sleep`, `init`) register dormant (`defaultActive: false`); activate them per session with `/xpi-memo-tools`. |
 | 2.0.1 | Pi `1.0.1` sync; `@earendil-works/pi-tui` became an explicit dev dependency so the tree holds one copy of `pi-tui` and `typebox`. |

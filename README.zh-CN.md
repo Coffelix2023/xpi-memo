@@ -4,7 +4,7 @@
 
 结合 [mnemosyne](https://github.com/topics/vector-database) 向量检索与 pi-memory 架构的超级记忆工具：L0 会话轨迹、T1 受治理记忆、派生的心智模型投影、Markdown 导出、可插拔检索。
 
-一个 [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) 扩展。在 Pi `1.4.0` + Node 24.22 上验证；Pi 1.0 起 TUI 默认全屏，想要 1.0 之前的布局请加 `--tui-mode regular`（见 [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)）。
+一个 [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) 扩展。在 Pi `1.7.0` + Node 24.22 上验证；Pi 1.0 起 TUI 默认全屏，想要 1.0 之前的布局请加 `--tui-mode regular`（见 [docs/COMPATIBILITY.md](./docs/COMPATIBILITY.md)）。
 
 ## 功能
 
@@ -153,6 +153,7 @@ tag 遵循 `v<版本号>`。下表只记录改变了兼容性或行为的版本�
 
 | 版本 | 变更 |
 | --- | --- |
+| 2.3.0 | 同步 Pi `1.7.0`。Pi 1.6.0 起 `render()` 返回 `readonly string[]`（Container 在子节点未变时复用同一数组），因此 console.ts 的渲染助手（`fit`、`bodyRowsFor`）改为接受/返回 `readonly string[]`。工具链：Biome 2.6.9、`@earendil-works/pi-coding-agent`/`pi-tui` 1.7.0、vitest 5.1.2、`@types/node` 24.19.4、pnpm 12.21.0。`typebox` 仍为 `1.3.27`（Pi 1.7.0 仍精确锁定）。无数据/配置迁移。 |
 | 2.2.0 | 同步 Pi `1.4.0`。Pi 1.2 起 `before_agent_start` 变成按 `messageType` 区分的联合类型，因此该 hook 现在对 `messageType !== "user"` 直接早返回——由 `pi.sendMessage(..., { triggerTurn: true })` 拉起的运行不再消费启动召回，也不会触发提示召回。工具行显示 Pi 1.1 开始上报的执行耗时（`recalled 3 · 120ms`）。工具链：TypeScript 7、Biome 2.6.3、vitest 5.0.5。`typebox` 保持 `1.3.27`，因为 Pi 1.4.0 精确锁定了它。无数据或配置迁移。 |
 | 2.1.0 | 同步 Pi `1.0.2`。八个 `xpi_memo_*` 工具中的五个（`forget`、`dna_write`、`show_injected`、`sleep`、`init`）以休眠方式注册（`defaultActive: false`）；用 `/xpi-memo-tools` 按会话激活。 |
 | 2.0.1 | 同步 Pi `1.0.1`；`@earendil-works/pi-tui` 变为显式 dev 依赖，使依赖树里只有一份 `pi-tui` 和一份 `typebox`。 |

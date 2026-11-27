@@ -2,13 +2,13 @@
 
 Tested configurations for xpi-memo releases. "Tested" = the project's own development environment plus its integration test suites (`real-cli.integration.test.ts`, `isolated-pi.integration.test.ts`).
 
-## xpi-memo v2.1.0 (current)
+## xpi-memo v2.3.0 (current)
 
 | Component | Tested | Notes |
 | --- | --- | --- |
-| Pi Coding Agent | 1.4.0 | Loads `src/index.ts` directly; no build step. Pinned to the exact release: Pi 1.3+ pins its own dependencies exactly, so a caret range could mix an incompatible `pi-tui`. Pi 1.0 defaults to the fullscreen TUI (`--tui-mode fullscreen`); `--tui-mode regular` restores the pre-1.0 layout |
+| Pi Coding Agent | 1.7.0 | Loads `src/index.ts` directly; no build step. Pinned to the exact release: Pi 1.3+ pins its own dependencies exactly, so a caret range could mix an incompatible `pi-tui`. Pi 1.0 defaults to the fullscreen TUI (`--tui-mode fullscreen`); `--tui-mode regular` restores the pre-1.0 layout |
 | Node.js | 24.22.1 | Pinned in `mise.toml`; LTS required by Pi (`>=22.19.0`). `@types/node` tracks the same 24 line so typecheck cannot accept APIs the runtime lacks |
-| pnpm | 12.14.0 | Pinned in `mise.toml` and `packageManager`; development only (tests, lint), runtime needs none |
+| pnpm | 12.21.0 | Pinned in `mise.toml` and `packageManager`; development only (tests, lint), runtime needs none |
 | TypeScript | 7.0 strict | Native compiler; typecheck via `pnpm typecheck` |
 | mnemosyne (optional) | 3.15.x (`uv tool install mnemosyne-memory`) | Vector + FTS5 search backend; absence degrades to ripgrep |
 | ripgrep (optional) | 15.x (`brew install ripgrep` / `dnf install ripgrep`) | Full-text backend over Markdown + JSONL |
